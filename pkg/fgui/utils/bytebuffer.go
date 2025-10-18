@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 )
 
 const (
@@ -85,6 +86,11 @@ func (b *ByteBuffer) ReadUint16() uint16 {
 	return value
 }
 
+// ReadInt16 reads a big-endian int16.
+func (b *ByteBuffer) ReadInt16() int16 {
+	return int16(b.ReadUint16())
+}
+
 // ReadUint32 reads a big-endian uint32.
 func (b *ByteBuffer) ReadUint32() uint32 {
 	b.ensure(4)
@@ -96,6 +102,16 @@ func (b *ByteBuffer) ReadUint32() uint32 {
 // ReadInt32 reads a big-endian int32.
 func (b *ByteBuffer) ReadInt32() int32 {
 	return int32(b.ReadUint32())
+}
+
+// ReadFloat32 reads a big-endian float32 value.
+func (b *ByteBuffer) ReadFloat32() float32 {
+	return math.Float32frombits(b.ReadUint32())
+}
+
+// ReadByte reads a signed byte.
+func (b *ByteBuffer) ReadByte() int8 {
+	return int8(b.ReadUint8())
 }
 
 // ReadS returns a pointer to the resolved string or nil when the buffer encoded null.
@@ -215,4 +231,30 @@ func (b *ByteBuffer) Seek(indexTablePos int, blockIndex int) bool {
 
 	b.pos = tmp
 	return false
+}
+
+// ReadUTFString reads a length-prefixed UTF-8 string.
+func (b *ByteBuffer) ReadUTFString() string {
+	length := int(b.ReadUint16())
+	if length == 0 {
+		return ""
+	}
+	b.ensure(length)
+	value := string(b.data[b.pos : b.pos+length])
+	b.pos += length
+	return value
+}
+
+// ReadBytes returns a copy of the next count bytes.
+func (b *ByteBuffer) ReadBytes(count int) []byte {
+	b.ensure(count)
+	out := make([]byte, count)
+	copy(out, b.data[b.pos:b.pos+count])
+	b.pos += count
+	return out
+}
+
+// Remaining returns the unread byte count.
+func (b *ByteBuffer) Remaining() int {
+	return len(b.data) - b.pos
 }

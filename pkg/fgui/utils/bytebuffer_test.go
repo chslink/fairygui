@@ -68,6 +68,20 @@ func TestByteBufferReadColor(t *testing.T) {
 	}
 }
 
+func TestByteBufferNumericReads(t *testing.T) {
+	data := []byte{0xFF, 0xFE, 0x00, 0x0A}
+	buf := NewByteBuffer(data)
+	if v := buf.ReadInt16(); v != -2 {
+		t.Fatalf("expected -2, got %d", v)
+	}
+	if v := buf.ReadByte(); v != 0 {
+		t.Fatalf("expected 0, got %d", v)
+	}
+	if v := buf.ReadUint8(); v != 0x0A {
+		t.Fatalf("expected 10, got %d", v)
+	}
+}
+
 func TestByteBufferReadBuffer(t *testing.T) {
 	data := []byte{
 		0x00, 0x00, 0x00, 0x04, // length 4
@@ -128,5 +142,18 @@ func TestByteBufferSkipBounds(t *testing.T) {
 	}
 	if err := buf.Skip(1); err == nil {
 		t.Fatalf("expected error when skipping beyond buffer")
+	}
+}
+
+func TestByteBufferReadUTFString(t *testing.T) {
+	data := []byte{0x00, 0x05}
+	data = append(data, []byte("hello")...)
+	buf := NewByteBuffer(data)
+	s := buf.ReadUTFString()
+	if s != "hello" {
+		t.Fatalf("expected hello, got %q", s)
+	}
+	if buf.Remaining() != 0 {
+		t.Fatalf("expected buffer consumed")
 	}
 }
