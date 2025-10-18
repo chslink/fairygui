@@ -142,6 +142,18 @@ func (s *Sprite) Dispatcher() EventDispatcher {
 	return s.dispatcher
 }
 
+// Emit dispatches an event without bubbling.
+func (s *Sprite) Emit(evt EventType, data any) {
+	s.dispatcher.Emit(evt, data)
+}
+
+// EmitWithBubble dispatches an event on the sprite and parents up to the root.
+func (s *Sprite) EmitWithBubble(evt EventType, data any) {
+	for current := s; current != nil; current = current.parent {
+		current.dispatcher.Emit(evt, data)
+	}
+}
+
 // SetPosition sets the local position relative to the parent.
 func (s *Sprite) SetPosition(x, y float64) {
 	if s.position.X == x && s.position.Y == y {
@@ -279,4 +291,24 @@ func (s *Sprite) worldMatrix() Matrix {
 		return local
 	}
 	return s.parent.worldMatrix().Multiply(local)
+}
+
+// HitTest returns the deepest child sprite that contains the given global point.
+func (s *Sprite) HitTest(global Point) *Sprite {
+	if !s.visible {
+		return nil
+	}
+	for i := len(s.children) - 1; i >= 0; i-- {
+		if hit := s.children[i].HitTest(global); hit != nil {
+			return hit
+		}
+	}
+	if s.width == 0 && s.height == 0 {
+		return nil
+	}
+	local := s.GlobalToLocal(global)
+	if local.X < 0 || local.Y < 0 || local.X > s.width || local.Y > s.height {
+		return nil
+	}
+	return s
 }

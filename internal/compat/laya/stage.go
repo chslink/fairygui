@@ -130,11 +130,6 @@ func (s *Stage) HitTest(pt Point) *Sprite {
 }
 
 func (s *Stage) hitTest(pt Point) *Sprite {
-	for i := len(s.root.children) - 1; i >= 0; i-- {
-		if hit := s.root.children[i].HitTest(pt); hit != nil {
-			return hit
-		}
-	}
 	if hit := s.root.HitTest(pt); hit != nil && hit != s.root {
 		return hit
 	}
