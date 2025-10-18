@@ -7,8 +7,11 @@
 - [x] Expanded the compat sprite with transform state, affine matrix math, global bounds, and introduced a stage abstraction with scheduler/input integration.
 - [x] Added foundational unit tests covering sprite coordinate transforms, stage mouse routing, and `GObject` size/position propagation.
 - [x] Ported `fgui.utils.ByteBuffer` to Go with full string-table, colour, sub-buffer, and seek behaviours plus unit coverage.
+- [x] Enhanced the stage/input layer with hit testing, pointer bubbling, click synthesis, and regression tests.
+- [x] Introduced shared test utilities (stage env, event logs) and expanded coverage for scheduler and `GComponent` behaviours.
+- [x] Bootstrapped Go asset pipeline scaffolding: resource loader abstraction, package header parsing, and ByteBuffer enhancements ready for full `UIPackage` migration.
 
 ### Upcoming Focus
-- Extend the stage/input layer to support hit testing and event bubbling.
-- Build reusable test utilities for compat timers/events and component hierarchies.
-- Begin wiring asset/package parsing using the new byte buffer as foundation.
+- Expand `ParsePackage` to read dependencies, string tables, and items fully.
+- Implement concrete loaders (filesystem/embedded) and integrate with Ebiten-friendly texture creation.
+- Connect pointer events to higher-level UI abstractions (GRoot, drag/drop) leveraging the new compat stage.
