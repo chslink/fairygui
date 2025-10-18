@@ -9,9 +9,9 @@
 - [x] Ported `fgui.utils.ByteBuffer` to Go with full string-table, colour, sub-buffer, and seek behaviours plus unit coverage.
 - [x] Enhanced the stage/input layer with hit testing, pointer bubbling, click synthesis, and regression tests.
 - [x] Introduced shared test utilities (stage env, event logs) and expanded coverage for scheduler and `GComponent` behaviours.
-- [x] Bootstrapped Go asset pipeline scaffolding: resource loader abstraction, package header parsing, and ByteBuffer enhancements ready for full `UIPackage` migration.
+- [x] Bootstrapped Go asset pipeline scaffolding: resource loader abstraction, package header parsing, ByteBuffer enhancements, and initial package item metadata parsing/tests.
 
 ### Upcoming Focus
-- Expand `ParsePackage` to read dependencies, string tables, and items fully.
+- Expand `ParsePackage` to read remaining package tables (sprites, pixel tests) and wire atlas metadata into texture loaders.
 - Implement concrete loaders (filesystem/embedded) and integrate with Ebiten-friendly texture creation.
 - Connect pointer events to higher-level UI abstractions (GRoot, drag/drop) leveraging the new compat stage.
