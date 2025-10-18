@@ -1,0 +1,53 @@
+# Go build & compiled outputs
+bin/
+build/
+dist/
+out/
+
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Go coverage / profiling artifacts
+cover.out
+coverage.out
+*.prof
+*.pprof
+
+# Logs & temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.*
+.gocache
+# OS-specific junk
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# IDE/editor settings
+.vscode/
+.idea/
+.fleet/
+*.iml
+
+# AI assistant local configs
+.claude/
+
+# Project-specific ignores
+# FairyGUI UI project intermediate objects
+/demo/UIProject/.objs/
+
+# Add more build cache directories below if your tooling generates them
+/laya_src/
