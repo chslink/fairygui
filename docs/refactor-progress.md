@@ -9,9 +9,13 @@
 - [x] Ported `fgui.utils.ByteBuffer` to Go with full string-table, colour, sub-buffer, and seek behaviours plus unit coverage.
 - [x] Enhanced the stage/input layer with hit testing, pointer bubbling, click synthesis, and regression tests.
 - [x] Introduced shared test utilities (stage env, event logs) and expanded coverage for scheduler and `GComponent` behaviours.
-- [x] Bootstrapped Go asset pipeline scaffolding: resource loader abstraction, package header parsing, ByteBuffer enhancements, and initial package item metadata parsing/tests.
+- [x] Bootstrapped Go asset pipeline scaffolding: resource loader abstraction, package header parsing, ByteBuffer enhancements, and parsing for package items, atlas sprites, and pixel hit-test metadata with unit tests.
+- [x] Added raw DEFLATE decompression support, filesystem loader, verified parsing against demo `.fui` packages, and introduced Ebiten-tagged atlas manager plus pixel hit-test integration hooks.
+- [x] Began component instantiation path: parsed component metadata now exposes structured child descriptors, and builder scaffolding can create GObject trees from real `.fui` data.
 
 ### Upcoming Focus
-- Expand `ParsePackage` to read remaining package tables (sprites, pixel tests) and wire atlas metadata into texture loaders.
+- Wire parsed atlas sprites into texture loaders and expose hit-test data to rendering/input layers.
+- Map component child descriptors onto concrete Go widget factories (buttons, loaders, etc.) and honor controller/gear data.
+- Wire atlas sprites and pixel masks into real rendering passes under Ebiten.
 - Implement concrete loaders (filesystem/embedded) and integrate with Ebiten-friendly texture creation.
 - Connect pointer events to higher-level UI abstractions (GRoot, drag/drop) leveraging the new compat stage.

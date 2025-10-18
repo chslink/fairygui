@@ -23,6 +23,7 @@ type GObject struct {
 	parent  *GComponent
 	alpha   float64
 	visible bool
+	data    any
 }
 
 // NewGObject creates a base object with a backing sprite.
@@ -91,4 +92,34 @@ func (g *GObject) SetVisible(visible bool) {
 	if g.display != nil {
 		g.display.SetVisible(visible)
 	}
+}
+
+// X returns the local X position.
+func (g *GObject) X() float64 {
+	return g.x
+}
+
+// Y returns the local Y position.
+func (g *GObject) Y() float64 {
+	return g.y
+}
+
+// Width returns the current width.
+func (g *GObject) Width() float64 {
+	return g.width
+}
+
+// Height returns the current height.
+func (g *GObject) Height() float64 {
+	return g.height
+}
+
+// SetData assigns arbitrary user data to the object.
+func (g *GObject) SetData(value any) {
+	g.data = value
+}
+
+// Data returns the user data associated with the object.
+func (g *GObject) Data() any {
+	return g.data
 }

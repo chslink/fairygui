@@ -71,3 +71,11 @@ func (c *GComponent) Children() []*GObject {
 	copy(snapshot, c.children)
 	return snapshot
 }
+
+// ChildAt returns the child at the specified index.
+func (c *GComponent) ChildAt(index int) *GObject {
+	if index < 0 || index >= len(c.children) {
+		return nil
+	}
+	return c.children[index]
+}

@@ -17,6 +17,7 @@ type Sprite struct {
 	width      float64
 	height     float64
 	pivot      Point // normalized (0-1) pivot factors
+	hitTester  func(x, y float64) bool
 }
 
 // NewSprite constructs a sprite with sensible defaults.
@@ -140,6 +141,11 @@ func (s *Sprite) SetAlpha(v float64) {
 // Dispatcher exposes the internal event dispatcher.
 func (s *Sprite) Dispatcher() EventDispatcher {
 	return s.dispatcher
+}
+
+// SetHitTester registers a custom hit testing function evaluated in local coordinates.
+func (s *Sprite) SetHitTester(fn func(x, y float64) bool) {
+	s.hitTester = fn
 }
 
 // Emit dispatches an event without bubbling.
@@ -308,6 +314,9 @@ func (s *Sprite) HitTest(global Point) *Sprite {
 	}
 	local := s.GlobalToLocal(global)
 	if local.X < 0 || local.Y < 0 || local.X > s.width || local.Y > s.height {
+		return nil
+	}
+	if s.hitTester != nil && !s.hitTester(local.X, local.Y) {
 		return nil
 	}
 	return s

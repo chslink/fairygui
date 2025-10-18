@@ -163,3 +163,18 @@ func TestSpriteHitTestVisibility(t *testing.T) {
 		t.Fatalf("expected no hit outside bounds")
 	}
 }
+
+func TestSpriteCustomHitTester(t *testing.T) {
+	sprite := laya.NewSprite()
+	sprite.SetSize(10, 10)
+	sprite.SetHitTester(func(x, y float64) bool {
+		return x < 5
+	})
+
+	if sprite.HitTest(laya.Point{X: 4, Y: 5}) != sprite {
+		t.Fatalf("expected hit in custom region")
+	}
+	if sprite.HitTest(laya.Point{X: 8, Y: 4}) != nil {
+		t.Fatalf("expected miss outside custom region")
+	}
+}

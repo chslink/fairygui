@@ -1,7 +1,10 @@
 package assets
 
 import (
+	"bytes"
+	"compress/flate"
 	"errors"
+	"io"
 	"strings"
 
 	"github.com/chslink/fairygui/pkg/fgui/utils"
@@ -12,8 +15,6 @@ const packageSignature uint32 = 0x46475549 // "FGUI"
 var (
 	// ErrInvalidPackage is returned when the data does not look like a FairyGUI package.
 	ErrInvalidPackage = errors.New("assets: invalid package signature")
-	// ErrCompressedPackage indicates the package uses compression that is not yet implemented.
-	ErrCompressedPackage = errors.New("assets: compressed packages are not supported yet")
 )
 
 // Dependency represents a package dependency entry.
@@ -36,6 +37,7 @@ type Package struct {
 	Items       []*PackageItem
 	itemsByID   map[string]*PackageItem
 	itemsByName map[string]*PackageItem
+	Sprites     map[string]*AtlasSprite
 
 	rawData       []byte
 	indexTablePos int
@@ -60,10 +62,6 @@ func ParsePackage(data []byte, resKey string) (*Package, error) {
 		return nil, err
 	}
 
-	if compressed {
-		return nil, ErrCompressedPackage
-	}
-
 	pkg := &Package{
 		ResKey:      resKey,
 		ID:          id,
@@ -73,6 +71,15 @@ func ParsePackage(data []byte, resKey string) (*Package, error) {
 		rawData:     data,
 		itemsByID:   make(map[string]*PackageItem),
 		itemsByName: make(map[string]*PackageItem),
+		Sprites:     make(map[string]*AtlasSprite),
+	}
+
+	if compressed {
+		decompressed, err := decompressRaw(buf.ReadBytes(buf.Remaining()))
+		if err != nil {
+			return nil, err
+		}
+		buf = utils.NewByteBuffer(decompressed)
 	}
 
 	buf.Version = version
@@ -210,6 +217,7 @@ func parseItems(buf *utils.ByteBuffer, pkg *Package) error {
 				item.ObjectType = ObjectTypeComponent
 			}
 			item.RawData = buf.ReadBuffer()
+			parseComponentData(item)
 		case PackageItemTypeAtlas, PackageItemTypeSound, PackageItemTypeMisc:
 			if item.File != "" {
 				item.File = path + item.File
@@ -264,6 +272,14 @@ func parseItems(buf *utils.ByteBuffer, pkg *Package) error {
 
 		_ = buf.SetPos(nextPos)
 	}
+
+	if err := parseAtlasSprites(buf, pkg); err != nil {
+		return err
+	}
+	if err := parsePixelHitTests(buf, pkg); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -290,4 +306,221 @@ func (p *Package) ItemByName(name string) *PackageItem {
 		return nil
 	}
 	return p.itemsByName[name]
+}
+
+func parseAtlasSprites(buf *utils.ByteBuffer, pkg *Package) error {
+	if !buf.Seek(pkg.indexTablePos, 2) {
+		return nil
+	}
+
+	count := int(buf.ReadUint16())
+	if count <= 0 {
+		return nil
+	}
+
+	for i := 0; i < count; i++ {
+		nextPos := int(buf.ReadUint16())
+		nextPos += buf.Pos()
+
+		itemID := stringValue(buf.ReadS())
+		atlasID := stringValue(buf.ReadS())
+		atlas := pkg.ItemByID(atlasID)
+
+		sprite := &AtlasSprite{Atlas: atlas}
+		sprite.Rect = Rect{
+			X:      int(buf.ReadInt32()),
+			Y:      int(buf.ReadInt32()),
+			Width:  int(buf.ReadInt32()),
+			Height: int(buf.ReadInt32()),
+		}
+		sprite.Rotated = buf.ReadBool()
+		if pkg.Version >= 2 && buf.ReadBool() {
+			sprite.Offset = Point{X: float32(buf.ReadInt32()), Y: float32(buf.ReadInt32())}
+			sprite.OriginalSize = Point{X: float32(buf.ReadInt32()), Y: float32(buf.ReadInt32())}
+		} else {
+			sprite.OriginalSize = Point{X: float32(sprite.Rect.Width), Y: float32(sprite.Rect.Height)}
+		}
+
+		pkg.Sprites[itemID] = sprite
+		if item := pkg.ItemByID(itemID); item != nil {
+			item.Atlas = atlas
+			item.Sprite = sprite
+		}
+
+		_ = buf.SetPos(nextPos)
+	}
+	return nil
+}
+
+func parsePixelHitTests(buf *utils.ByteBuffer, pkg *Package) error {
+	if !buf.Seek(pkg.indexTablePos, 3) {
+		return nil
+	}
+
+	count := int(buf.ReadUint16())
+	for i := 0; i < count; i++ {
+		nextPos := int(buf.ReadInt32())
+		nextPos += buf.Pos()
+
+		item := pkg.ItemByID(stringValue(buf.ReadS()))
+		if item != nil && item.Type == PackageItemTypeImage {
+			data := &PixelHitTestData{}
+			data.Load(buf)
+			item.PixelHitTest = data
+		}
+		_ = buf.SetPos(nextPos)
+	}
+	return nil
+}
+
+func decompressRaw(data []byte) ([]byte, error) {
+	reader := bytes.NewReader(data)
+	fr := flate.NewReader(reader)
+	defer fr.Close()
+	return io.ReadAll(fr)
+}
+
+func parseComponentData(item *PackageItem) {
+	if item == nil || item.RawData == nil {
+		return
+	}
+	buf := item.RawData
+	saved := buf.Pos()
+	_ = buf.SetPos(0)
+
+	cd := &ComponentData{}
+	cd.SourceWidth = int(buf.ReadInt32())
+	cd.SourceHeight = int(buf.ReadInt32())
+	cd.InitWidth = cd.SourceWidth
+	cd.InitHeight = cd.SourceHeight
+
+	if buf.ReadBool() {
+		cd.MinWidth = int(buf.ReadInt32())
+		cd.MaxWidth = int(buf.ReadInt32())
+		cd.MinHeight = int(buf.ReadInt32())
+		cd.MaxHeight = int(buf.ReadInt32())
+	}
+
+	if buf.ReadBool() {
+		cd.PivotX = buf.ReadFloat32()
+		cd.PivotY = buf.ReadFloat32()
+		cd.PivotAnchor = buf.ReadBool()
+	}
+
+	if buf.ReadBool() {
+		cd.Margin.Top = int(buf.ReadInt32())
+		cd.Margin.Bottom = int(buf.ReadInt32())
+		cd.Margin.Left = int(buf.ReadInt32())
+		cd.Margin.Right = int(buf.ReadInt32())
+	}
+
+	cd.Overflow = buf.ReadUint8()
+
+	if buf.ReadBool() {
+		_ = buf.Skip(8)
+	}
+
+    if buf.Seek(0, 2) {
+        childCount := int(buf.ReadInt16())
+        children := make([]ComponentChild, 0, childCount)
+        for i := 0; i < childCount; i++ {
+            dataLen := int(buf.ReadInt16())
+            curPos := buf.Pos()
+            child := parseComponentChild(buf, curPos)
+            children = append(children, child)
+            _ = buf.SetPos(curPos + dataLen)
+        }
+        cd.Children = children
+	}
+
+	item.Component = cd
+	_ = buf.SetPos(saved)
+}
+
+func parseComponentChild(buf *utils.ByteBuffer, start int) ComponentChild {
+	child := ComponentChild{Width: -1, Height: -1, ScaleX: 1, ScaleY: 1, Visible: true, Touchable: true}
+	_ = buf.SetPos(start)
+	childTypes := buf.ReadByte()
+	child.Type = ObjectType(childTypes)
+	child.Src = readSValue(buf)
+	child.PackageID = readSValue(buf)
+
+	_ = buf.SetPos(start)
+	_ = buf.Skip(5)
+	child.ID = readSValue(buf)
+	child.Name = readSValue(buf)
+	child.X = int(buf.ReadInt32())
+	child.Y = int(buf.ReadInt32())
+
+	if buf.ReadBool() {
+		child.Width = int(buf.ReadInt32())
+		child.Height = int(buf.ReadInt32())
+	}
+	if buf.ReadBool() {
+		child.MinWidth = int(buf.ReadInt32())
+		child.MaxWidth = int(buf.ReadInt32())
+		child.MinHeight = int(buf.ReadInt32())
+		child.MaxHeight = int(buf.ReadInt32())
+	}
+	if buf.ReadBool() {
+		child.ScaleX = buf.ReadFloat32()
+		child.ScaleY = buf.ReadFloat32()
+	}
+	if buf.ReadBool() {
+		child.SkewX = buf.ReadFloat32()
+		child.SkewY = buf.ReadFloat32()
+	}
+	if buf.ReadBool() {
+		child.PivotX = buf.ReadFloat32()
+		child.PivotY = buf.ReadFloat32()
+		child.PivotAnchor = buf.ReadBool()
+	}
+	child.Alpha = buf.ReadFloat32()
+	if child.Alpha == 0 {
+		child.Alpha = 1
+	}
+	child.Rotation = buf.ReadFloat32()
+	if !buf.ReadBool() {
+		child.Visible = false
+	}
+	if !buf.ReadBool() {
+		child.Touchable = false
+	}
+	child.Grayed = buf.ReadBool()
+	_ = buf.ReadByte() // blend
+	if filter := buf.ReadByte(); filter == 1 {
+		_ = buf.ReadFloat32()
+		_ = buf.ReadFloat32()
+		_ = buf.ReadFloat32()
+		_ = buf.ReadFloat32()
+	}
+	child.Data = readSValue(buf)
+	if child.Type == ObjectTypeText || child.Type == ObjectTypeRichText {
+		child.Text = readSValue(buf)
+	}
+	return child
+}
+
+func readSValue(buf *utils.ByteBuffer) string {
+	idx := buf.ReadUint16()
+	switch idx {
+	case 0xFFFE, 0xFFFD:
+		return ""
+	default:
+		if int(idx) >= 0 && int(idx) < len(buf.StringTable) {
+			return buf.StringTable[idx]
+		}
+		return ""
+	}
+}
+
+func stringFromIndex(idx uint16, table []string) string {
+	if idx == 0xFFFE || idx == 0xFFFD {
+		return ""
+	}
+	i := int(idx)
+	if i >= 0 && i < len(table) {
+		return table[i]
+	}
+	return ""
 }
