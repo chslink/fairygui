@@ -109,13 +109,14 @@ func TestStageMouseEvents(t *testing.T) {
 func TestSpritePivotRotationBounds(t *testing.T) {
 	sprite := laya.NewSprite()
 	sprite.SetSize(100, 50)
-	sprite.SetPivot(0.5, 0.5)
+	sprite.SetPivotWithAnchor(0.5, 0.5, true)
 	sprite.SetPosition(200, 300)
 	sprite.SetRotation(math.Pi / 2) // 90 degrees
 
 	centerGlobal := sprite.LocalToGlobal(laya.Point{X: 50, Y: 25})
-	if math.Abs(centerGlobal.X-200) > 1e-6 || math.Abs(centerGlobal.Y-300) > 1e-6 {
-		t.Fatalf("expected center at (200,300), got (%v,%v)", centerGlobal.X, centerGlobal.Y)
+	wantX, wantY := expectedPivotGlobal(100, 50, 0.5, 0.5, 200, 300, math.Pi/2, 0, 0, 1, 1)
+	if math.Abs(centerGlobal.X-wantX) > 1e-6 || math.Abs(centerGlobal.Y-wantY) > 1e-6 {
+		t.Fatalf("unexpected pivot location got (%v,%v) want (%v,%v)", centerGlobal.X, centerGlobal.Y, wantX, wantY)
 	}
 
 	bounds := sprite.Bounds()
@@ -177,4 +178,124 @@ func TestSpriteCustomHitTester(t *testing.T) {
 	if sprite.HitTest(laya.Point{X: 8, Y: 4}) != nil {
 		t.Fatalf("expected miss outside custom region")
 	}
+}
+
+func TestSpritePivotAnchorPosition(t *testing.T) {
+	sprite := laya.NewSprite()
+	sprite.SetSize(120, 80)
+	sprite.SetScale(1.4, 0.8)
+	sprite.SetSkew(0.2, -0.1)
+	sprite.SetRotation(0.35)
+	sprite.SetPivotWithAnchor(0.3, 0.6, true)
+
+	sprite.SetPosition(200, 150)
+
+	offX, offY := expectedPivotOffset(120, 80, 0.3, 0.6, 0.35, 0.2, -0.1, 1.4, 0.8)
+	wantX := 200 + offX
+	wantY := 150 + offY
+	got := sprite.Position()
+	if math.Abs(got.X-wantX) > 1e-6 || math.Abs(got.Y-wantY) > 1e-6 {
+		t.Fatalf("unexpected anchored position: got (%v,%v) want (%v,%v)", got.X, got.Y, wantX, wantY)
+	}
+
+	sprite.Move(10, -20)
+	got = sprite.Position()
+	wantX = 210 + offX
+	wantY = 130 + offY
+	if math.Abs(got.X-wantX) > 1e-6 || math.Abs(got.Y-wantY) > 1e-6 {
+		t.Fatalf("unexpected anchored position after move: got (%v,%v) want (%v,%v)", got.X, got.Y, wantX, wantY)
+	}
+
+	sprite.SetSize(90, 40)
+	offX, offY = expectedPivotOffset(90, 40, 0.3, 0.6, 0.35, 0.2, -0.1, 1.4, 0.8)
+	got = sprite.Position()
+	wantX = 210 + offX
+	wantY = 130 + offY
+	if math.Abs(got.X-wantX) > 1e-6 || math.Abs(got.Y-wantY) > 1e-6 {
+		t.Fatalf("unexpected anchored position after resize: got (%v,%v) want (%v,%v)", got.X, got.Y, wantX, wantY)
+	}
+}
+
+func TestSpritePivotWithoutAnchor(t *testing.T) {
+	sprite := laya.NewSprite()
+	sprite.SetSize(100, 60)
+	sprite.SetScale(1.2, 0.9)
+	sprite.SetRotation(0.25)
+	sprite.SetSkew(-0.05, 0.1)
+
+	sprite.SetPivotWithAnchor(0.4, 0.2, false)
+	sprite.SetPosition(80, 40)
+
+	offX, offY := expectedPivotOffset(100, 60, 0.4, 0.2, 0.25, -0.05, 0.1, 1.2, 0.9)
+	got := sprite.Position()
+	wantX := 80 + offX
+	wantY := 40 + offY
+	if math.Abs(got.X-wantX) > 1e-6 || math.Abs(got.Y-wantY) > 1e-6 {
+		t.Fatalf("unexpected position with pivot (non-anchor): got (%v,%v) want (%v,%v)", got.X, got.Y, wantX, wantY)
+	}
+}
+
+func TestSpriteOwner(t *testing.T) {
+	sprite := laya.NewSprite()
+	if sprite.Owner() != nil {
+		t.Fatalf("expect nil owner by default")
+	}
+
+	owner := &struct {
+		ID string
+	}{"owner"}
+
+	sprite.SetOwner(owner)
+	if sprite.Owner() != owner {
+		t.Fatalf("owner mismatch, got %#v want %#v", sprite.Owner(), owner)
+	}
+
+	sprite.SetOwner(nil)
+	if sprite.Owner() != nil {
+		t.Fatalf("expect nil owner after reset")
+	}
+}
+
+func expectedPivotOffset(width, height, pivotX, pivotY, rotation, skewX, skewY, scaleX, scaleY float64) (float64, float64) {
+	px := pivotX * width
+	py := pivotY * height
+
+	cosY := math.Cos(rotation + skewY)
+	sinY := math.Sin(rotation + skewY)
+	cosX := math.Cos(rotation - skewX)
+	sinX := math.Sin(rotation - skewX)
+
+	a := cosY * scaleX
+	b := sinY * scaleX
+	c := -sinX * scaleY
+	d := cosX * scaleY
+
+	transformedX := a*px + c*py
+	transformedY := b*px + d*py
+	return px - transformedX, py - transformedY
+}
+
+func expectedPivotGlobal(width, height, pivotX, pivotY float64, rawX, rawY, rotation, skewX, skewY, scaleX, scaleY float64) (float64, float64) {
+	offX, offY := expectedPivotOffset(width, height, pivotX, pivotY, rotation, skewX, skewY, scaleX, scaleY)
+	baseX := rawX + offX
+	baseY := rawY + offY
+	px := pivotX * width
+	py := pivotY * height
+
+	cosY := math.Cos(rotation + skewY)
+	sinY := math.Sin(rotation + skewY)
+	cosX := math.Cos(rotation - skewX)
+	sinX := math.Sin(rotation - skewX)
+
+	a := cosY * scaleX
+	b := sinY * scaleX
+	c := -sinX * scaleY
+	d := cosX * scaleY
+
+	tx := baseX - px*a - py*c
+	ty := baseY - px*b - py*d
+
+	globalX := a*px + c*py + tx
+	globalY := b*px + d*py + ty
+	return globalX, globalY
 }

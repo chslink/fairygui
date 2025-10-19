@@ -90,3 +90,11 @@ func TestGObjectSkew(t *testing.T) {
 		t.Fatalf("sprite skew mismatch (%v,%v)", ax, ay)
 	}
 }
+
+func TestGObjectDisplayOwner(t *testing.T) {
+	obj := NewGObject()
+	owner := obj.DisplayObject().Owner()
+	if owner != obj {
+		t.Fatalf("expected sprite owner to be the gobject, got %#v", owner)
+	}
+}

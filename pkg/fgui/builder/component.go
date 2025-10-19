@@ -121,24 +121,44 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 }
 
 func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild) *core.GObject {
+	pi := f.resolvePackageItem(ctx, pkg, owner, child)
 	w := widgets.CreateWidget(child)
+	if pi != nil {
+		if alt := widgets.CreateWidgetFromPackage(pi); alt != nil {
+			if w == nil || pi.ObjectType != child.Type {
+				w = alt
+			}
+		}
+	}
 	var obj *core.GObject
 	switch widget := w.(type) {
 	case *widgets.GImage:
 		obj = widget.GObject
+		if pi != nil {
+			obj.SetData(pi)
+		}
 	case *widgets.GTextField:
 		obj = widget.GObject
 		widget.SetText(child.Text)
 		obj.SetData(child.Text)
 	case *widgets.GButton:
 		obj = widget.GComponent.GObject
-		if pi := f.resolvePackageItem(ctx, pkg, owner, child); pi != nil {
-			obj.SetData(pi)
+		widget.SetResource(child.Data)
+		widget.SetPackageItem(pi)
+		if child.Text != "" {
+			widget.SetTitle(child.Text)
 		}
+		if child.Icon != "" {
+			widget.SetIcon(child.Icon)
+			if iconItem := f.resolveIcon(ctx, pkg, child.Icon); iconItem != nil {
+				widget.SetIconItem(iconItem)
+			}
+		}
+		obj.SetData(widget)
 	case *widgets.GLoader:
 		obj = widget.GObject
 		if child.Src != "" {
-			if pi := f.resolvePackageItem(ctx, pkg, owner, child); pi != nil {
+			if pi != nil {
 				obj.SetData(pi)
 				if (child.Width < 0 || child.Height < 0) && pi.Sprite != nil {
 					obj.SetSize(float64(pi.Sprite.Rect.Width), float64(pi.Sprite.Rect.Height))
@@ -147,6 +167,21 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 				obj.SetData(child.Src)
 			}
 		}
+	case *widgets.GLabel:
+		obj = widget.GComponent.GObject
+		widget.SetTitle(child.Text)
+		widget.SetIcon(child.Icon)
+		if iconItem := f.resolveIcon(ctx, pkg, child.Icon); iconItem != nil {
+			widget.SetIconItem(iconItem)
+		}
+		widget.SetResource(child.Data)
+		obj.SetData(widget)
+	case *widgets.GList:
+		obj = widget.GComponent.GObject
+		widget.SetResource(child.Data)
+		widget.SetDefaultItem(child.Data)
+		widget.SetPackageItem(pi)
+		obj.SetData(widget)
 	case *widgets.GGroup:
 		obj = widget.GComponent.GObject
 	case *widgets.GGraph:
@@ -203,7 +238,10 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 
 func (f *Factory) resolvePackageItem(ctx context.Context, pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild) *assets.PackageItem {
 	if pkg == nil || child.Src == "" {
-		return nil
+		// fall back to child.Data for components referencing packaged resources (e.g., buttons/lists)
+		if child.Data == "" {
+			return nil
+		}
 	}
 	target := pkg
 	if child.PackageID != "" && child.PackageID != pkg.ID {
@@ -240,7 +278,23 @@ func (f *Factory) resolvePackageItem(ctx context.Context, pkg *assets.Package, o
 		}
 		target = resolvedPkg
 	}
-	return target.ItemByID(child.Src)
+	if child.Src != "" {
+		if item := target.ItemByID(child.Src); item != nil {
+			return item
+		}
+		if item := target.ItemByName(child.Src); item != nil {
+			return item
+		}
+	}
+	if child.Data != "" {
+		if item := target.ItemByID(child.Data); item != nil {
+			return item
+		}
+		if item := target.ItemByName(child.Data); item != nil {
+			return item
+		}
+	}
+	return nil
 }
 
 func (f *Factory) resolveImageSprite(ctx context.Context, pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild) *assets.PackageItem {
@@ -267,6 +321,46 @@ func (f *Factory) buildNestedComponent(ctx context.Context, pkg *assets.Package,
 		return nil
 	}
 	return nested
+}
+
+func (f *Factory) resolveIcon(ctx context.Context, owner *assets.Package, icon string) *assets.PackageItem {
+	if icon == "" {
+		return nil
+	}
+	pkgCandidates, resourceCandidates := f.iconCandidates(owner, icon)
+	for _, pkgKey := range pkgCandidates {
+		pkg := f.lookupRegisteredPackage(pkgKey)
+		if pkg == nil && f.packageResolver != nil {
+			resolved, err := f.packageResolver(ctx, owner, pkgKey)
+			if err != nil {
+				fmt.Printf("builder: resolve icon package %s failed: %v\n", pkgKey, err)
+			}
+			if resolved != nil {
+				f.RegisterPackage(resolved)
+				if f.atlasManager != nil {
+					if err := f.atlasManager.LoadPackage(ctx, resolved); err != nil {
+						fmt.Printf("builder: load icon package failed: %v\n", err)
+					}
+				}
+				pkg = resolved
+			}
+		}
+		if pkg == nil {
+			continue
+		}
+		for _, key := range resourceCandidates {
+			if key == "" {
+				continue
+			}
+			if item := pkg.ItemByID(key); item != nil {
+				return item
+			}
+			if item := pkg.ItemByName(key); item != nil {
+				return item
+			}
+		}
+	}
+	return nil
 }
 
 func (f *Factory) finalizeComponentSize(comp *core.GComponent) {
@@ -427,4 +521,58 @@ func (f *Factory) defaultPackageResolver() PackageResolver {
 		}
 		return nil, fmt.Errorf("builder: dependency %s not found", id)
 	}
+}
+
+func (f *Factory) iconCandidates(owner *assets.Package, icon string) ([]string, []string) {
+	icon = strings.TrimSpace(icon)
+	if icon == "" {
+		return nil, nil
+	}
+	body := icon
+	if strings.HasPrefix(body, "ui://") {
+		body = body[len("ui://"):]
+	}
+	pkgCandidates := make([]string, 0, 4)
+	resourceCandidates := make([]string, 0, 3)
+	if idx := strings.Index(body, "/"); idx >= 0 {
+		pkgKey := body[:idx]
+		res := body[idx+1:]
+		if pkgKey != "" {
+			pkgCandidates = append(pkgCandidates, pkgKey)
+		}
+		if res != "" {
+			resourceCandidates = append(resourceCandidates, res)
+		}
+	} else {
+		if len(body) > 8 {
+			pkgCandidates = append(pkgCandidates, body[:8])
+			resourceCandidates = append(resourceCandidates, body[8:])
+		}
+		resourceCandidates = append(resourceCandidates, body)
+	}
+	if owner != nil {
+		if owner.ID != "" {
+			pkgCandidates = append(pkgCandidates, owner.ID)
+		}
+		if owner.Name != "" {
+			pkgCandidates = append(pkgCandidates, owner.Name)
+		}
+	}
+	return uniqueStrings(pkgCandidates), uniqueStrings(resourceCandidates)
+}
+
+func uniqueStrings(values []string) []string {
+	var out []string
+	seen := make(map[string]struct{}, len(values))
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
 }

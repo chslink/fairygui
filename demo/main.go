@@ -11,6 +11,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text"
+	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 
 	"github.com/chslink/fairygui/pkg/fgui/assets"
@@ -19,8 +20,20 @@ import (
 	"github.com/chslink/fairygui/pkg/fgui/render"
 )
 
+var (
+	textFont font.Face = basicfont.Face7x13
+)
+
 func main() {
 	ctx := context.Background()
+
+	if face, err := loadPreferredFont(18); err == nil {
+		textFont = face
+		render.SetTextFont(face)
+	} else {
+		log.Printf("warning: fallback basic font used, Chinese glyphs may not render: %v", err)
+		render.SetTextFont(textFont)
+	}
 
 	scene, err := NewScene(ctx)
 	if err != nil {
@@ -47,6 +60,7 @@ func (g *Game) Update() error {
 func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{0x1e, 0x1e, 0x1e, 0xff})
 	g.scene.Draw(screen)
+	drawHUD(screen, g.scene)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -69,8 +83,7 @@ func NewScene(ctx context.Context) (*Scene, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	pkg, err := assets.ParsePackage(data, filepath.Join(assetsDir, "MainMenu"))
+	pkg, err := assets.ParsePackage(data, filepath.Join("MainMenu"))
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +94,7 @@ func NewScene(ctx context.Context) (*Scene, error) {
 	}
 
 	atlas := render.NewAtlasManager(loader)
-	factory := builder.NewFactory(atlas)
+	factory := builder.NewFactoryWithLoader(atlas, loader)
 
 	root, err := factory.BuildComponent(ctx, pkg, componentItem)
 	if err != nil {
@@ -104,41 +117,30 @@ func (s *Scene) Width() int  { return s.width }
 func (s *Scene) Height() int { return s.height }
 
 func (s *Scene) Draw(screen *ebiten.Image) {
-	s.drawComponent(screen, s.root, 0, 0)
+	if err := render.DrawComponent(screen, s.root, s.atlas); err != nil {
+		log.Printf("render component failed: %v", err)
+	}
+	s.drawText(screen, s.root, 0, 0)
 }
 
-func (s *Scene) drawComponent(screen *ebiten.Image, comp *core.GComponent, offsetX, offsetY float64) {
+func (s *Scene) drawText(target *ebiten.Image, comp *core.GComponent, offsetX, offsetY float64) {
 	if comp == nil {
 		return
 	}
 	for _, child := range comp.Children() {
-		s.drawObject(screen, child, offsetX, offsetY)
-	}
-}
-
-func (s *Scene) drawObject(screen *ebiten.Image, obj *core.GObject, offsetX, offsetY float64) {
-	if obj == nil {
-		return
-	}
-
-	x := offsetX + obj.X()
-	y := offsetY + obj.Y()
-
-	switch data := obj.Data().(type) {
-	case *assets.PackageItem:
-		if spriteAny, err := s.atlas.ResolveSprite(data); err == nil {
-			if img, ok := spriteAny.(*ebiten.Image); ok {
-				opts := &ebiten.DrawImageOptions{}
-				opts.GeoM.Translate(x, y)
-				screen.DrawImage(img, opts)
-			}
+		if child == nil || !child.Visible() {
+			continue
 		}
-	case *core.GComponent:
-		s.drawComponent(screen, data, x, y)
-	case string:
-		if data != "" {
-			ascent := basicfont.Face7x13.Metrics().Ascent.Ceil()
-			text.Draw(screen, data, basicfont.Face7x13, int(x), int(y)+ascent, color.White)
+		x := offsetX + child.X()
+		y := offsetY + child.Y()
+		switch data := child.Data().(type) {
+		case string:
+			if data != "" {
+				ascent := textFont.Metrics().Ascent.Ceil()
+				text.Draw(target, data, textFont, int(x), int(y)+ascent, color.White)
+			}
+		case *core.GComponent:
+			s.drawText(target, data, x, y)
 		}
 	}
 }
@@ -150,4 +152,20 @@ func findFirstComponent(pkg *assets.Package) *assets.PackageItem {
 		}
 	}
 	return nil
+}
+
+func drawHUD(screen *ebiten.Image, scene *Scene) {
+	lines := []string{
+		fmt.Sprintf("Root size: %.0fx%.0f", scene.root.Width(), scene.root.Height()),
+		fmt.Sprintf("Total controllers: %d", len(scene.root.Controllers())),
+	}
+	y := 16
+	for _, line := range lines {
+		text.Draw(screen, line, basicfont.Face7x13, 16, y, color.RGBA{0xff, 0xff, 0xff, 0xff})
+		y += 16
+	}
+}
+
+func loadPreferredFont(px float64) (font.Face, error) {
+	return nil, fmt.Errorf("preferred font loading not implemented")
 }

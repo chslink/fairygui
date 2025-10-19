@@ -8,6 +8,7 @@ type Sprite struct {
 	parent        *Sprite
 	children      []*Sprite
 	visible       bool
+	owner         any
 	alpha         float64
 	name          string
 	position      Point
@@ -126,6 +127,16 @@ func (s *Sprite) SetVisible(v bool) {
 	} else {
 		s.dispatcher.Emit(EventUndisplay, s)
 	}
+}
+
+// SetOwner associates arbitrary metadata with the sprite (e.g., owning UI element).
+func (s *Sprite) SetOwner(owner any) {
+	s.owner = owner
+}
+
+// Owner returns the metadata previously set via SetOwner.
+func (s *Sprite) Owner() any {
+	return s.owner
 }
 
 // Alpha returns transparency in [0,1].
@@ -361,8 +372,10 @@ func (s *Sprite) localMatrix() Matrix {
 	b := sinY * s.scaleX
 	c := -sinX * s.scaleY
 	d := cosX * s.scaleY
-	tx := s.position.X - pivotX*a - pivotY*c
-	ty := s.position.Y - pivotX*b - pivotY*d
+	baseX := s.rawPosition.X + s.pivotOffset.X
+	baseY := s.rawPosition.Y + s.pivotOffset.Y
+	tx := baseX - pivotX*a - pivotY*c
+	ty := baseY - pivotX*b - pivotY*d
 
 	return Matrix{
 		A:  a,

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/chslink/fairygui/pkg/fgui/assets"
+	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
 func TestBuildComponentFromRealFUI(t *testing.T) {
@@ -93,12 +94,21 @@ func TestBuildComponentFromRealFUI(t *testing.T) {
 			t.Fatalf("text child missing at index %d", textIndex)
 		}
 		meta := component.Component.Children[textIndex]
-		data, ok := builtChild.Data().(string)
-		if !ok {
-			t.Fatalf("expected text child to store string data")
-		}
-		if data != meta.Text {
-			t.Fatalf("expected text %q, got %q", meta.Text, data)
+		switch v := builtChild.Data().(type) {
+		case string:
+			if v != meta.Text {
+				t.Fatalf("expected text %q, got %q", meta.Text, v)
+			}
+		case *widgets.GTextField:
+			if v.Text() != meta.Text {
+				t.Fatalf("expected text %q, got %q", meta.Text, v.Text())
+			}
+		case *widgets.GLabel:
+			if v.Title() != meta.Text {
+				t.Fatalf("expected label title %q, got %q", meta.Text, v.Title())
+			}
+		default:
+			t.Fatalf("unexpected text child data type %T", builtChild.Data())
 		}
 	}
 
@@ -262,6 +272,104 @@ func TestBuildComponentAppliesTransforms(t *testing.T) {
 	cskx, csky := child.Skew()
 	if math.Abs(cskx-10*math.Pi/180) > epsilon || math.Abs(csky-(-5)*math.Pi/180) > epsilon {
 		t.Fatalf("expected skew (10,-5) degrees -> (%v,%v) radians, got (%v,%v)", 10*math.Pi/180, -5*math.Pi/180, cskx, csky)
+	}
+}
+
+func TestBuildComponentCreatesLabelWidget(t *testing.T) {
+	rootDir := filepath.Join("..", "..", "..", "demo", "assets")
+	data, err := os.ReadFile(filepath.Join(rootDir, "Bag.fui"))
+	if err != nil {
+		t.Skipf("demo assets unavailable: %v", err)
+	}
+	pkg, err := assets.ParsePackage(data, filepath.Join(rootDir, "Bag"))
+	if err != nil {
+		t.Fatalf("ParsePackage failed: %v", err)
+	}
+
+	factory := NewFactory(nil, nil)
+	root, err := factory.BuildComponent(context.Background(), pkg, pkg.ItemByName("BagWin"))
+	if err != nil {
+		t.Fatalf("BuildComponent failed: %v", err)
+	}
+
+	found := false
+	for _, child := range root.Children() {
+		if label, ok := child.Data().(*widgets.GLabel); ok {
+			if label.Resource() != "" {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected at least one label with resource metadata")
+	}
+}
+
+func TestBuildComponentCreatesButtonWidget(t *testing.T) {
+	rootDir := filepath.Join("..", "..", "..", "demo", "assets")
+	data, err := os.ReadFile(filepath.Join(rootDir, "MainMenu.fui"))
+	if err != nil {
+		t.Skipf("demo assets unavailable: %v", err)
+	}
+	pkg, err := assets.ParsePackage(data, filepath.Join(rootDir, "MainMenu"))
+	if err != nil {
+		t.Fatalf("ParsePackage failed: %v", err)
+	}
+
+	factory := NewFactory(nil, nil)
+	root, err := factory.BuildComponent(context.Background(), pkg, pkg.ItemByName("Main"))
+	if err != nil {
+		t.Fatalf("BuildComponent failed: %v", err)
+	}
+
+	count := 0
+	for _, child := range root.Children() {
+		if button, ok := child.Data().(*widgets.GButton); ok {
+			count++
+			if button.Resource() == "" {
+				t.Fatalf("expected button resource to be populated")
+			}
+			if button.PackageItem() == nil {
+				t.Fatalf("expected button package item to be resolved")
+			}
+		}
+	}
+	if count == 0 {
+		t.Fatalf("expected to discover button children")
+	}
+}
+
+func TestBuildComponentCreatesListWidget(t *testing.T) {
+	component := &assets.PackageItem{
+		Type: assets.PackageItemTypeComponent,
+		Component: &assets.ComponentData{
+			Children: []assets.ComponentChild{
+				{
+					Name: "list",
+					Type: assets.ObjectTypeList,
+					Data: "defaultItem",
+				},
+			},
+		},
+	}
+
+	factory := NewFactory(nil, nil)
+	root, err := factory.BuildComponent(context.Background(), &assets.Package{}, component)
+	if err != nil {
+		t.Fatalf("BuildComponent failed: %v", err)
+	}
+
+	child := root.ChildAt(0)
+	if child == nil {
+		t.Fatalf("expected list child")
+	}
+	list, ok := child.Data().(*widgets.GList)
+	if !ok || list == nil {
+		t.Fatalf("expected child data to be GList, got %T", child.Data())
+	}
+	if list.DefaultItem() != "defaultItem" {
+		t.Fatalf("unexpected default item: %s", list.DefaultItem())
 	}
 }
 

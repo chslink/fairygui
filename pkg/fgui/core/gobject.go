@@ -37,14 +37,17 @@ type GObject struct {
 // NewGObject creates a base object with a backing sprite.
 func NewGObject() *GObject {
 	counter := atomic.AddUint64(&gObjectCounter, 1)
-	return &GObject{
+	display := laya.NewSprite()
+	obj := &GObject{
 		id:      fmt.Sprintf("gobj-%d", counter),
-		display: laya.NewSprite(),
+		display: display,
 		alpha:   1.0,
 		visible: true,
 		scaleX:  1.0,
 		scaleY:  1.0,
 	}
+	display.SetOwner(obj)
+	return obj
 }
 
 // ID returns the unique identifier.
