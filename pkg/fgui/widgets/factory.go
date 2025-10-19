@@ -10,9 +10,13 @@ func CreateWidget(meta *assets.ComponentChild) interface{} {
 	switch meta.Type {
 	case assets.ObjectTypeImage:
 		return NewImage()
-	case assets.ObjectTypeText:
+	case assets.ObjectTypeText, assets.ObjectTypeRichText:
 		return NewText()
+	case assets.ObjectTypeButton:
+		return NewButton()
+	case assets.ObjectTypeLoader:
+		return NewLoader()
 	default:
-		return NewText()
+		return nil
 	}
 }

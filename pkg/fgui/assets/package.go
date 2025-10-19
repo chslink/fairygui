@@ -420,17 +420,55 @@ func parseComponentData(item *PackageItem) {
 		_ = buf.Skip(8)
 	}
 
-    if buf.Seek(0, 2) {
-        childCount := int(buf.ReadInt16())
-        children := make([]ComponentChild, 0, childCount)
-        for i := 0; i < childCount; i++ {
-            dataLen := int(buf.ReadInt16())
-            curPos := buf.Pos()
-            child := parseComponentChild(buf, curPos)
-            children = append(children, child)
-            _ = buf.SetPos(curPos + dataLen)
-        }
-        cd.Children = children
+	if buf.Seek(0, 1) {
+		controllerCount := int(buf.ReadInt16())
+		if controllerCount > 0 {
+			controllers := make([]ControllerData, 0, controllerCount)
+			for i := 0; i < controllerCount; i++ {
+				nextPos := int(buf.ReadInt16()) + buf.Pos()
+
+				begin := buf.Pos()
+				buf.Seek(begin, 0)
+				ctrl := ControllerData{}
+				ctrl.Name = readSValue(buf)
+				ctrl.AutoRadio = buf.ReadBool()
+
+				buf.Seek(begin, 1)
+				pageCount := int(buf.ReadInt16())
+				if pageCount > 0 {
+					ctrl.PageIDs = make([]string, pageCount)
+					ctrl.PageNames = make([]string, pageCount)
+					for j := 0; j < pageCount; j++ {
+						ctrl.PageIDs[j] = readSValue(buf)
+						ctrl.PageNames[j] = readSValue(buf)
+					}
+				}
+
+				buf.Seek(begin, 2)
+				actionCount := int(buf.ReadInt16())
+				for j := 0; j < actionCount; j++ {
+					actionNext := int(buf.ReadInt16()) + buf.Pos()
+					_ = buf.SetPos(actionNext)
+				}
+
+				controllers = append(controllers, ctrl)
+				_ = buf.SetPos(nextPos)
+			}
+			cd.Controllers = controllers
+		}
+	}
+
+	if buf.Seek(0, 2) {
+		childCount := int(buf.ReadInt16())
+		children := make([]ComponentChild, 0, childCount)
+		for i := 0; i < childCount; i++ {
+			dataLen := int(buf.ReadInt16())
+			curPos := buf.Pos()
+			child := parseComponentChild(buf, curPos)
+			children = append(children, child)
+			_ = buf.SetPos(curPos + dataLen)
+		}
+		cd.Children = children
 	}
 
 	item.Component = cd

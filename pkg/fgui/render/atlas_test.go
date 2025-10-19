@@ -4,6 +4,7 @@ package render
 
 import (
 	"context"
+	"image"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestAtlasManagerWithRealFUI(t *testing.T) {
-	root := filepath.Join("..", "..", "..", "demo", "assets")
+	root := filepath.Join("..", "..", "demo", "assets")
 	fuiPath := filepath.Join(root, "Bag.fui")
 	data, err := os.ReadFile(fuiPath)
 	if err != nil {
@@ -47,7 +48,7 @@ func TestAtlasManagerWithRealFUI(t *testing.T) {
 	if spriteImg == nil {
 		t.Fatalf("expected sprite image")
 	}
-	rect := spriteImg.Bounds()
+	rect := spriteImg.(image.Image).Bounds()
 	if rect.Dx() <= 0 || rect.Dy() <= 0 {
 		t.Fatalf("invalid sprite bounds: %v", rect)
 	}

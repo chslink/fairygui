@@ -77,4 +77,70 @@ func TestBuildComponentFromRealFUI(t *testing.T) {
 			t.Fatalf("expected height %d, got %v", expectedHeight, builtChild.Height())
 		}
 	}
+
+	var textIndex int = -1
+	for idx, meta := range component.Component.Children {
+		if (meta.Type == assets.ObjectTypeText || meta.Type == assets.ObjectTypeRichText) && meta.Text != "" {
+			textIndex = idx
+			break
+		}
+	}
+	if textIndex >= 0 {
+		builtChild := built.ChildAt(textIndex)
+		if builtChild == nil {
+			t.Fatalf("text child missing at index %d", textIndex)
+		}
+		meta := component.Component.Children[textIndex]
+		data, ok := builtChild.Data().(string)
+		if !ok {
+			t.Fatalf("expected text child to store string data")
+		}
+		if data != meta.Text {
+			t.Fatalf("expected text %q, got %q", meta.Text, data)
+		}
+	}
+
+	var buttonIndex int = -1
+	for idx, meta := range component.Component.Children {
+		if meta.Type == assets.ObjectTypeButton {
+			buttonIndex = idx
+			break
+		}
+	}
+	if buttonIndex >= 0 {
+		builtChild := built.ChildAt(buttonIndex)
+		if builtChild == nil {
+			t.Fatalf("button child missing at index %d", buttonIndex)
+		}
+		if builtChild.Data() == nil {
+			t.Fatalf("expected button child to store package item reference")
+		}
+	}
+
+	var loaderIndex int = -1
+	for idx, meta := range component.Component.Children {
+		if meta.Type == assets.ObjectTypeLoader {
+			loaderIndex = idx
+			break
+		}
+	}
+	if loaderIndex >= 0 {
+		builtChild := built.ChildAt(loaderIndex)
+		if builtChild == nil {
+			t.Fatalf("loader child missing at index %d", loaderIndex)
+		}
+		if builtChild.Data() == nil {
+			t.Fatalf("expected loader child to store resource reference")
+		}
+	}
+
+	if len(component.Component.Controllers) > 0 {
+		controllers := built.Controllers()
+		if len(controllers) != len(component.Component.Controllers) {
+			t.Fatalf("expected %d controllers, got %d", len(component.Component.Controllers), len(controllers))
+		}
+		if controllers[0].Name != component.Component.Controllers[0].Name {
+			t.Fatalf("controller name mismatch")
+		}
+	}
 }

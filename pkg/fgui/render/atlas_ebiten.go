@@ -53,7 +53,7 @@ func (m *AtlasManager) LoadPackage(ctx context.Context, pkg *assets.Package) err
 }
 
 // ResolveSprite returns an Ebiten image representing the sprite for the given item.
-func (m *AtlasManager) ResolveSprite(item *assets.PackageItem) (*ebiten.Image, error) {
+func (m *AtlasManager) ResolveSprite(item *assets.PackageItem) (any, error) {
 	if item == nil || item.Sprite == nil || item.Sprite.Atlas == nil {
 		return nil, errors.New("render: package item has no sprite data")
 	}

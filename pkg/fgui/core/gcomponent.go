@@ -3,7 +3,8 @@ package core
 // GComponent is a container object capable of holding child objects.
 type GComponent struct {
 	*GObject
-	children []*GObject
+	children    []*GObject
+	controllers []*Controller
 }
 
 // NewGComponent constructs an empty UI component.
@@ -78,4 +79,17 @@ func (c *GComponent) ChildAt(index int) *GObject {
 		return nil
 	}
 	return c.children[index]
+}
+
+// Controllers returns the controllers on this component.
+func (c *GComponent) Controllers() []*Controller {
+	return append([]*Controller(nil), c.controllers...)
+}
+
+// AddController appends a controller.
+func (c *GComponent) AddController(ctrl *Controller) {
+	if ctrl == nil {
+		return
+	}
+	c.controllers = append(c.controllers, ctrl)
 }

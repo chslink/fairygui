@@ -49,6 +49,14 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 		childObj := f.buildChild(ctx, pkg, item, &child)
 		root.AddChild(childObj)
 	}
+
+	for _, ctrlData := range item.Component.Controllers {
+		ctrl := core.NewController(ctrlData.Name)
+		ctrl.AutoRadio = ctrlData.AutoRadio
+		ctrl.PageNames = append(ctrl.PageNames, ctrlData.PageNames...)
+		ctrl.PageIDs = append(ctrl.PageIDs, ctrlData.PageIDs...)
+		root.AddController(ctrl)
+	}
 	return root, nil
 }
 
@@ -58,6 +66,27 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 	switch widget := w.(type) {
 	case *widgets.GImage:
 		obj = widget.GObject
+	case *widgets.GTextField:
+		obj = widget.GObject
+		widget.SetText(child.Text)
+		obj.SetData(child.Text)
+	case *widgets.GButton:
+		obj = widget.GComponent.GObject
+		if pi := f.resolvePackageItem(pkg, owner, child); pi != nil {
+			obj.SetData(pi)
+		}
+	case *widgets.GLoader:
+		obj = widget.GObject
+		if child.Src != "" {
+			if pi := f.resolvePackageItem(pkg, owner, child); pi != nil {
+				obj.SetData(pi)
+				if (child.Width < 0 || child.Height < 0) && pi.Sprite != nil {
+					obj.SetSize(float64(pi.Sprite.Rect.Width), float64(pi.Sprite.Rect.Height))
+				}
+			} else {
+				obj.SetData(child.Src)
+			}
+		}
 	default:
 		obj = core.NewGObject()
 	}
@@ -71,7 +100,8 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 	}
 	obj.SetAlpha(float64(child.Alpha))
 
-	if child.Type == assets.ObjectTypeImage && child.Src != "" {
+	switch child.Type {
+	case assets.ObjectTypeImage:
 		pi := f.resolveImageSprite(ctx, pkg, owner, child)
 		if pi != nil {
 			obj.SetData(pi)
@@ -84,19 +114,30 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 				render.ApplyPixelHitTest(obj.DisplayObject(), pi.PixelHitTest)
 			}
 		}
+	case assets.ObjectTypeComponent:
+		if nested := f.buildNestedComponent(ctx, pkg, owner, child); nested != nil {
+			obj.SetData(nested)
+			if (child.Width < 0 || child.Height < 0) && nested.Width() > 0 && nested.Height() > 0 {
+				obj.SetSize(nested.Width(), nested.Height())
+			}
+		}
 	}
 	return obj
 }
 
-func (f *Factory) resolveImageSprite(ctx context.Context, pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild) *assets.PackageItem {
-	if pkg == nil {
+func (f *Factory) resolvePackageItem(pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild) *assets.PackageItem {
+	if pkg == nil || child.Src == "" {
 		return nil
 	}
-	targetPkg := pkg
+	target := pkg
 	if child.PackageID != "" && child.PackageID != pkg.ID {
-		targetPkg = pkg
+		// TODO: resolve cross-package references (dependencies)
 	}
-	pi := targetPkg.ItemByID(child.Src)
+	return target.ItemByID(child.Src)
+}
+
+func (f *Factory) resolveImageSprite(ctx context.Context, pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild) *assets.PackageItem {
+	pi := f.resolvePackageItem(pkg, owner, child)
 	if pi == nil {
 		return nil
 	}
@@ -106,4 +147,17 @@ func (f *Factory) resolveImageSprite(ctx context.Context, pkg *assets.Package, o
 		}
 	}
 	return pi
+}
+
+func (f *Factory) buildNestedComponent(ctx context.Context, pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild) *core.GComponent {
+	nestedItem := f.resolvePackageItem(pkg, owner, child)
+	if nestedItem == nil {
+		return nil
+	}
+	nested, err := f.BuildComponent(ctx, pkg, nestedItem)
+	if err != nil {
+		fmt.Println("builder: nested component error", err)
+		return nil
+	}
+	return nested
 }
