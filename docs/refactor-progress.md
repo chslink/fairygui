@@ -11,7 +11,13 @@
 - [x] Introduced shared test utilities (stage env, event logs) and expanded coverage for scheduler and `GComponent` behaviours.
 - [x] Bootstrapped Go asset pipeline scaffolding: resource loader abstraction, package header parsing, ByteBuffer enhancements, and parsing for package items, atlas sprites, and pixel hit-test metadata with unit tests.
 - [x] Added raw DEFLATE decompression support, filesystem loader, verified parsing against demo `.fui` packages, and introduced Ebiten-tagged atlas manager plus pixel hit-test integration hooks.
-- [x] Began component instantiation path: parsed component metadata now exposes structured child descriptors, builder scaffolding creates GObject trees from real `.fui` data, and image/text widgets now bind sprite/text content automatically.
+- [x] Began component instantiation path: parsed component metadata now exposes structured child descriptors, builder scaffolding creates GObject trees from real `.fui` data, widgets bind sprite/text content, and component controllers are parsed and attached for runtime use.
+
+## 2025-10-19
+- [x] Enriched `core.GObject` with scale, rotation, and pivot state mirrored to compat sprites, enabling downstream systems to track transforms without poking display objects.
+- [x] Applied component metadata transforms (scale, rotation, pivot, alpha) during factory builds so instantiated hierarchies better reflect original FairyGUI layouts.
+- [x] Added focused unit tests covering the new geometry plumbing (`pkg/fgui/core`, `pkg/fgui/builder`) using `GOCACHE=$(pwd)/.gocache go test ./pkg/fgui/core ./pkg/fgui/builder`.
+- [x] Introduced skew handling, pivot-anchor positioning, and cross-package asset resolution in the builder, alongside regression tests that exercise demo `.fui` dependencies.
 
 ### Upcoming Focus
 - Wire parsed atlas sprites into texture loaders and expose hit-test data to rendering/input layers.
@@ -19,3 +25,4 @@
 - Wire atlas sprites and pixel masks into real rendering passes under Ebiten.
 - Implement concrete loaders (filesystem/embedded) and integrate with Ebiten-friendly texture creation.
 - Connect pointer events to higher-level UI abstractions (GRoot, drag/drop) leveraging the new compat stage.
+- Profile pivot-aware transforms against upstream FairyGUI scenes and tune any drift discovered during animation playback.

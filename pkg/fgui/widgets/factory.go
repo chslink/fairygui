@@ -16,6 +16,10 @@ func CreateWidget(meta *assets.ComponentChild) interface{} {
 		return NewButton()
 	case assets.ObjectTypeLoader:
 		return NewLoader()
+	case assets.ObjectTypeGroup:
+		return NewGroup()
+	case assets.ObjectTypeGraph:
+		return NewGraph()
 	default:
 		return nil
 	}

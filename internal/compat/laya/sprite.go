@@ -4,20 +4,25 @@ import "math"
 
 // Sprite emulates the subset of Laya.Sprite behaviour required by FairyGUI.
 type Sprite struct {
-	dispatcher *BasicEventDispatcher
-	parent     *Sprite
-	children   []*Sprite
-	visible    bool
-	alpha      float64
-	name       string
-	position   Point
-	scaleX     float64
-	scaleY     float64
-	rotation   float64
-	width      float64
-	height     float64
-	pivot      Point // normalized (0-1) pivot factors
-	hitTester  func(x, y float64) bool
+	dispatcher    *BasicEventDispatcher
+	parent        *Sprite
+	children      []*Sprite
+	visible       bool
+	alpha         float64
+	name          string
+	position      Point
+	rawPosition   Point
+	scaleX        float64
+	scaleY        float64
+	rotation      float64
+	width         float64
+	height        float64
+	pivot         Point // normalized (0-1) pivot factors
+	pivotAsAnchor bool
+	pivotOffset   Point
+	skewX         float64
+	skewY         float64
+	hitTester     func(x, y float64) bool
 }
 
 // NewSprite constructs a sprite with sensible defaults.
@@ -162,21 +167,18 @@ func (s *Sprite) EmitWithBubble(evt EventType, data any) {
 
 // SetPosition sets the local position relative to the parent.
 func (s *Sprite) SetPosition(x, y float64) {
-	if s.position.X == x && s.position.Y == y {
-		return
-	}
-	s.position = Point{X: x, Y: y}
-	s.dispatcher.Emit(EventXYChanged, s)
+	s.rawPosition = Point{X: x, Y: y}
+	s.applyPivotOffset(true)
 }
 
-// Position returns the local position.
+// Position returns the actual local position (including pivot offsets).
 func (s *Sprite) Position() Point {
 	return s.position
 }
 
 // Move offsets the sprite by the given delta.
 func (s *Sprite) Move(dx, dy float64) {
-	s.SetPosition(s.position.X+dx, s.position.Y+dy)
+	s.SetPosition(s.rawPosition.X+dx, s.rawPosition.Y+dy)
 }
 
 // SetScale updates the local scale factors.
@@ -186,6 +188,8 @@ func (s *Sprite) SetScale(sx, sy float64) {
 	}
 	s.scaleX = sx
 	s.scaleY = sy
+	s.updatePivotOffset()
+	s.applyPivotOffset(true)
 }
 
 // Scale returns the local scale factors.
@@ -195,7 +199,12 @@ func (s *Sprite) Scale() (float64, float64) {
 
 // SetRotation sets the rotation in radians.
 func (s *Sprite) SetRotation(radians float64) {
+	if s.rotation == radians {
+		return
+	}
 	s.rotation = radians
+	s.updatePivotOffset()
+	s.applyPivotOffset(true)
 }
 
 // Rotation returns the rotation in radians.
@@ -203,10 +212,31 @@ func (s *Sprite) Rotation() float64 {
 	return s.rotation
 }
 
+// SetSkew updates the skew factors (in radians) on both axes.
+func (s *Sprite) SetSkew(sx, sy float64) {
+	if s.skewX == sx && s.skewY == sy {
+		return
+	}
+	s.skewX = sx
+	s.skewY = sy
+	s.updatePivotOffset()
+	s.applyPivotOffset(true)
+}
+
+// Skew returns the skew factors.
+func (s *Sprite) Skew() (float64, float64) {
+	return s.skewX, s.skewY
+}
+
 // SetSize updates the sprite's logical bounds.
 func (s *Sprite) SetSize(width, height float64) {
+	if s.width == width && s.height == height {
+		return
+	}
 	s.width = width
 	s.height = height
+	s.updatePivotOffset()
+	s.applyPivotOffset(true)
 }
 
 // Size returns the logical bounds.
@@ -216,12 +246,59 @@ func (s *Sprite) Size() (float64, float64) {
 
 // SetPivot defines the normalized pivot factors (0..1).
 func (s *Sprite) SetPivot(px, py float64) {
+	s.SetPivotWithAnchor(px, py, s.pivotAsAnchor)
+}
+
+// SetPivotWithAnchor defines the pivot and whether it should act as an anchor.
+func (s *Sprite) SetPivotWithAnchor(px, py float64, asAnchor bool) {
+	if s.pivot.X == px && s.pivot.Y == py && s.pivotAsAnchor == asAnchor {
+		return
+	}
 	s.pivot = Point{X: px, Y: py}
+	s.pivotAsAnchor = asAnchor
+	s.updatePivotOffset()
+	s.applyPivotOffset(true)
 }
 
 // Pivot returns the normalized pivot factors.
 func (s *Sprite) Pivot() Point {
 	return s.pivot
+}
+
+func (s *Sprite) applyPivotOffset(emit bool) {
+	actualX := s.rawPosition.X + s.pivotOffset.X
+	actualY := s.rawPosition.Y + s.pivotOffset.Y
+	changed := s.position.X != actualX || s.position.Y != actualY
+	s.position = Point{X: actualX, Y: actualY}
+	if changed && emit {
+		s.dispatcher.Emit(EventXYChanged, s)
+	}
+}
+
+func (s *Sprite) updatePivotOffset() {
+	if s.pivot.X == 0 && s.pivot.Y == 0 {
+		s.pivotOffset = Point{}
+		return
+	}
+	px := s.pivot.X * s.width
+	py := s.pivot.Y * s.height
+
+	cosY := math.Cos(s.rotation + s.skewY)
+	sinY := math.Sin(s.rotation + s.skewY)
+	cosX := math.Cos(s.rotation - s.skewX)
+	sinX := math.Sin(s.rotation - s.skewX)
+
+	a := cosY * s.scaleX
+	b := sinY * s.scaleX
+	c := -sinX * s.scaleY
+	d := cosX * s.scaleY
+
+	transformedX := a*px + c*py
+	transformedY := b*px + d*py
+	s.pivotOffset = Point{
+		X: px - transformedX,
+		Y: py - transformedY,
+	}
 }
 
 // LocalToGlobal converts a local point to global coordinates.
@@ -271,13 +348,19 @@ func (s *Sprite) Bounds() Rect {
 func (s *Sprite) localMatrix() Matrix {
 	pivotX := s.pivot.X * s.width
 	pivotY := s.pivot.Y * s.height
-	cos := math.Cos(s.rotation)
-	sin := math.Sin(s.rotation)
+	rot := s.rotation
+	skewX := s.skewX
+	skewY := s.skewY
 
-	a := cos * s.scaleX
-	b := sin * s.scaleX
-	c := -sin * s.scaleY
-	d := cos * s.scaleY
+	cosY := math.Cos(rot + skewY)
+	sinY := math.Sin(rot + skewY)
+	cosX := math.Cos(rot - skewX)
+	sinX := math.Sin(rot - skewX)
+
+	a := cosY * s.scaleX
+	b := sinY * s.scaleX
+	c := -sinX * s.scaleY
+	d := cosX * s.scaleY
 	tx := s.position.X - pivotX*a - pivotY*c
 	ty := s.position.Y - pivotX*b - pivotY*d
 

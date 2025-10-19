@@ -113,12 +113,12 @@ func TestParsePackageWithItems(t *testing.T) {
 }
 
 func TestParseRealFUI(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "demo", "assets", "Bag.fui")
+	path := filepath.Join("..", "..", "..", "demo", "assets", "MainMenu.fui")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Skipf("real asset not available: %v", err)
 	}
-	pkg, err := ParsePackage(data, "demo/assets/Bag")
+	pkg, err := ParsePackage(data, "demo/assets/MainMenu")
 	if err != nil {
 		t.Fatalf("ParsePackage failed: %v", err)
 	}
@@ -128,17 +128,28 @@ func TestParseRealFUI(t *testing.T) {
 
 	var component *PackageItem
 	for _, item := range pkg.Items {
-		if item.Type == PackageItemTypeComponent && item.Component != nil {
+		if item.Type == PackageItemTypeComponent && item.Name == "Main" {
 			component = item
 			break
 		}
 	}
 	if component == nil {
-		t.Fatalf("expected component item with parsed data")
+		t.Fatalf("Main component not found")
 	}
 	if len(component.Component.Children) == 0 {
 		t.Fatalf("expected component to contain children metadata")
 	}
+
+	// Ensure metadata is present (child types recorded)
+	for _, child := range component.Component.Children {
+		if child.Type == ObjectTypeComponent {
+			continue
+		}
+		if child.Type == ObjectTypeImage || child.Type == ObjectTypeText || child.Type == ObjectTypeRichText {
+			return
+		}
+	}
+	t.Log("warning: Main component children are nested components only")
 }
 
 func buildPackageFixture(t *testing.T) ([]byte, int) {

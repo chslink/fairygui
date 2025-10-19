@@ -212,6 +212,8 @@ type ComponentChild struct {
 	Grayed      bool
 	Data        string
 	Text        string
+	Icon        string
+	URL         string
 }
 
 // ControllerData describes a component controller.
