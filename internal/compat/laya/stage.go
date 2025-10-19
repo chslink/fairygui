@@ -64,6 +64,11 @@ func (s *Stage) Size() (int, int) {
 	return s.width, s.height
 }
 
+// Mouse returns the most recent mouse state processed by the stage.
+func (s *Stage) Mouse() MouseState {
+	return s.mouse
+}
+
 // AddChild attaches a sprite to the root.
 func (s *Stage) AddChild(child *Sprite) {
 	s.root.AddChild(child)

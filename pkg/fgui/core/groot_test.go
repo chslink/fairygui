@@ -168,3 +168,73 @@ func TestGRootContentScaleLevel(t *testing.T) {
 		t.Fatalf("expected content scale level reset, got %d", ContentScaleLevel)
 	}
 }
+
+func TestGRootPositionPopupClampsWithinStage(t *testing.T) {
+	root := NewGRoot()
+	stage := laya.NewStage(800, 600)
+	root.AttachStage(stage)
+
+	target := NewGObject()
+	target.SetSize(40, 40)
+	target.SetPosition(760, 120)
+	root.AddChild(target)
+
+	popup := NewGObject()
+	popup.SetSize(120, 80)
+	root.ShowPopup(popup, target, PopupDirectionAuto)
+
+	wantX := root.Width() - popup.Width()
+	if popup.X() != wantX {
+		t.Fatalf("expected popup X %v, got %v", wantX, popup.X())
+	}
+	if popup.Y() != target.Y()+target.Height() {
+		t.Fatalf("expected popup below target, got %v", popup.Y())
+	}
+}
+
+func TestGRootPositionPopupAutoFlipsUp(t *testing.T) {
+	root := NewGRoot()
+	stage := laya.NewStage(800, 600)
+	root.AttachStage(stage)
+
+	target := NewGObject()
+	target.SetSize(80, 40)
+	target.SetPosition(200, 540)
+	root.AddChild(target)
+
+	popup := NewGObject()
+	popup.SetSize(150, 120)
+	root.ShowPopup(popup, target, PopupDirectionAuto)
+
+	if popup.Y() >= target.Y() {
+		t.Fatalf("popup should be positioned above target when lacking space below, got %v", popup.Y())
+	}
+	if popup.X() < 0 || popup.X()+popup.Width() > root.Width() {
+		t.Fatalf("popup X should remain within root bounds, got %v", popup.X())
+	}
+}
+
+func TestGRootPositionPopupForcedUpClamp(t *testing.T) {
+	root := NewGRoot()
+	stage := laya.NewStage(800, 600)
+	root.AttachStage(stage)
+
+	target := NewGObject()
+	target.SetSize(60, 30)
+	target.SetPosition(100, 20)
+	root.AddChild(target)
+
+	popup := NewGObject()
+	popup.SetSize(120, 150)
+	root.ShowPopup(popup, target, PopupDirectionUp)
+
+	if popup.Y() != 0 {
+		t.Fatalf("popup should clamp to top edge, got %v", popup.Y())
+	}
+	if popup.X() <= target.X() {
+		t.Fatalf("popup X should shift right when clamped, got %v", popup.X())
+	}
+	if popup.X()+popup.Width() > root.Width() {
+		t.Fatalf("popup should remain within stage width, got %v", popup.X())
+	}
+}

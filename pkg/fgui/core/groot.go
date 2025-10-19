@@ -221,26 +221,77 @@ func (r *GRoot) positionPopup(popup, target *GObject, dir PopupDirection) {
 	if popup == nil {
 		return
 	}
-	var x, y float64
-	if target != nil {
-		x = target.X()
-		y = target.Y()
-		// naive placement in absence of full local/global transforms
-		switch dir {
-		case PopupDirectionUp:
-			y = y - popup.Height()
-		case PopupDirectionDown, PopupDirectionAuto:
-			y = y + target.Height()
-		}
-	} else {
-		switch dir {
-		case PopupDirectionUp:
-			y = -popup.Height()
-		default:
-			y = 0
+	rootSprite := r.DisplayObject()
+	if rootSprite == nil {
+		return
+	}
+
+	var global laya.Point
+	var sizeW, sizeH float64
+	if target != nil && target.DisplayObject() != nil {
+		global = target.DisplayObject().LocalToGlobal(laya.Point{})
+		sizeW, sizeH = approximateObjectSize(target)
+	} else if r.stage != nil {
+		mouse := r.stage.Mouse()
+		global = laya.Point{X: mouse.X, Y: mouse.Y}
+	}
+
+	local := rootSprite.GlobalToLocal(global)
+	popupW, popupH := approximateObjectSize(popup)
+	rootW, rootH := r.rootDimensions()
+
+	xx := local.X
+	if popupW > 0 && rootW > 0 && xx+popupW > rootW {
+		xx = xx + sizeW - popupW
+	}
+	if xx < 0 {
+		xx = 0
+	}
+
+	yy := local.Y + sizeH
+	switch dir {
+	case PopupDirectionUp:
+		yy = local.Y - popupH - 1
+	case PopupDirectionDown:
+		yy = local.Y + sizeH
+	default:
+		if popupH > 0 && rootH > 0 && local.Y+sizeH+popupH > rootH {
+			yy = local.Y - popupH - 1
+		} else {
+			yy = local.Y + sizeH
 		}
 	}
-	popup.SetPosition(x, y)
+
+	if yy < 0 {
+		yy = 0
+		if target != nil && sizeW > 0 {
+			xx += sizeW / 2
+		}
+	}
+
+	if popupW > 0 && rootW > 0 {
+		if xx+popupW > rootW {
+			xx = rootW - popupW
+		}
+		if xx < 0 {
+			xx = 0
+		}
+	} else if xx < 0 {
+		xx = 0
+	}
+
+	if popupH > 0 && rootH > 0 {
+		if yy+popupH > rootH {
+			yy = rootH - popupH
+		}
+		if yy < 0 {
+			yy = 0
+		}
+	} else if yy < 0 {
+		yy = 0
+	}
+
+	popup.SetPosition(xx, yy)
 }
 
 func (r *GRoot) closePopup(popup *GObject) {
@@ -323,6 +374,62 @@ func (r *GRoot) updateContentScaleLevel() {
 	default:
 		ContentScaleLevel = 0
 	}
+}
+
+func (r *GRoot) rootDimensions() (float64, float64) {
+	width := r.Width()
+	height := r.Height()
+	if (width <= 0 || height <= 0) && r.stage != nil {
+		if w, h := r.stage.Size(); w > 0 || h > 0 {
+			if width <= 0 {
+				width = float64(w)
+			}
+			if height <= 0 {
+				height = float64(h)
+			}
+		}
+	}
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	return width, height
+}
+
+func approximateObjectSize(obj *GObject) (float64, float64) {
+	if obj == nil {
+		return 0, 0
+	}
+	width := obj.Width()
+	height := obj.Height()
+	if (width <= 0 || height <= 0) && obj.DisplayObject() != nil {
+		w, h := obj.DisplayObject().Size()
+		if width <= 0 {
+			width = w
+		}
+		if height <= 0 {
+			height = h
+		}
+	}
+	if width <= 0 || height <= 0 {
+		if nested, ok := obj.Data().(*GComponent); ok && nested != nil {
+			if width <= 0 {
+				width = nested.Width()
+			}
+			if height <= 0 {
+				height = nested.Height()
+			}
+		}
+	}
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	return width, height
 }
 
 func ownerAsGObject(sprite *laya.Sprite) *GObject {

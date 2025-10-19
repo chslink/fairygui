@@ -18,6 +18,8 @@
 - [x] Applied component metadata transforms (scale, rotation, pivot, alpha) during factory builds so instantiated hierarchies better reflect original FairyGUI layouts.
 - [x] Added focused unit tests covering the new geometry plumbing (`pkg/fgui/core`, `pkg/fgui/builder`) using `GOCACHE=$(pwd)/.gocache go test ./pkg/fgui/core ./pkg/fgui/builder`.
 - [x] Introduced skew handling, pivot-anchor positioning, and cross-package asset resolution in the builder, alongside regression tests that exercise demo `.fui` dependencies.
+- [x] Added compat sprite regression tests validating pivot/倾斜矩阵运算与锚点偏移，涵盖缩放、旋转、移动、尺寸变更场景。
+- [x] Builder 现会将按钮、标签、列表等高级控件解析成对应 widget（携带包引用、默认项、图标资源），并在渲染阶段绘制文本及按钮图标。
 
 ### Upcoming Focus
 - Wire parsed atlas sprites into texture loaders and expose hit-test data to rendering/input layers.
