@@ -16,6 +16,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
@@ -189,6 +190,10 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		if err := renderLoader(target, data, atlas, combined, alpha); err != nil {
 			return err
 		}
+	case *widgets.GGraph:
+		if err := renderGraph(target, data, combined, alpha); err != nil {
+			return err
+		}
 	default:
 		// Unsupported payloads are ignored for now.
 	}
@@ -300,6 +305,66 @@ func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *Atla
 		}
 	}
 	return nil
+}
+
+func renderGraph(target *ebiten.Image, graph *widgets.GGraph, parentGeo ebiten.GeoM, alpha float64) error {
+	if target == nil || graph == nil {
+		return nil
+	}
+	w := graph.GObject.Width()
+	h := graph.GObject.Height()
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	fillColor := parseColor(graph.FillColor())
+	lineColor := parseColor(graph.LineColor())
+	lineSize := graph.LineSize()
+	if (fillColor == nil || fillColor.A == 0) && (lineColor == nil || lineColor.A == 0 || lineSize <= 0) {
+		return nil
+	}
+	imgWidth := int(math.Ceil(w))
+	imgHeight := int(math.Ceil(h))
+	if imgWidth <= 0 || imgHeight <= 0 {
+		return nil
+	}
+	tmp := ebiten.NewImage(imgWidth, imgHeight)
+	switch graph.Type() {
+	case widgets.GraphTypeRect, widgets.GraphTypeEmpty:
+		if fillColor != nil {
+			tint := applyAlpha(fillColor, alpha)
+			vector.FillRect(tmp, 0, 0, float32(w), float32(h), tint, true)
+		}
+		if lineColor != nil && lineSize > 0 {
+			tint := applyAlpha(lineColor, alpha)
+			vector.StrokeRect(tmp, 0, 0, float32(w), float32(h), float32(lineSize), tint, true)
+		}
+	default:
+		if fillColor != nil {
+			tint := applyAlpha(fillColor, alpha)
+			vector.FillRect(tmp, 0, 0, float32(w), float32(h), tint, true)
+		}
+		if lineColor != nil && lineSize > 0 {
+			tint := applyAlpha(lineColor, alpha)
+			vector.StrokeRect(tmp, 0, 0, float32(w), float32(h), float32(lineSize), tint, true)
+		}
+	}
+	opts := &ebiten.DrawImageOptions{GeoM: parentGeo}
+	target.DrawImage(tmp, opts)
+	return nil
+}
+
+func applyAlpha(src *color.NRGBA, alpha float64) color.NRGBA {
+	if src == nil {
+		return color.NRGBA{}
+	}
+	if alpha < 0 {
+		alpha = 0
+	} else if alpha > 1 {
+		alpha = 1
+	}
+	out := *src
+	out.A = uint8(math.Round(float64(out.A) * alpha))
+	return out
 }
 
 func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextField, value string, alpha float64, width, height float64) error {

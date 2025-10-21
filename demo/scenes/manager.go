@@ -3,9 +3,18 @@ package scenes
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
+	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/core"
+)
+
+const (
+	mainMenuSceneName  = "MainMenu"
+	closeButtonMargin  = 10.0
+	defaultStageWidth  = 1136
+	defaultStageHeight = 640
 )
 
 // Scene represents a runnable demo page.
@@ -28,6 +37,7 @@ type Manager struct {
 	registry map[string]FactoryFunc
 	width    int
 	height   int
+	closeBtn *core.GComponent
 }
 
 // NewManager instantiates the scene manager, registers built-in demos, and loads the main menu.
@@ -37,14 +47,28 @@ func NewManager(ctx context.Context, env *Environment) (*Manager, error) {
 		env:      env,
 		stage:    core.NewGComponent(),
 		registry: make(map[string]FactoryFunc),
-		width:    1136,
-		height:   640,
+		width:    defaultStageWidth,
+		height:   defaultStageHeight,
 	}
 
-	mgr.Register("MainMenu", func() Scene { return &MainMenu{} })
-	mgr.Register("BagDemo", func() Scene { return &BagDemo{} })
+	mgr.Register(mainMenuSceneName, func() Scene { return &MainMenu{} })
+	mgr.Register("BasicsDemo", func() Scene { return NewSimpleScene("BasicsDemo", "Basics") })
+	mgr.Register("TransitionDemo", func() Scene { return &TransitionDemo{} })
+	mgr.Register("VirtualListDemo", func() Scene { return NewSimpleScene("VirtualListDemo", "VirtualList") })
+	mgr.Register("LoopListDemo", func() Scene { return NewSimpleScene("LoopListDemo", "LoopList") })
+	mgr.Register("HitTestDemo", func() Scene { return NewSimpleScene("HitTestDemo", "HitTest") })
+	mgr.Register("PullToRefreshDemo", func() Scene { return NewSimpleScene("PullToRefreshDemo", "PullToRefresh") })
+	mgr.Register("ModalWaitingDemo", func() Scene { return NewSimpleScene("ModalWaitingDemo", "ModalWaiting") })
+	mgr.Register("JoystickDemo", func() Scene { return NewSimpleScene("JoystickDemo", "Joystick") })
+	mgr.Register("BagDemo", func() Scene { return NewSimpleScene("BagDemo", "Bag") })
+	mgr.Register("ChatDemo", func() Scene { return NewSimpleScene("ChatDemo", "Chat") })
+	mgr.Register("ListEffectDemo", func() Scene { return NewSimpleScene("ListEffectDemo", "ListEffect") })
+	mgr.Register("ScrollPaneDemo", func() Scene { return NewSimpleScene("ScrollPaneDemo", "ScrollPane") })
+	mgr.Register("TreeViewDemo", func() Scene { return NewSimpleScene("TreeViewDemo", "TreeView") })
+	mgr.Register("GuideDemo", func() Scene { return NewSimpleScene("GuideDemo", "Guide") })
+	mgr.Register("CooldownDemo", func() Scene { return NewSimpleScene("CooldownDemo", "Cooldown") })
 
-	if err := mgr.Start("MainMenu"); err != nil {
+	if err := mgr.Start(mainMenuSceneName); err != nil {
 		return nil, err
 	}
 	return mgr, nil
@@ -137,6 +161,12 @@ func (m *Manager) switchTo(scene Scene) error {
 	m.stage.SetSize(width, height)
 	m.width = int(width)
 	m.height = int(height)
+	if err := m.ensureCloseButton(); err != nil {
+		log.Printf("[scene manager] ensure close button failed: %v", err)
+	} else {
+		m.repositionCloseButton()
+		m.updateCloseButtonVisibility(scene)
+	}
 	m.current = scene
 	m.root = component
 	return nil
@@ -147,4 +177,67 @@ func (m *Manager) currentRoot() *core.GObject {
 		return nil
 	}
 	return m.root.GObject
+}
+
+func (m *Manager) ensureCloseButton() error {
+	if m == nil || m.stage == nil {
+		return fmt.Errorf("scene manager: stage not initialized")
+	}
+	if m.closeBtn != nil {
+		return nil
+	}
+	pkg, err := m.env.Package(m.ctx, "MainMenu")
+	if err != nil {
+		return err
+	}
+	item := chooseComponent(pkg, "CloseButton")
+	if item == nil {
+		return newMissingComponentError("MainMenu", "CloseButton")
+	}
+	component, err := m.env.Factory.BuildComponent(m.ctx, pkg, item)
+	if err != nil {
+		return err
+	}
+	obj := component.GObject
+	obj.SetData(component)
+	obj.SetTouchable(true)
+	obj.SetVisible(false)
+	obj.AddRelation(m.stage.GObject, core.RelationTypeRight_Right, false)
+	obj.AddRelation(m.stage.GObject, core.RelationTypeBottom_Bottom, false)
+	margin := closeButtonMargin
+	obj.SetPosition(float64(m.width)-obj.Width()-margin, float64(m.height)-obj.Height()-margin)
+
+	if sprite := obj.DisplayObject(); sprite != nil && sprite.Dispatcher() != nil {
+		sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			if err := m.Start(mainMenuSceneName); err != nil {
+				log.Printf("[scene manager] return to %s failed: %v", mainMenuSceneName, err)
+			}
+		})
+	} else {
+		log.Printf("[scene manager] close button lacks dispatcher; click disabled")
+	}
+
+	m.stage.AddChild(obj)
+	m.closeBtn = component
+	return nil
+}
+
+func (m *Manager) repositionCloseButton() {
+	if m.closeBtn == nil {
+		return
+	}
+	obj := m.closeBtn.GObject
+	margin := closeButtonMargin
+	obj.SetPosition(float64(m.width)-obj.Width()-margin, float64(m.height)-obj.Height()-margin)
+	m.stage.AddChild(obj)
+}
+
+func (m *Manager) updateCloseButtonVisibility(scene Scene) {
+	if m.closeBtn == nil {
+		return
+	}
+	obj := m.closeBtn.GObject
+	isMain := scene == nil || strings.EqualFold(scene.Name(), mainMenuSceneName)
+	obj.SetVisible(!isMain)
+	obj.SetTouchable(!isMain)
 }

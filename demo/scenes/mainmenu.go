@@ -2,12 +2,10 @@ package scenes
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strings"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
-	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
@@ -89,38 +87,4 @@ func (s *MainMenu) attachButtons(component *core.GComponent, mgr *Manager) {
 			}
 		})
 	}
-}
-
-// ErrMissingComponent is returned when a requested component is absent from a package.
-type ErrMissingComponent struct {
-	Package string
-	Target  string
-}
-
-func newMissingComponentError(pkg, target string) error {
-	return ErrMissingComponent{Package: pkg, Target: target}
-}
-
-func (e ErrMissingComponent) Error() string {
-	return fmt.Sprintf("scene: package %s missing component %s", e.Package, e.Target)
-}
-
-func chooseComponent(pkg *assets.Package, candidates ...string) *assets.PackageItem {
-	if pkg == nil {
-		return nil
-	}
-	for _, name := range candidates {
-		if name == "" {
-			continue
-		}
-		if item := pkg.ItemByName(name); item != nil && item.Type == assets.PackageItemTypeComponent && item.Component != nil {
-			return item
-		}
-	}
-	for _, item := range pkg.Items {
-		if item.Type == assets.PackageItemTypeComponent && item.Component != nil {
-			return item
-		}
-	}
-	return nil
 }

@@ -234,6 +234,8 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		obj.SetData(widget)
 	case *widgets.GGraph:
 		obj = widget.GObject
+		obj.SetData(widget)
+		f.applyGraphSettings(widget, owner, child)
 	default:
 		obj = core.NewGObject()
 	}
@@ -847,6 +849,69 @@ func (f *Factory) applyLabelInstanceSettings(ctx context.Context, widget *widget
 		_ = sub.ReadInt32()
 		_ = sub.ReadInt32()
 		_ = sub.ReadBool()
+	}
+}
+
+func (f *Factory) applyGraphSettings(widget *widgets.GGraph, owner *assets.PackageItem, child *assets.ComponentChild) {
+	if widget == nil || owner == nil || owner.RawData == nil || child == nil || child.RawDataLength <= 0 {
+		return
+	}
+	sub, err := owner.RawData.SubBuffer(child.RawDataOffset, child.RawDataLength)
+	if err != nil {
+		return
+	}
+	if !sub.Seek(0, 5) || sub.Remaining() <= 0 {
+		return
+	}
+	typeByte := sub.ReadByte()
+	widget.SetType(widgets.GraphType(typeByte))
+	if widget.Type() == widgets.GraphTypeEmpty {
+		return
+	}
+	if sub.Remaining() >= 4 {
+		widget.SetLineSize(float64(sub.ReadInt32()))
+	}
+	if sub.Remaining() >= 4 {
+		widget.SetLineColor(sub.ReadColorString(true))
+	}
+	if sub.Remaining() >= 4 {
+		widget.SetFillColor(sub.ReadColorString(true))
+	}
+	if sub.Remaining() > 0 && sub.ReadBool() {
+		radii := make([]float64, 0, 4)
+		for i := 0; i < 4 && sub.Remaining() >= 4; i++ {
+			radii = append(radii, float64(sub.ReadFloat32()))
+		}
+		widget.SetCornerRadius(radii)
+	}
+	switch widget.Type() {
+	case widgets.GraphTypePolygon:
+		if sub.Remaining() >= 2 {
+			cnt := int(sub.ReadInt16())
+			points := make([]float64, 0, cnt)
+			for i := 0; i < cnt && sub.Remaining() >= 4; i++ {
+				points = append(points, float64(sub.ReadFloat32()))
+			}
+			widget.SetPolygonPoints(points)
+		}
+	case widgets.GraphTypeRegularPolygon:
+		sides := 0
+		if sub.Remaining() >= 2 {
+			sides = int(sub.ReadInt16())
+		}
+		angle := 0.0
+		if sub.Remaining() >= 4 {
+			angle = float64(sub.ReadFloat32())
+		}
+		var distances []float64
+		if sub.Remaining() >= 2 {
+			cnt := int(sub.ReadInt16())
+			distances = make([]float64, 0, cnt)
+			for i := 0; i < cnt && sub.Remaining() >= 4; i++ {
+				distances = append(distances, float64(sub.ReadFloat32()))
+			}
+		}
+		widget.SetRegularPolygon(sides, angle, distances)
 	}
 }
 
