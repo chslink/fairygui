@@ -185,35 +185,37 @@ type Margin struct {
 
 // ComponentChild describes a child declared in component raw data.
 type ComponentChild struct {
-	ID          string
-	Name        string
-	Type        ObjectType
-	Src         string
-	PackageID   string
-	X           int
-	Y           int
-	Width       int
-	Height      int
-	MinWidth    int
-	MaxWidth    int
-	MinHeight   int
-	MaxHeight   int
-	ScaleX      float32
-	ScaleY      float32
-	SkewX       float32
-	SkewY       float32
-	PivotX      float32
-	PivotY      float32
-	PivotAnchor bool
-	Alpha       float32
-	Rotation    float32
-	Visible     bool
-	Touchable   bool
-	Grayed      bool
-	Data        string
-	Text        string
-	Icon        string
-	URL         string
+	ID            string
+	Name          string
+	Type          ObjectType
+	Src           string
+	PackageID     string
+	X             int
+	Y             int
+	Width         int
+	Height        int
+	MinWidth      int
+	MaxWidth      int
+	MinHeight     int
+	MaxHeight     int
+	ScaleX        float32
+	ScaleY        float32
+	SkewX         float32
+	SkewY         float32
+	PivotX        float32
+	PivotY        float32
+	PivotAnchor   bool
+	Alpha         float32
+	Rotation      float32
+	Visible       bool
+	Touchable     bool
+	Grayed        bool
+	Data          string
+	Text          string
+	Icon          string
+	URL           string
+	RawDataOffset int
+	RawDataLength int
 }
 
 // ControllerData describes a component controller.

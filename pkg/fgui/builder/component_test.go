@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/chslink/fairygui/pkg/fgui/assets"
+	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/utils"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
@@ -61,9 +63,17 @@ func TestBuildComponentFromRealFUI(t *testing.T) {
 		if builtChild.X() != float64(meta.X) || builtChild.Y() != float64(meta.Y) {
 			t.Fatalf("image child position mismatch: got (%v,%v) expected (%d,%d)", builtChild.X(), builtChild.Y(), meta.X, meta.Y)
 		}
-		data, ok := builtChild.Data().(*assets.PackageItem)
-		if !ok || data == nil {
-			t.Fatalf("expected image child to reference package item")
+		var data *assets.PackageItem
+		switch payload := builtChild.Data().(type) {
+		case *assets.PackageItem:
+			data = payload
+		case *widgets.GImage:
+			data = payload.PackageItem()
+		default:
+			t.Fatalf("expected image child to reference package item, got %T", builtChild.Data())
+		}
+		if data == nil {
+			t.Fatalf("image child missing package item reference")
 		}
 		expectedWidth := meta.Width
 		expectedHeight := meta.Height
@@ -141,8 +151,12 @@ func TestBuildComponentFromRealFUI(t *testing.T) {
 		if builtChild == nil {
 			t.Fatalf("loader child missing at index %d", loaderIndex)
 		}
-		if builtChild.Data() == nil {
-			t.Fatalf("expected loader child to store resource reference")
+		loader, ok := builtChild.Data().(*widgets.GLoader)
+		if !ok || loader == nil {
+			t.Fatalf("expected loader child to store loader widget, got %T", builtChild.Data())
+		}
+		if loader.PackageItem() == nil && loader.URL() == "" {
+			t.Fatalf("expected loader to reference a package item or url")
 		}
 	}
 
@@ -193,6 +207,50 @@ func TestBuildComponentControllers(t *testing.T) {
 	}
 	if controllers[0].Name != mainComponent.Component.Controllers[0].Name {
 		t.Fatalf("controller name mismatch: %s != %s", controllers[0].Name, mainComponent.Component.Controllers[0].Name)
+	}
+}
+
+func TestBuildLoaderSettings(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "demo", "assets")
+	data, err := os.ReadFile(filepath.Join(root, "Basics.fui"))
+	if err != nil {
+		t.Skipf("demo assets unavailable: %v", err)
+	}
+	pkg, err := assets.ParsePackage(data, filepath.Join(root, "Basics"))
+	if err != nil {
+		t.Fatalf("ParsePackage failed: %v", err)
+	}
+
+	var loaderComp *assets.PackageItem
+	for _, item := range pkg.Items {
+		if item.Type == assets.PackageItemTypeComponent && item.Name == "Demo_Loader" {
+			loaderComp = item
+			break
+		}
+	}
+	if loaderComp == nil {
+		t.Fatalf("Demo_Loader component not found")
+	}
+
+	factory := NewFactory(nil, nil)
+	rootComp, err := factory.BuildComponent(context.Background(), pkg, loaderComp)
+	if err != nil {
+		t.Fatalf("BuildComponent failed: %v", err)
+	}
+
+	loaders := collectLoaders(rootComp)
+	if len(loaders) == 0 {
+		t.Fatalf("expected loader children to be constructed")
+	}
+	hasScale := false
+	for _, loader := range loaders {
+		if loader.Fill() == widgets.LoaderFillScale {
+			hasScale = true
+			break
+		}
+	}
+	if !hasScale {
+		t.Fatalf("expected at least one loader to use scale fill")
 	}
 }
 
@@ -323,20 +381,39 @@ func TestBuildComponentCreatesButtonWidget(t *testing.T) {
 		t.Fatalf("BuildComponent failed: %v", err)
 	}
 
-	count := 0
-	for _, child := range root.Children() {
-		if button, ok := child.Data().(*widgets.GButton); ok {
-			count++
-			if button.Resource() == "" {
-				t.Fatalf("expected button resource to be populated")
-			}
-			if button.PackageItem() == nil {
-				t.Fatalf("expected button package item to be resolved")
+	buttons := collectButtons(root)
+	if len(buttons) == 0 {
+		t.Fatalf("expected to discover button children")
+	}
+	for _, button := range buttons {
+		if button.Resource() == "" {
+			t.Fatalf("expected button resource to be populated")
+		}
+		if button.PackageItem() == nil {
+			t.Fatalf("expected button package item to be resolved")
+		}
+		if button.ButtonController() == nil {
+			t.Fatalf("expected button to expose internal button controller")
+		}
+		if button.TemplateComponent() == nil {
+			t.Fatalf("expected button template component to be instantiated")
+		}
+		titleObj := button.TitleObject()
+		if titleObj == nil {
+			t.Fatalf("expected button to expose title object")
+		}
+		switch titleObj.Data().(type) {
+		case *widgets.GTextField, *widgets.GLabel, *widgets.GButton:
+		default:
+			t.Fatalf("unexpected title object data type %T", titleObj.Data())
+		}
+		if iconObj := button.IconObject(); iconObj != nil {
+			switch iconObj.Data().(type) {
+			case *widgets.GLoader, *widgets.GButton, string:
+			default:
+				t.Fatalf("unexpected icon object data type %T", iconObj.Data())
 			}
 		}
-	}
-	if count == 0 {
-		t.Fatalf("expected to discover button children")
 	}
 }
 
@@ -371,6 +448,282 @@ func TestBuildComponentCreatesListWidget(t *testing.T) {
 	if list.DefaultItem() != "defaultItem" {
 		t.Fatalf("unexpected default item: %s", list.DefaultItem())
 	}
+}
+
+func TestBuildComponentAssignsGroups(t *testing.T) {
+	rootDir := filepath.Join("..", "..", "..", "demo", "assets")
+	data, err := os.ReadFile(filepath.Join(rootDir, "Transition.fui"))
+	if err != nil {
+		t.Skipf("demo assets unavailable: %v", err)
+	}
+	pkg, err := assets.ParsePackage(data, filepath.Join(rootDir, "Transition"))
+	if err != nil {
+		t.Fatalf("ParsePackage failed: %v", err)
+	}
+
+	main := pkg.ItemByName("Main")
+	if main == nil {
+		t.Fatalf("Transition Main component missing")
+	}
+
+	factory := NewFactory(nil, nil)
+	root, err := factory.BuildComponent(context.Background(), pkg, main)
+	if err != nil {
+		t.Fatalf("BuildComponent failed: %v", err)
+	}
+
+	groupObj := root.ChildByName("g0")
+	if groupObj == nil {
+		t.Fatalf("expected group child g0")
+	}
+
+	buttonNames := []string{"btn0", "btn1", "btn2", "btn3", "btn4"}
+	for _, name := range buttonNames {
+		child := root.ChildByName(name)
+		if child == nil {
+			t.Fatalf("expected child %s", name)
+		}
+		if child.Group() != groupObj {
+			t.Fatalf("expected %s to bind group g0", name)
+		}
+	}
+}
+
+func TestBuildComponentTooltips(t *testing.T) {
+	rootDir := filepath.Join("..", "..", "..", "demo", "assets")
+	data, err := os.ReadFile(filepath.Join(rootDir, "MainMenu.fui"))
+	if err != nil {
+		t.Skipf("demo assets unavailable: %v", err)
+	}
+	pkg, err := assets.ParsePackage(data, filepath.Join(rootDir, "MainMenu"))
+	if err != nil {
+		t.Fatalf("ParsePackage failed: %v", err)
+	}
+	factory := NewFactory(nil, nil)
+	root, err := factory.BuildComponent(context.Background(), pkg, pkg.ItemByName("Main"))
+	if err != nil {
+		t.Fatalf("BuildComponent failed: %v", err)
+	}
+
+	found := false
+	var walk func(*core.GComponent)
+	walk = func(c *core.GComponent) {
+		if c == nil || found {
+			return
+		}
+		for _, child := range c.Children() {
+			if child == nil {
+				continue
+			}
+			if child.Tooltips() != "" {
+				found = true
+				return
+			}
+			if nested, ok := child.Data().(*core.GComponent); ok && nested != nil {
+				walk(nested)
+				if found {
+					return
+				}
+			}
+		}
+	}
+	walk(root)
+	if !found {
+		t.Skip("tooltips not present in current MainMenu assets")
+	}
+}
+
+func TestBuildComponentParsesTransitions(t *testing.T) {
+	rootDir := filepath.Join("..", "..", "..", "demo", "assets")
+	data, err := os.ReadFile(filepath.Join(rootDir, "Transition.fui"))
+	if err != nil {
+		t.Skipf("demo assets unavailable: %v", err)
+	}
+	pkg, err := assets.ParsePackage(data, filepath.Join(rootDir, "Transition"))
+	if err != nil {
+		t.Fatalf("ParsePackage failed: %v", err)
+	}
+
+	target := pkg.ItemByName("BOSS")
+	if target == nil {
+		t.Fatalf("Transition BOSS component missing")
+	}
+
+	factory := NewFactory(nil, nil)
+	root, err := factory.BuildComponent(context.Background(), pkg, target)
+	if err != nil {
+		t.Fatalf("BuildComponent failed: %v", err)
+	}
+
+	transitions := root.Transitions()
+	if len(transitions) == 0 {
+		t.Fatalf("expected transitions metadata on Transition.BOSS component")
+	}
+	if len(transitions) != 1 {
+		t.Fatalf("expected exactly one transition, got %d", len(transitions))
+	}
+
+	info := transitions[0]
+	if info.Name != "t0" {
+		t.Fatalf("expected transition named t0, got %q", info.Name)
+	}
+	if info.ItemCount != len(info.Items) {
+		t.Fatalf("item count mismatch: meta=%d actual=%d", info.ItemCount, len(info.Items))
+	}
+	if len(info.Items) == 0 {
+		t.Fatalf("transition t0 should contain at least one item")
+	}
+	first := info.Items[0]
+	if first.Type != core.TransitionActionSound {
+		t.Fatalf("expected first item to be sound, got %v", first.Type)
+	}
+	if first.Value.Sound == "" {
+		t.Fatalf("sound item missing resource id")
+	}
+	var foundTween bool
+	for _, it := range info.Items {
+		if it.Tween != nil {
+			foundTween = true
+			if it.Tween.Duration == 0 {
+				t.Fatalf("tween item duration should be > 0")
+			}
+			break
+		}
+	}
+	if !foundTween {
+		t.Fatalf("expected at least one tween item in transition t0")
+	}
+
+	runtime := root.Transition("t0")
+	if runtime == nil {
+		t.Fatalf("expected runtime transition t0")
+	}
+	if !runtime.Info().AutoPlay && runtime.Playing() {
+		t.Fatalf("transition should not be playing unless autoPlay is enabled")
+	}
+	if info.TotalDuration <= 0 {
+		t.Fatalf("expected transition to report total duration")
+	}
+}
+
+func TestBuildComponentHitTest(t *testing.T) {
+	rootDir := filepath.Join("..", "..", "..", "demo", "assets")
+	data, err := os.ReadFile(filepath.Join(rootDir, "HitTest.fui"))
+	if err != nil {
+		t.Skipf("hit test assets unavailable: %v", err)
+	}
+	pkg, err := assets.ParsePackage(data, filepath.Join(rootDir, "HitTest"))
+	if err != nil {
+		t.Fatalf("ParsePackage failed: %v", err)
+	}
+	factory := NewFactory(nil, nil)
+	root, err := factory.BuildComponent(context.Background(), pkg, pkg.ItemByName("Main"))
+	if err != nil {
+		t.Fatalf("BuildComponent failed: %v", err)
+	}
+
+	foundPixel := false
+	var walk func(*core.GComponent)
+	walk = func(c *core.GComponent) {
+		if c == nil || foundPixel {
+			return
+		}
+		if hit := c.HitTest(); hit.Mode == core.HitTestModePixel && hit.ItemID != "" {
+			foundPixel = true
+			return
+		}
+		for _, child := range c.Children() {
+			if child == nil {
+				continue
+			}
+			if nested, ok := child.Data().(*core.GComponent); ok && nested != nil {
+				walk(nested)
+				if foundPixel {
+					return
+				}
+			}
+		}
+	}
+	walk(root)
+	if !foundPixel {
+		t.Skip("pixel hit-test metadata not present in current HitTest assets")
+	}
+}
+
+func TestBuildComponentMask(t *testing.T) {
+	rootDir := filepath.Join("..", "..", "..", "demo", "assets")
+	data, err := os.ReadFile(filepath.Join(rootDir, "Cooldown.fui"))
+	if err != nil {
+		t.Skipf("cooldown assets unavailable: %v", err)
+	}
+	pkg, err := assets.ParsePackage(data, filepath.Join(rootDir, "Cooldown"))
+	if err != nil {
+		t.Fatalf("ParsePackage failed: %v", err)
+	}
+	factory := NewFactory(nil, nil)
+	root, err := factory.BuildComponent(context.Background(), pkg, pkg.ItemByName("Main"))
+	if err != nil {
+		t.Fatalf("BuildComponent failed: %v", err)
+	}
+
+	foundMask := false
+	var walk func(*core.GComponent)
+	walk = func(c *core.GComponent) {
+		if c == nil || foundMask {
+			return
+		}
+		if mask, _ := c.Mask(); mask != nil {
+			foundMask = true
+			return
+		}
+		for _, child := range c.Children() {
+			if child == nil {
+				continue
+			}
+			if nested, ok := child.Data().(*core.GComponent); ok && nested != nil {
+				walk(nested)
+				if foundMask {
+					return
+				}
+			}
+		}
+	}
+	walk(root)
+	if !foundMask {
+		t.Skip("mask metadata not present in current Cooldown assets")
+	}
+}
+
+func collectLoaders(comp *core.GComponent) []*widgets.GLoader {
+	var result []*widgets.GLoader
+	if comp == nil {
+		return result
+	}
+	for _, child := range comp.Children() {
+		if loader, ok := child.Data().(*widgets.GLoader); ok && loader != nil {
+			result = append(result, loader)
+		}
+		if nested, ok := child.Data().(*core.GComponent); ok && nested != nil {
+			result = append(result, collectLoaders(nested)...)
+		}
+	}
+	return result
+}
+
+func collectButtons(comp *core.GComponent) []*widgets.GButton {
+	var result []*widgets.GButton
+	if comp == nil {
+		return result
+	}
+	for _, child := range comp.Children() {
+		if button, ok := child.Data().(*widgets.GButton); ok && button != nil {
+			result = append(result, button)
+		}
+		if nested, ok := child.Data().(*core.GComponent); ok && nested != nil {
+			result = append(result, collectButtons(nested)...)
+		}
+	}
+	return result
 }
 
 func TestBuildComponentCrossPackageReference(t *testing.T) {
@@ -446,6 +799,43 @@ func TestBuildComponentCrossPackageReference(t *testing.T) {
 	}
 	if !found {
 		t.Skip("no cross-package references found in demo assets")
+	}
+}
+
+func TestSetupComponentControllersAppliesSelection(t *testing.T) {
+	component := core.NewGComponent()
+	holder := component.GObject
+	holder.SetData(component)
+
+	ctrl := core.NewController("ctrl")
+	ctrl.SetPages([]string{"page", "other"}, []string{"Page A", "Page B"})
+	component.AddController(ctrl)
+	ctrl.SetSelectedIndex(1) // start from non-default to observe override
+
+	data := []byte{
+		0x05, 0x01, // segCount=5, useShort=1
+		0x00, 0x00, // block0 offset
+		0x00, 0x00, // block1 offset
+		0x00, 0x00, // block2 offset
+		0x00, 0x00, // block3 offset
+		0x00, 0x0C, // block4 offset (12 bytes from start)
+		0xFF, 0xFF, // pageController index (-1)
+		0x00, 0x01, // controller override count = 1
+		0x00, 0x01, // controller name index -> "ctrl"
+		0x00, 0x02, // page id index -> "page"
+		0x00, 0x01, // property assignment count = 1 (Version >= 2)
+		0x00, 0x03, // target path index -> "target"
+		0x00, 0x05, // property id (arbitrary)
+		0x00, 0x04, // value index -> "value"
+	}
+	buf := utils.NewByteBuffer(data)
+	buf.StringTable = []string{"", "ctrl", "page", "target", "value"}
+	buf.Version = 2
+
+	setupComponentControllers(holder, buf)
+
+	if got := ctrl.SelectedPageID(); got != "page" {
+		t.Fatalf("expected controller override to select page %q, got %q", "page", got)
 	}
 }
 

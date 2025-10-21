@@ -11,6 +11,7 @@ type Sprite struct {
 	owner         any
 	alpha         float64
 	name          string
+	mouseEnabled  bool
 	position      Point
 	rawPosition   Point
 	scaleX        float64
@@ -29,11 +30,12 @@ type Sprite struct {
 // NewSprite constructs a sprite with sensible defaults.
 func NewSprite() *Sprite {
 	return &Sprite{
-		dispatcher: NewEventDispatcher(),
-		visible:    true,
-		alpha:      1.0,
-		scaleX:     1,
-		scaleY:     1,
+		dispatcher:   NewEventDispatcher(),
+		visible:      true,
+		alpha:        1.0,
+		mouseEnabled: true,
+		scaleX:       1,
+		scaleY:       1,
 	}
 }
 
@@ -152,6 +154,16 @@ func (s *Sprite) SetAlpha(v float64) {
 		v = 1
 	}
 	s.alpha = v
+}
+
+// MouseEnabled reports whether the sprite should respond to pointer hit tests.
+func (s *Sprite) MouseEnabled() bool {
+	return s.mouseEnabled
+}
+
+// SetMouseEnabled toggles participation in hit testing for this sprite.
+func (s *Sprite) SetMouseEnabled(enabled bool) {
+	s.mouseEnabled = enabled
 }
 
 // Dispatcher exposes the internal event dispatcher.
@@ -413,6 +425,9 @@ func (s *Sprite) HitTest(global Point) *Sprite {
 		return nil
 	}
 	if s.hitTester != nil && !s.hitTester(local.X, local.Y) {
+		return nil
+	}
+	if !s.mouseEnabled {
 		return nil
 	}
 	return s

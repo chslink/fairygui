@@ -1,6 +1,10 @@
 package core
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/chslink/fairygui/internal/compat/laya"
+)
 
 func TestGObjectSetPositionUpdatesSprite(t *testing.T) {
 	obj := NewGObject()
@@ -96,5 +100,55 @@ func TestGObjectDisplayOwner(t *testing.T) {
 	owner := obj.DisplayObject().Owner()
 	if owner != obj {
 		t.Fatalf("expected sprite owner to be the gobject, got %#v", owner)
+	}
+}
+
+func TestGObjectTouchableUpdatesSprite(t *testing.T) {
+	obj := NewGObject()
+	if !obj.Touchable() {
+		t.Fatalf("expected gobject to be touchable by default")
+	}
+	if !obj.DisplayObject().MouseEnabled() {
+		t.Fatalf("expected sprite mouse-enabled by default")
+	}
+
+	obj.SetTouchable(false)
+	if obj.Touchable() {
+		t.Fatalf("expected touchable flag false")
+	}
+	if obj.DisplayObject().MouseEnabled() {
+		t.Fatalf("expected sprite mouse disabled")
+	}
+
+	obj.SetTouchable(true)
+	if !obj.Touchable() || !obj.DisplayObject().MouseEnabled() {
+		t.Fatalf("expected touchable toggle to re-enable sprite")
+	}
+}
+
+func TestGObjectEventHelpers(t *testing.T) {
+	obj := NewGObject()
+	var seen int
+	listener := func(evt laya.Event) {
+		seen++
+	}
+
+	obj.On(laya.EventClick, listener)
+	obj.Emit(laya.EventClick, nil)
+	if seen != 1 {
+		t.Fatalf("expected listener to fire once, got %d", seen)
+	}
+
+	obj.Once(laya.EventClick, listener)
+	obj.Emit(laya.EventClick, nil)
+	obj.Emit(laya.EventClick, nil)
+	if seen != 4 {
+		t.Fatalf("expected cumulative count 4 after once listener, got %d", seen)
+	}
+
+	obj.Off(laya.EventClick, listener)
+	obj.Emit(laya.EventClick, nil)
+	if seen != 4 {
+		t.Fatalf("expected listener removed, still %d", seen)
 	}
 }

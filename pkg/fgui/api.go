@@ -13,6 +13,7 @@ type (
 	Scheduler      = laya.Scheduler
 	MouseState     = laya.MouseState
 	PointerEvent   = laya.PointerEvent
+	EventType      = laya.EventType
 	GRoot          = core.GRoot
 	GComponent     = core.GComponent
 	GObject        = core.GObject

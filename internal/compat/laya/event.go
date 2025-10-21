@@ -15,6 +15,8 @@ const (
 	EventMouseUp        EventType = "mouseup"
 	EventMouseMove      EventType = "mousemove"
 	EventClick          EventType = "click"
+	EventRollOver       EventType = "rollover"
+	EventRollOut        EventType = "rollout"
 	EventTouchBegin     EventType = "touchBegin"
 	EventTouchEnd       EventType = "touchEnd"
 	EventScroll         EventType = "scroll"

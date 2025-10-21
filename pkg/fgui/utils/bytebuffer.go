@@ -118,6 +118,8 @@ func (b *ByteBuffer) ReadByte() int8 {
 func (b *ByteBuffer) ReadS() *string {
 	index := b.ReadUint16()
 	switch index {
+	case 0xFFFF:
+		return nil
 	case indexNull:
 		return nil
 	case indexEmpty:
@@ -125,7 +127,8 @@ func (b *ByteBuffer) ReadS() *string {
 		return &empty
 	default:
 		if int(index) >= len(b.StringTable) {
-			panic(fmt.Sprintf("bytebuffer: string index %d out of range (%d entries)", index, len(b.StringTable)))
+			empty := ""
+			return &empty
 		}
 		value := b.StringTable[index]
 		// Allocate copy so callers can mutate without affecting the table.
@@ -257,4 +260,16 @@ func (b *ByteBuffer) ReadBytes(count int) []byte {
 // Remaining returns the unread byte count.
 func (b *ByteBuffer) Remaining() int {
 	return len(b.data) - b.pos
+}
+
+// SubBuffer returns a view that starts at offset and spans length bytes.
+func (b *ByteBuffer) SubBuffer(offset, length int) (*ByteBuffer, error) {
+	if offset < 0 || length < 0 || offset+length > len(b.data) {
+		return nil, fmt.Errorf("bytebuffer: invalid sub buffer range offset=%d length=%d len=%d", offset, length, len(b.data))
+	}
+	sub := b.data[offset : offset+length]
+	child := NewByteBuffer(sub)
+	child.StringTable = b.StringTable
+	child.Version = b.Version
+	return child, nil
 }

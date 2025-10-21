@@ -385,8 +385,14 @@ func parseComponentData(item *PackageItem) {
 		return
 	}
 	buf := item.RawData
+	if buf == nil {
+		return
+	}
 	saved := buf.Pos()
-	_ = buf.SetPos(0)
+	if !buf.Seek(0, 0) {
+		_ = buf.SetPos(saved)
+		return
+	}
 
 	cd := &ComponentData{}
 	cd.SourceWidth = int(buf.ReadInt32())
@@ -464,7 +470,7 @@ func parseComponentData(item *PackageItem) {
 		for i := 0; i < childCount; i++ {
 			dataLen := int(buf.ReadInt16())
 			curPos := buf.Pos()
-			child := parseComponentChild(buf, curPos)
+			child := parseComponentChild(buf, curPos, dataLen)
 			children = append(children, child)
 			_ = buf.SetPos(curPos + dataLen)
 		}
@@ -475,67 +481,98 @@ func parseComponentData(item *PackageItem) {
 	_ = buf.SetPos(saved)
 }
 
-func parseComponentChild(buf *utils.ByteBuffer, start int) ComponentChild {
-	child := ComponentChild{Width: -1, Height: -1, ScaleX: 1, ScaleY: 1, Visible: true, Touchable: true}
-	_ = buf.SetPos(start)
-	childTypes := buf.ReadByte()
-	child.Type = ObjectType(childTypes)
-	child.Src = readSValue(buf)
-	child.PackageID = readSValue(buf)
+func parseComponentChild(buf *utils.ByteBuffer, start int, length int) ComponentChild {
+	child := ComponentChild{
+		Width:     -1,
+		Height:    -1,
+		ScaleX:    1,
+		ScaleY:    1,
+		Visible:   true,
+		Touchable: true,
+		Alpha:     1,
+	}
+	child.RawDataOffset = start
+	child.RawDataLength = length
+	limit := start + length
+	remaining := func() int {
+		if limit <= buf.Pos() {
+			return 0
+		}
+		return limit - buf.Pos()
+	}
+	readBool := func() bool {
+		if remaining() <= 0 {
+			return false
+		}
+		return buf.ReadBool()
+	}
 
-	_ = buf.SetPos(start)
-	_ = buf.Skip(5)
-	child.ID = readSValue(buf)
-	child.Name = readSValue(buf)
-	child.X = int(buf.ReadInt32())
-	child.Y = int(buf.ReadInt32())
+	if buf.Seek(start, 0) {
+		child.Type = ObjectType(buf.ReadByte())
+		child.Src = readSValue(buf)
+		child.PackageID = readSValue(buf)
+		child.ID = readSValue(buf)
+		child.Name = readSValue(buf)
+		child.X = int(buf.ReadInt32())
+		child.Y = int(buf.ReadInt32())
 
-	if buf.ReadBool() {
-		child.Width = int(buf.ReadInt32())
-		child.Height = int(buf.ReadInt32())
+		if readBool() {
+			child.Width = int(buf.ReadInt32())
+			child.Height = int(buf.ReadInt32())
+		}
+		if readBool() {
+			child.MinWidth = int(buf.ReadInt32())
+			child.MaxWidth = int(buf.ReadInt32())
+			child.MinHeight = int(buf.ReadInt32())
+			child.MaxHeight = int(buf.ReadInt32())
+		}
+		if readBool() {
+			child.ScaleX = buf.ReadFloat32()
+			child.ScaleY = buf.ReadFloat32()
+		}
+		if readBool() {
+			child.SkewX = buf.ReadFloat32()
+			child.SkewY = buf.ReadFloat32()
+		}
+		if readBool() {
+			child.PivotX = buf.ReadFloat32()
+			child.PivotY = buf.ReadFloat32()
+			child.PivotAnchor = buf.ReadBool()
+		}
+		child.Alpha = buf.ReadFloat32()
+		if child.Alpha == 0 {
+			child.Alpha = 1
+		}
+		child.Rotation = buf.ReadFloat32()
+		if remaining() > 0 {
+			child.Visible = buf.ReadBool()
+		}
+		if remaining() > 0 {
+			child.Touchable = buf.ReadBool()
+		}
+		if remaining() > 0 {
+			child.Grayed = buf.ReadBool()
+		}
+		if remaining() > 0 {
+			_ = buf.ReadByte() // blend mode
+		}
+		if remaining() > 0 {
+			switch filter := buf.ReadByte(); filter {
+			case 1:
+				_ = buf.ReadFloat32()
+				_ = buf.ReadFloat32()
+				_ = buf.ReadFloat32()
+				_ = buf.ReadFloat32()
+			case 2:
+				_ = buf.ReadFloat32()
+			}
+		}
+		child.Data = readSValue(buf)
+		if child.Type == ObjectTypeText || child.Type == ObjectTypeRichText {
+			child.Text = readSValue(buf)
+		}
 	}
-	if buf.ReadBool() {
-		child.MinWidth = int(buf.ReadInt32())
-		child.MaxWidth = int(buf.ReadInt32())
-		child.MinHeight = int(buf.ReadInt32())
-		child.MaxHeight = int(buf.ReadInt32())
-	}
-	if buf.ReadBool() {
-		child.ScaleX = buf.ReadFloat32()
-		child.ScaleY = buf.ReadFloat32()
-	}
-	if buf.ReadBool() {
-		child.SkewX = buf.ReadFloat32()
-		child.SkewY = buf.ReadFloat32()
-	}
-	if buf.ReadBool() {
-		child.PivotX = buf.ReadFloat32()
-		child.PivotY = buf.ReadFloat32()
-		child.PivotAnchor = buf.ReadBool()
-	}
-	child.Alpha = buf.ReadFloat32()
-	if child.Alpha == 0 {
-		child.Alpha = 1
-	}
-	child.Rotation = buf.ReadFloat32()
-	if !buf.ReadBool() {
-		child.Visible = false
-	}
-	if !buf.ReadBool() {
-		child.Touchable = false
-	}
-	child.Grayed = buf.ReadBool()
-	_ = buf.ReadByte() // blend
-	if filter := buf.ReadByte(); filter == 1 {
-		_ = buf.ReadFloat32()
-		_ = buf.ReadFloat32()
-		_ = buf.ReadFloat32()
-		_ = buf.ReadFloat32()
-	}
-	child.Data = readSValue(buf)
-	if child.Type == ObjectTypeText || child.Type == ObjectTypeRichText {
-		child.Text = readSValue(buf)
-	}
+
 	return child
 }
 

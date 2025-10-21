@@ -87,12 +87,34 @@ func (s *Stage) Update(delta time.Duration, mouse MouseState) {
 	point := Point{X: mouse.X, Y: mouse.Y}
 	hit := s.hitTest(point)
 
+	if hit != s.hover {
+		if s.hover != nil {
+			s.hover.EmitWithBubble(EventRollOut, PointerEvent{
+				Position: point,
+				Primary:  mouse.Primary,
+				Target:   s.hover,
+			})
+		}
+		if hit != nil {
+			hit.EmitWithBubble(EventRollOver, PointerEvent{
+				Position: point,
+				Primary:  mouse.Primary,
+				Target:   hit,
+			})
+		}
+		s.hover = hit
+	}
+
 	if s.mouse.X != s.prevMouse.X || s.mouse.Y != s.prevMouse.Y {
-		s.root.Dispatcher().Emit(EventMouseMove, PointerEvent{
+		event := PointerEvent{
 			Position: point,
 			Primary:  mouse.Primary,
 			Target:   hit,
-		})
+		}
+		if hit != nil {
+			hit.EmitWithBubble(EventMouseMove, event)
+		}
+		s.root.Dispatcher().Emit(EventMouseMove, event)
 	}
 
 	if s.mouse.Primary && !s.prevMouse.Primary {

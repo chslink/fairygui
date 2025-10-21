@@ -46,3 +46,17 @@ The command always exits with status 0; use the printed diff metrics in CI to de
 - Baseline and rendered images **must** share identical dimensions; resize them in advance if necessary.
 
 Feel free to extend the tool with per-layer masks or tolerance thresholds in your automation. Contributions welcome!
+
+## Preview A Single Image Asset
+
+When you only need to inspect a solitary atlas sprite, run the lightweight helper:
+
+```bash
+GOCACHE=$(pwd)/.gocache go run -tags ebiten ./cmd/gimage-demo \
+  -assets demo/assets \
+  -package Basics \
+  -image pic_icon \
+  -out snapshots/pic_icon.png
+```
+
+The command loads the chosen `.fui`, resolves the sprite (including pixel hit-tests), and renders it directly without wrapping it in a full component hierarchy. Width/height defaults to the sprite's size—pass `-width` or `-height` to override when experimenting with layout padding.

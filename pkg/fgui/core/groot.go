@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
+	"github.com/chslink/fairygui/pkg/fgui/tween"
 )
 
 // PopupDirection describes how a popup should be positioned relative to its target.
@@ -97,6 +98,7 @@ func (r *GRoot) Advance(delta time.Duration, mouse laya.MouseState) {
 		return
 	}
 	r.stage.Update(delta, mouse)
+	tween.Advance(delta)
 }
 
 // Scheduler returns the stage scheduler, if a stage has been attached.

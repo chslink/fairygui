@@ -180,6 +180,56 @@ func TestSpriteCustomHitTester(t *testing.T) {
 	}
 }
 
+func TestSpriteMouseEnabled(t *testing.T) {
+	parent := laya.NewSprite()
+	parent.SetSize(100, 100)
+	child := laya.NewSprite()
+	child.SetSize(30, 30)
+	child.SetPosition(10, 10)
+	parent.AddChild(child)
+
+	parent.SetMouseEnabled(false)
+	if hit := parent.HitTest(laya.Point{X: 20, Y: 20}); hit != child {
+		t.Fatalf("expected child hit when parent is mouse-disabled, got %v", hit)
+	}
+
+	child.SetMouseEnabled(false)
+	if hit := parent.HitTest(laya.Point{X: 20, Y: 20}); hit != nil {
+		t.Fatalf("expected nil hit when child mouse disabled, got %v", hit)
+	}
+
+	child.SetMouseEnabled(true)
+	if hit := parent.HitTest(laya.Point{X: 20, Y: 20}); hit != child {
+		t.Fatalf("expected child hit after re-enabling, got %v", hit)
+	}
+}
+
+func TestStageRollEvents(t *testing.T) {
+	env := testutil.NewStageEnv(t, 200, 200)
+	stage := env.Stage
+
+	child := laya.NewSprite()
+	child.SetSize(50, 50)
+	child.SetPosition(10, 10)
+	stage.AddChild(child)
+
+	var rollOver, rollOut int
+	child.Dispatcher().On(laya.EventRollOver, func(evt laya.Event) {
+		rollOver++
+	})
+	child.Dispatcher().On(laya.EventRollOut, func(evt laya.Event) {
+		rollOut++
+	})
+
+	env.Advance(time.Millisecond*16, laya.MouseState{X: 5, Y: 5})
+	env.Advance(time.Millisecond*16, laya.MouseState{X: 20, Y: 20})
+	env.Advance(time.Millisecond*16, laya.MouseState{X: 150, Y: 150})
+
+	if rollOver != 1 || rollOut != 1 {
+		t.Fatalf("expected one rollover and one rollout, got over=%d out=%d", rollOver, rollOut)
+	}
+}
+
 func TestSpritePivotAnchorPosition(t *testing.T) {
 	sprite := laya.NewSprite()
 	sprite.SetSize(120, 80)

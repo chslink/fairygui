@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	_ "image/png"
 
@@ -36,7 +37,8 @@ func (m *AtlasManager) LoadPackage(ctx context.Context, pkg *assets.Package) err
 		if item.Type != assets.PackageItemTypeAtlas {
 			continue
 		}
-		if _, ok := m.atlasImages[item.ID]; ok {
+		key := atlasKey(item)
+		if _, ok := m.atlasImages[key]; ok {
 			continue
 		}
 		data, err := m.loader.LoadOne(ctx, item.File, assets.ResourceImage)
@@ -47,7 +49,7 @@ func (m *AtlasManager) LoadPackage(ctx context.Context, pkg *assets.Package) err
 		if err != nil {
 			return err
 		}
-		m.atlasImages[item.ID] = ebiten.NewImageFromImage(img)
+		m.atlasImages[key] = ebiten.NewImageFromImage(img)
 	}
 	return nil
 }
@@ -57,11 +59,10 @@ func (m *AtlasManager) ResolveSprite(item *assets.PackageItem) (any, error) {
 	if item == nil || item.Sprite == nil || item.Sprite.Atlas == nil {
 		return nil, errors.New("render: package item has no sprite data")
 	}
-	if sprite, ok := m.spriteCache[item.ID]; ok {
+	if sprite, ok := m.spriteCache[spriteKey(item)]; ok {
 		return sprite, nil
 	}
-	atlasID := item.Sprite.Atlas.ID
-	atlasImg, ok := m.atlasImages[atlasID]
+	atlasImg, ok := m.atlasImages[atlasKey(item.Sprite.Atlas)]
 	if !ok {
 		return nil, errors.New("render: atlas texture not loaded")
 	}
@@ -71,8 +72,40 @@ func (m *AtlasManager) ResolveSprite(item *assets.PackageItem) (any, error) {
 		item.Sprite.Rect.X+item.Sprite.Rect.Width,
 		item.Sprite.Rect.Y+item.Sprite.Rect.Height,
 	)
+	atlasBounds := atlasImg.Bounds()
+	if rect.Dx() <= 0 || rect.Dy() <= 0 {
+		return nil, fmt.Errorf("render: sprite %s has invalid rect %v", item.ID, rect)
+	}
+	if !rect.In(atlasBounds) {
+		rect = rect.Intersect(atlasBounds)
+		if rect.Dx() <= 0 || rect.Dy() <= 0 {
+			return nil, fmt.Errorf("render: sprite %s rect out of atlas bounds %v", item.ID, atlasBounds)
+		}
+	}
 	sub := atlasImg.SubImage(rect)
 	spriteImg := ebiten.NewImageFromImage(sub)
-	m.spriteCache[item.ID] = spriteImg
+	m.spriteCache[spriteKey(item)] = spriteImg
 	return spriteImg, nil
+}
+
+func atlasKey(item *assets.PackageItem) string {
+	if item == nil {
+		return ""
+	}
+	ownerID := ""
+	if item.Owner != nil {
+		ownerID = item.Owner.ID
+	}
+	return ownerID + ":" + item.ID
+}
+
+func spriteKey(item *assets.PackageItem) string {
+	if item == nil {
+		return ""
+	}
+	ownerID := ""
+	if item.Owner != nil {
+		ownerID = item.Owner.ID
+	}
+	return ownerID + ":" + item.ID
 }

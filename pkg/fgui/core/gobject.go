@@ -2,18 +2,21 @@ package core
 
 import (
 	"fmt"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
+	"github.com/chslink/fairygui/pkg/fgui/gears"
 )
 
 var gObjectCounter uint64
 
 // GObject is the base building block for all FairyGUI entities.
 type GObject struct {
-	id      string
-	name    string
-	display *laya.Sprite
+	id         string
+	name       string
+	resourceID string
+	display    *laya.Sprite
 
 	x      float64
 	y      float64
@@ -22,16 +25,36 @@ type GObject struct {
 	scaleX float64
 	scaleY float64
 
-	parent        *GComponent
-	alpha         float64
-	visible       bool
-	rotation      float64
-	skewX         float64
-	skewY         float64
-	pivotX        float64
-	pivotY        float64
-	pivotAsAnchor bool
-	data          any
+	parent             *GComponent
+	alpha              float64
+	visible            bool
+	touchable          bool
+	grayed             bool
+	rotation           float64
+	skewX              float64
+	skewY              float64
+	pivotX             float64
+	pivotY             float64
+	pivotAsAnchor      bool
+	data               any
+	relations          *Relations
+	dependents         []*RelationItem
+	gears              [gears.SlotCount]gears.Gear
+	gearLocked         bool
+	handlingController bool
+	rawWidth           float64
+	rawHeight          float64
+	sourceWidth        float64
+	sourceHeight       float64
+	initWidth          float64
+	initHeight         float64
+	props              map[gears.ObjectPropID]any
+	tooltips           string
+	group              *GObject
+	colorFilter        [4]float64
+	colorFilterEnabled bool
+	shakeOffsetX       float64
+	shakeOffsetY       float64
 }
 
 // NewGObject creates a base object with a backing sprite.
@@ -39,14 +62,18 @@ func NewGObject() *GObject {
 	counter := atomic.AddUint64(&gObjectCounter, 1)
 	display := laya.NewSprite()
 	obj := &GObject{
-		id:      fmt.Sprintf("gobj-%d", counter),
-		display: display,
-		alpha:   1.0,
-		visible: true,
-		scaleX:  1.0,
-		scaleY:  1.0,
+		id:        fmt.Sprintf("gobj-%d", counter),
+		display:   display,
+		alpha:     1.0,
+		visible:   true,
+		touchable: true,
+		scaleX:    1.0,
+		scaleY:    1.0,
+		props:     make(map[gears.ObjectPropID]any),
 	}
 	display.SetOwner(obj)
+	display.SetMouseEnabled(true)
+	obj.relations = NewRelations(obj)
 	return obj
 }
 
@@ -60,12 +87,27 @@ func (g *GObject) Name() string {
 	return g.name
 }
 
+// ResourceID returns the package-specific identifier assigned by the builder.
+func (g *GObject) ResourceID() string {
+	return g.resourceID
+}
+
+// Parent returns the parent component, if any.
+func (g *GObject) Parent() *GComponent {
+	return g.parent
+}
+
 // SetName updates the display name.
 func (g *GObject) SetName(name string) {
 	g.name = name
 	if g.display != nil {
 		g.display.SetName(name)
 	}
+}
+
+// SetResourceID records the package-scoped identifier (e.g., "n1_rftu").
+func (g *GObject) SetResourceID(id string) {
+	g.resourceID = id
 }
 
 // DisplayObject exposes the underlying compat sprite.
@@ -75,19 +117,37 @@ func (g *GObject) DisplayObject() *laya.Sprite {
 
 // SetPosition moves the object within its parent coordinate space.
 func (g *GObject) SetPosition(x, y float64) {
+	dx := x - g.x
+	dy := y - g.y
+	if dx == 0 && dy == 0 {
+		return
+	}
 	g.x = x
 	g.y = y
 	g.refreshTransform()
+	g.updateGear(gears.IndexXY)
+	g.notifyDependentsXY(dx, dy)
 }
 
 // SetSize updates width and height.
 func (g *GObject) SetSize(width, height float64) {
+	oldWidth := g.width
+	oldHeight := g.height
 	g.width = width
 	g.height = height
+	g.rawWidth = width
+	g.rawHeight = height
 	if g.display != nil {
 		g.display.SetSize(width, height)
 	}
 	g.refreshTransform()
+	dw := width - oldWidth
+	dh := height - oldHeight
+	g.updateGear(gears.IndexSize)
+	if (dw != 0 || dh != 0) && g.relations != nil {
+		g.relations.OnOwnerSizeChanged(dw, dh, g.pivotAsAnchor)
+	}
+	g.notifyDependentsSize(dw, dh)
 }
 
 // SetScale updates the scaling factors on both axes.
@@ -98,6 +158,7 @@ func (g *GObject) SetScale(scaleX, scaleY float64) {
 		g.display.SetScale(scaleX, scaleY)
 	}
 	g.refreshTransform()
+	g.updateGear(gears.IndexSize)
 }
 
 // Scale returns the scaling factors.
@@ -181,6 +242,83 @@ func (g *GObject) SetVisible(visible bool) {
 	}
 }
 
+// Visible reports whether the object is visible.
+func (g *GObject) Visible() bool {
+	return g.visible
+}
+
+// Touchable returns whether the object reacts to user input.
+func (g *GObject) Touchable() bool {
+	return g.touchable
+}
+
+// SetTouchable updates the touchable flag.
+func (g *GObject) SetTouchable(touchable bool) {
+	g.touchable = touchable
+	if g.display != nil {
+		g.display.SetMouseEnabled(touchable)
+	}
+}
+
+// On registers an event listener against the underlying display object.
+func (g *GObject) On(evt laya.EventType, fn laya.Listener) {
+	if g == nil || g.display == nil || fn == nil {
+		return
+	}
+	g.display.Dispatcher().On(evt, fn)
+}
+
+// Once registers a one-shot listener against the underlying display object.
+func (g *GObject) Once(evt laya.EventType, fn laya.Listener) {
+	if g == nil || g.display == nil || fn == nil {
+		return
+	}
+	g.display.Dispatcher().Once(evt, fn)
+}
+
+// Off removes a previously registered listener.
+func (g *GObject) Off(evt laya.EventType, fn laya.Listener) {
+	if g == nil || g.display == nil || fn == nil {
+		return
+	}
+	g.display.Dispatcher().Off(evt, fn)
+}
+
+// Emit dispatches an event from the underlying display object.
+func (g *GObject) Emit(evt laya.EventType, data any) {
+	if g == nil || g.display == nil {
+		return
+	}
+	g.display.Dispatcher().Emit(evt, data)
+}
+
+// Grayed reports whether the object is displayed in a grayed state.
+func (g *GObject) Grayed() bool {
+	return g.grayed
+}
+
+// SetGrayed toggles the grayed state.
+func (g *GObject) SetGrayed(value bool) {
+	g.grayed = value
+}
+
+// SetColorFilter 记录颜色滤镜参数（用于 Transition 等场景）。
+func (g *GObject) SetColorFilter(r, gFactor, b, a float64) {
+	g.colorFilter = [4]float64{r, gFactor, b, a}
+	g.colorFilterEnabled = true
+}
+
+// ClearColorFilter 移除当前颜色滤镜。
+func (g *GObject) ClearColorFilter() {
+	g.colorFilter = [4]float64{}
+	g.colorFilterEnabled = false
+}
+
+// ColorFilter 返回颜色滤镜参数及是否启用。
+func (g *GObject) ColorFilter() (enabled bool, values [4]float64) {
+	return g.colorFilterEnabled, g.colorFilter
+}
+
 // X returns the local X position.
 func (g *GObject) X() float64 {
 	return g.x
@@ -201,6 +339,309 @@ func (g *GObject) Height() float64 {
 	return g.height
 }
 
+// ParentSize reports the dimensions of the parent component, when available.
+func (g *GObject) ParentSize() (float64, float64) {
+	if g == nil || g.parent == nil {
+		return 0, 0
+	}
+	return g.parent.Width(), g.parent.Height()
+}
+
+// RawWidth returns the unclamped width recorded during the last SetSize call.
+func (g *GObject) RawWidth() float64 {
+	return g.rawWidth
+}
+
+// RawHeight returns the unclamped height recorded during the last SetSize call.
+func (g *GObject) RawHeight() float64 {
+	return g.rawHeight
+}
+
+// SetSourceSize stores the design-time size declared by the package.
+func (g *GObject) SetSourceSize(width, height float64) {
+	g.sourceWidth = width
+	g.sourceHeight = height
+}
+
+// SourceSize returns the source width/height pair.
+func (g *GObject) SourceSize() (float64, float64) {
+	return g.sourceWidth, g.sourceHeight
+}
+
+// SourceWidth returns the stored source width.
+func (g *GObject) SourceWidth() float64 {
+	return g.sourceWidth
+}
+
+// SourceHeight returns the stored source height.
+func (g *GObject) SourceHeight() float64 {
+	return g.sourceHeight
+}
+
+// SetInitSize stores the initial size used when constructing the object.
+func (g *GObject) SetInitSize(width, height float64) {
+	g.initWidth = width
+	g.initHeight = height
+}
+
+// InitSize returns the stored initial width/height pair.
+func (g *GObject) InitSize() (float64, float64) {
+	return g.initWidth, g.initHeight
+}
+
+// InitWidth returns the stored initial width.
+func (g *GObject) InitWidth() float64 {
+	return g.initWidth
+}
+
+// InitHeight returns the stored initial height.
+func (g *GObject) InitHeight() float64 {
+	return g.initHeight
+}
+
+func (g *GObject) ensureProps() {
+	if g.props == nil {
+		g.props = make(map[gears.ObjectPropID]any)
+	}
+}
+
+// GetProp retrieves the property value referenced by the provided identifier.
+func (g *GObject) GetProp(id gears.ObjectPropID) any {
+	if g == nil {
+		return nil
+	}
+	data := g.Data()
+	switch id {
+	case gears.ObjectPropIDText:
+		switch v := data.(type) {
+		case textAccessor:
+			return v.Text()
+		case titleAccessor:
+			return v.Title()
+		}
+	case gears.ObjectPropIDIcon:
+		if v, ok := data.(iconAccessor); ok {
+			return v.Icon()
+		}
+	case gears.ObjectPropIDColor:
+		switch v := data.(type) {
+		case colorAccessor:
+			return v.Color()
+		case titleColorAccessor:
+			return v.TitleColor()
+		}
+	case gears.ObjectPropIDOutlineColor:
+		switch v := data.(type) {
+		case outlineColorAccessor:
+			return v.OutlineColor()
+		case titleOutlineColorAccessor:
+			return v.TitleOutlineColor()
+		}
+	case gears.ObjectPropIDFontSize:
+		switch v := data.(type) {
+		case fontSizeAccessor:
+			return v.FontSize()
+		case titleFontSizeAccessor:
+			return v.TitleFontSize()
+		}
+	case gears.ObjectPropIDSelected:
+		if v, ok := data.(selectedAccessor); ok {
+			return v.Selected()
+		}
+	case gears.ObjectPropIDPlaying:
+		if v, ok := data.(playingAccessor); ok {
+			return v.Playing()
+		}
+	case gears.ObjectPropIDFrame:
+		switch v := data.(type) {
+		case frameAccessor:
+			return v.Frame()
+		}
+	case gears.ObjectPropIDTimeScale:
+		if v, ok := data.(timeScaleAccessor); ok {
+			return v.TimeScale()
+		}
+	case gears.ObjectPropIDDeltaTime:
+		if v, ok := data.(deltaTimeAccessor); ok {
+			return v.DeltaTime()
+		}
+	default:
+		return g.props[id]
+	}
+	if g.props != nil {
+		if val, ok := g.props[id]; ok {
+			return val
+		}
+	}
+	switch id {
+	case gears.ObjectPropIDText, gears.ObjectPropIDIcon, gears.ObjectPropIDColor, gears.ObjectPropIDOutlineColor:
+		return ""
+	case gears.ObjectPropIDSelected, gears.ObjectPropIDPlaying:
+		return false
+	case gears.ObjectPropIDFontSize, gears.ObjectPropIDFrame:
+		return 0
+	case gears.ObjectPropIDTimeScale:
+		return 1.0
+	case gears.ObjectPropIDDeltaTime:
+		return 0.0
+	default:
+		return nil
+	}
+}
+
+// SetProp updates the property referenced by the provided identifier.
+func (g *GObject) SetProp(id gears.ObjectPropID, value any) {
+	if g == nil {
+		return
+	}
+	g.ensureProps()
+	data := g.Data()
+	switch id {
+	case gears.ObjectPropIDText:
+		str := toString(value)
+		switch v := data.(type) {
+		case textAccessor:
+			v.SetText(str)
+		case titleAccessor:
+			v.SetTitle(str)
+		}
+		g.props[id] = str
+	case gears.ObjectPropIDIcon:
+		str := toString(value)
+		if v, ok := data.(iconAccessor); ok {
+			v.SetIcon(str)
+		}
+		g.props[id] = str
+	case gears.ObjectPropIDColor:
+		str := toString(value)
+		switch v := data.(type) {
+		case colorAccessor:
+			v.SetColor(str)
+		case titleColorAccessor:
+			v.SetTitleColor(str)
+		}
+		g.props[id] = str
+	case gears.ObjectPropIDOutlineColor:
+		str := toString(value)
+		switch v := data.(type) {
+		case outlineColorAccessor:
+			v.SetOutlineColor(str)
+		case titleOutlineColorAccessor:
+			v.SetTitleOutlineColor(str)
+		}
+		g.props[id] = str
+	case gears.ObjectPropIDFontSize:
+		size, ok := toInt(value)
+		if !ok {
+			size = 0
+		}
+		switch v := data.(type) {
+		case fontSizeAccessor:
+			v.SetFontSize(size)
+		case titleFontSizeAccessor:
+			v.SetTitleFontSize(size)
+		}
+		g.props[id] = size
+	case gears.ObjectPropIDSelected:
+		selected := toBool(value)
+		if v, ok := data.(selectedAccessor); ok {
+			v.SetSelected(selected)
+		}
+		g.props[id] = selected
+	case gears.ObjectPropIDPlaying:
+		playing := toBool(value)
+		if v, ok := data.(playingAccessor); ok {
+			v.SetPlaying(playing)
+		}
+		g.props[id] = playing
+	case gears.ObjectPropIDFrame:
+		frame, ok := toInt(value)
+		if !ok {
+			frame = 0
+		}
+		if v, ok := data.(frameAccessor); ok {
+			v.SetFrame(frame)
+		}
+		g.props[id] = frame
+	case gears.ObjectPropIDTimeScale:
+		scale, ok := toFloat(value)
+		if !ok {
+			scale = 1
+		}
+		if v, ok := data.(timeScaleAccessor); ok {
+			v.SetTimeScale(scale)
+		}
+		g.props[id] = scale
+	case gears.ObjectPropIDDeltaTime:
+		delta, ok := toFloat(value)
+		if !ok {
+			delta = 0
+		}
+		if v, ok := data.(deltaTimeAccessor); ok {
+			v.SetDeltaTime(delta)
+		}
+		g.props[id] = delta
+	default:
+		g.props[id] = value
+	}
+}
+
+func (g *GObject) applyShake(deltaX, deltaY float64) {
+	g.SetPosition(g.X()-g.shakeOffsetX+deltaX, g.Y()-g.shakeOffsetY+deltaY)
+	g.shakeOffsetX = deltaX
+	g.shakeOffsetY = deltaY
+}
+
+func (g *GObject) clearShake() {
+	if g.shakeOffsetX != 0 || g.shakeOffsetY != 0 {
+		g.SetPosition(g.X()-g.shakeOffsetX, g.Y()-g.shakeOffsetY)
+		g.shakeOffsetX = 0
+		g.shakeOffsetY = 0
+	}
+}
+
+func (g *GObject) xMin() float64 {
+	if g == nil {
+		return 0
+	}
+	if g.pivotAsAnchor {
+		return g.x - g.width*g.pivotX
+	}
+	return g.x
+}
+
+func (g *GObject) setXMin(value float64) {
+	if g == nil {
+		return
+	}
+	if g.pivotAsAnchor {
+		g.SetPosition(value+g.width*g.pivotX, g.y)
+	} else {
+		g.SetPosition(value, g.y)
+	}
+}
+
+func (g *GObject) yMin() float64 {
+	if g == nil {
+		return 0
+	}
+	if g.pivotAsAnchor {
+		return g.y - g.height*g.pivotY
+	}
+	return g.y
+}
+
+func (g *GObject) setYMin(value float64) {
+	if g == nil {
+		return
+	}
+	if g.pivotAsAnchor {
+		g.SetPosition(g.x, value+g.height*g.pivotY)
+	} else {
+		g.SetPosition(g.x, value)
+	}
+}
+
 // SetData assigns arbitrary user data to the object.
 func (g *GObject) SetData(value any) {
 	g.data = value
@@ -211,11 +652,136 @@ func (g *GObject) Data() any {
 	return g.data
 }
 
-// Visible reports whether the object is visible.
-func (g *GObject) Visible() bool {
-	return g.visible
+// Tooltips returns the tooltip text associated with this object.
+func (g *GObject) Tooltips() string {
+	if g == nil {
+		return ""
+	}
+	return g.tooltips
 }
 
+// SetTooltips updates the tooltip text stored on this object.
+func (g *GObject) SetTooltips(value string) {
+	if g == nil {
+		return
+	}
+	g.tooltips = value
+}
+
+// Group returns the group object that owns this node, if any.
+func (g *GObject) Group() *GObject {
+	if g == nil {
+		return nil
+	}
+	return g.group
+}
+
+// SetGroup assigns the group associated with this object.
+func (g *GObject) SetGroup(group *GObject) {
+	if g == nil {
+		return
+	}
+	g.group = group
+}
+
+// Relations returns the relation set associated with this object.
+func (g *GObject) Relations() *Relations {
+	if g == nil {
+		return nil
+	}
+	return g.relations
+}
+
+// AddRelation registers a relation between this object and the target one.
+func (g *GObject) AddRelation(target *GObject, relation RelationType, usePercent bool) {
+	if g == nil {
+		return
+	}
+	if g.relations == nil {
+		g.relations = NewRelations(g)
+	}
+	g.relations.Add(target, relation, usePercent)
+}
+
+// RemoveRelation removes the relation from this object to the target.
+func (g *GObject) RemoveRelation(target *GObject, relation RelationType) {
+	if g == nil || g.relations == nil {
+		return
+	}
+	g.relations.Remove(target, relation)
+}
+
+// RemoveRelations clears all relations referencing the target object.
+func (g *GObject) RemoveRelations(target *GObject) {
+	if g == nil || g.relations == nil {
+		return
+	}
+	g.relations.ClearFor(target)
+}
+
+func (g *GObject) addRelationDependent(item *RelationItem) {
+	if g == nil || item == nil {
+		return
+	}
+	g.dependents = append(g.dependents, item)
+}
+
+func (g *GObject) removeRelationDependent(item *RelationItem) {
+	if g == nil || item == nil {
+		return
+	}
+	for i, dep := range g.dependents {
+		if dep == item {
+			g.dependents = append(g.dependents[:i], g.dependents[i+1:]...)
+			break
+		}
+	}
+}
+
+func (g *GObject) notifyDependentsXY(dx, dy float64) {
+	if g == nil || len(g.dependents) == 0 || (dx == 0 && dy == 0) {
+		return
+	}
+	snapshot := append([]*RelationItem(nil), g.dependents...)
+	for _, dep := range snapshot {
+		if dep == nil || dep.owner == nil {
+			continue
+		}
+		if rel := dep.owner.Relations(); rel != nil && rel.handling == g {
+			continue
+		}
+		dep.onTargetXYChanged(dx, dy)
+	}
+}
+
+func (g *GObject) notifyDependentsSize(dw, dh float64) {
+	if g == nil || len(g.dependents) == 0 || (dw == 0 && dh == 0) {
+		return
+	}
+	snapshot := append([]*RelationItem(nil), g.dependents...)
+	for _, dep := range snapshot {
+		if dep == nil || dep.owner == nil {
+			continue
+		}
+		if rel := dep.owner.Relations(); rel != nil && rel.handling == g {
+			continue
+		}
+		dep.onTargetSizeChanged(dw, dh)
+	}
+}
+
+func (g *GObject) updateGearFromRelationsSafe(index int, dx, dy float64) {
+	if g == nil || index < 0 || index >= gears.SlotCount {
+		return
+	}
+	gear := g.gears[index]
+	if gear == nil {
+		return
+	}
+	gear.UpdateFromRelations(dx, dy)
+}
+
+// Visible reports whether the object is visible.
 func (g *GObject) refreshTransform() {
 	if g.display == nil {
 		return
@@ -227,4 +793,287 @@ func (g *GObject) refreshTransform() {
 		y -= g.pivotY * g.height
 	}
 	g.display.SetPosition(x, y)
+}
+
+// SetGearLocked toggles the guard that prevents recursive gear updates.
+func (g *GObject) SetGearLocked(locked bool) {
+	if g == nil {
+		return
+	}
+	g.gearLocked = locked
+}
+
+// GearLocked reports whether the object is currently suppressing gear updates.
+func (g *GObject) GearLocked() bool {
+	if g == nil {
+		return false
+	}
+	return g.gearLocked
+}
+
+// GetGear fetches (and lazily creates) the gear stored at the given index.
+func (g *GObject) GetGear(index int) gears.Gear {
+	if g == nil || index < 0 || index >= gears.SlotCount {
+		return nil
+	}
+	gear := g.gears[index]
+	if gear == nil {
+		gear = gears.Create(g, index)
+		if gear == nil {
+			return nil
+		}
+		g.gears[index] = gear
+		gear.UpdateState()
+	}
+	return gear
+}
+
+func (g *GObject) updateGear(index int) {
+	if g == nil || g.gearLocked || index < 0 || index >= gears.SlotCount {
+		return
+	}
+	if gear := g.gears[index]; gear != nil && gear.Controller() != nil {
+		gear.UpdateState()
+	}
+}
+
+// HandleControllerChanged applies the gear state associated with the specified controller.
+func (g *GObject) HandleControllerChanged(ctrl *Controller) {
+	if g == nil || ctrl == nil {
+		return
+	}
+	if g.handlingController {
+		return
+	}
+	g.handlingController = true
+	for _, gear := range g.gears {
+		if gear != nil && gear.Controller() == ctrl {
+			gear.Apply()
+		}
+	}
+	g.handlingController = false
+}
+
+// CheckGearController reports whether the specified gear slot is driven by the controller.
+func (g *GObject) CheckGearController(index int, ctrl *Controller) bool {
+	if g == nil || index < 0 || index >= gears.SlotCount || ctrl == nil {
+		return false
+	}
+	gear := g.gears[index]
+	return gear != nil && gear.Controller() == ctrl
+}
+
+type textAccessor interface {
+	Text() string
+	SetText(string)
+}
+
+type titleAccessor interface {
+	Title() string
+	SetTitle(string)
+}
+
+type iconAccessor interface {
+	Icon() string
+	SetIcon(string)
+}
+
+type colorAccessor interface {
+	Color() string
+	SetColor(string)
+}
+
+type outlineColorAccessor interface {
+	OutlineColor() string
+	SetOutlineColor(string)
+}
+
+type fontSizeAccessor interface {
+	FontSize() int
+	SetFontSize(int)
+}
+
+type titleColorAccessor interface {
+	TitleColor() string
+	SetTitleColor(string)
+}
+
+type titleOutlineColorAccessor interface {
+	TitleOutlineColor() string
+	SetTitleOutlineColor(string)
+}
+
+type titleFontSizeAccessor interface {
+	TitleFontSize() int
+	SetTitleFontSize(int)
+}
+
+type selectedAccessor interface {
+	Selected() bool
+	SetSelected(bool)
+}
+
+type playingAccessor interface {
+	Playing() bool
+	SetPlaying(bool)
+}
+
+type frameAccessor interface {
+	Frame() int
+	SetFrame(int)
+}
+
+type timeScaleAccessor interface {
+	TimeScale() float64
+	SetTimeScale(float64)
+}
+
+type deltaTimeAccessor interface {
+	DeltaTime() float64
+	SetDeltaTime(float64)
+}
+
+func toString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case *string:
+		if v != nil {
+			return *v
+		}
+	case fmt.Stringer:
+		return v.String()
+	case nil:
+		return ""
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
+}
+
+func toBool(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case *bool:
+		if v != nil {
+			return *v
+		}
+	case int:
+		return v != 0
+	case int32:
+		return v != 0
+	case int64:
+		return v != 0
+	case uint:
+		return v != 0
+	case uint32:
+		return v != 0
+	case uint64:
+		return v != 0
+	default:
+		return false
+	}
+	return false
+}
+
+func toInt(value any) (int, bool) {
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case int8:
+		return int(v), true
+	case int16:
+		return int(v), true
+	case int32:
+		return int(v), true
+	case int64:
+		return int(v), true
+	case uint:
+		return int(v), true
+	case uint8:
+		return int(v), true
+	case uint16:
+		return int(v), true
+	case uint32:
+		return int(v), true
+	case uint64:
+		return int(v), true
+	case float32:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case *int:
+		if v != nil {
+			return *v, true
+		}
+	case *int32:
+		if v != nil {
+			return int(*v), true
+		}
+	case *int64:
+		if v != nil {
+			return int(*v), true
+		}
+	default:
+		return 0, false
+	}
+	return 0, false
+}
+
+func toFloat(value any) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int8:
+		return float64(v), true
+	case int16:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case uint:
+		return float64(v), true
+	case uint8:
+		return float64(v), true
+	case uint16:
+		return float64(v), true
+	case uint32:
+		return float64(v), true
+	case uint64:
+		return float64(v), true
+	case string:
+		if v == "" {
+			return 0, false
+		}
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f, true
+		}
+	case *float64:
+		if v != nil {
+			return *v, true
+		}
+	case *float32:
+		if v != nil {
+			return float64(*v), true
+		}
+	case *int:
+		if v != nil {
+			return float64(*v), true
+		}
+	case *int32:
+		if v != nil {
+			return float64(*v), true
+		}
+	case *int64:
+		if v != nil {
+			return float64(*v), true
+		}
+	}
+	return 0, false
 }
