@@ -186,6 +186,9 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		} else if err := drawComponent(target, data.GComponent, atlas, combined, alpha); err != nil {
 			return err
 		}
+		if sprite := obj.DisplayObject(); sprite != nil {
+			sprite.SetMouseEnabled(true)
+		}
 	case *widgets.GLoader:
 		if err := renderLoader(target, data, atlas, combined, alpha); err != nil {
 			return err

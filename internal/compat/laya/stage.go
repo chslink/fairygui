@@ -1,6 +1,9 @@
 package laya
 
-import "time"
+import (
+	"log"
+	"time"
+)
 
 // PointerEvent describes pointer interaction dispatched through sprites.
 type PointerEvent struct {
@@ -88,6 +91,12 @@ func (s *Stage) Update(delta time.Duration, mouse MouseState) {
 	hit := s.hitTest(point)
 
 	if hit != s.hover {
+		if hit != nil {
+			w, h := hit.Size()
+			log.Printf("[stage] hover -> %s mouseEnabled=%t size=(%.1f,%.1f)", hit.Name(), hit.MouseEnabled(), w, h)
+		} else if s.hover != nil {
+			log.Printf("[stage] hover -> nil")
+		}
 		if s.hover != nil {
 			s.hover.EmitWithBubble(EventRollOut, PointerEvent{
 				Position: point,

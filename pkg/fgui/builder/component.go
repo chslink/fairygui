@@ -230,8 +230,7 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		widget.SetPackageItem(resolvedItem)
 		obj.SetData(widget)
 	case *widgets.GGroup:
-		obj = widget.GComponent.GObject
-		obj.SetData(widget)
+		obj = widget.GObject
 	case *widgets.GGraph:
 		obj = widget.GObject
 		obj.SetData(widget)
@@ -313,6 +312,10 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		default:
 			// unsupported widget types fall back to existing behaviour.
 		}
+	}
+
+	if child.Type == assets.ObjectTypeGroup {
+		obj.SetTouchable(false)
 	}
 
 	if loader, ok := obj.Data().(*widgets.GLoader); ok && loader != nil {
@@ -1587,8 +1590,6 @@ func extractComponent(obj *core.GObject) *core.GComponent {
 	case *widgets.GLabel:
 		return data.GComponent
 	case *widgets.GList:
-		return data.GComponent
-	case *widgets.GGroup:
 		return data.GComponent
 	default:
 		return nil

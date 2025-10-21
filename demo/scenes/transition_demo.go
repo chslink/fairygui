@@ -68,6 +68,7 @@ func (d *TransitionDemo) Load(ctx context.Context, mgr *Manager) (*core.GCompone
 		if buildErr != nil {
 			return nil, buildErr
 		}
+		target.GObject.SetData(target)
 		target.GObject.SetVisible(true)
 		target.GObject.SetTouchable(true)
 		d.targets[name] = target
@@ -106,8 +107,12 @@ func (d *TransitionDemo) Load(ctx context.Context, mgr *Manager) (*core.GCompone
 		if button == nil || target == nil {
 			return
 		}
-		button.On(laya.EventClick, func(laya.Event) {
-			log.Printf("[transition-demo] click %s -> %s", buttonName, targetName)
+		button.SetTouchable(true)
+		sprite := button.DisplayObject()
+		if sprite == nil || sprite.Dispatcher() == nil {
+			return
+		}
+		sprite.Dispatcher().On(laya.EventClick, func(evt laya.Event) {
 			d.playTarget(target, nil)
 		})
 	}
@@ -209,13 +214,15 @@ func (d *TransitionDemo) playTarget(target *core.GComponent, setup func(*core.GC
 	if target == nil || d.stage == nil {
 		return
 	}
-	log.Printf("[transition-demo] play target %s", target.Name())
+	log.Printf("[transition-demo] play target %s data=%T", target.Name(), target.GObject.Data())
 	d.stopCurrent(true)
 	d.current = target
 	if setup != nil {
 		setup(target)
 	}
+	d.logStageChildren("before-add")
 	d.stage.AddChild(target.GObject)
+	d.logStageChildren("after-add")
 	d.setButtonsEnabled(false)
 	duration := d.playTransition(target, "t0")
 	if d.finishTweener != nil {
@@ -284,6 +291,20 @@ func (d *TransitionDemo) setButtonsEnabled(enabled bool) {
 		}
 		btn.SetTouchable(enabled)
 		btn.SetVisible(enabled)
+	}
+}
+
+func (d *TransitionDemo) logStageChildren(tag string) {
+	if d.stage == nil {
+		return
+	}
+	children := d.stage.Children()
+	log.Printf("[transition-demo] stage %s children=%d", tag, len(children))
+	for i, child := range children {
+		if child == nil {
+			continue
+		}
+		log.Printf("[transition-demo] stage %s child[%d] name=%s data=%T visible=%t pos=(%.1f,%.1f) size=(%.1f,%.1f)", tag, i, child.Name(), child.Data(), child.Visible(), child.X(), child.Y(), child.Width(), child.Height())
 	}
 }
 
