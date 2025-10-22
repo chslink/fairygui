@@ -44,5 +44,8 @@ func (env *StageEnv) FlushScheduler(delta time.Duration) {
 
 // StageMouse returns the last mouse state applied to the stage.
 func (env *StageEnv) StageMouse() laya.MouseState {
-	return env.lastMouse
+	state := env.lastMouse
+	state.WheelX = 0
+	state.WheelY = 0
+	return state
 }

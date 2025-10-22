@@ -24,6 +24,12 @@ func CreateWidget(meta *assets.ComponentChild) interface{} {
 		return NewList()
 	case assets.ObjectTypeLabel:
 		return NewLabel()
+	case assets.ObjectTypeProgressBar:
+		return NewProgressBar()
+	case assets.ObjectTypeSlider:
+		return NewSlider()
+	case assets.ObjectTypeScrollBar:
+		return NewScrollBar()
 	default:
 		return nil
 	}
@@ -51,6 +57,12 @@ func CreateWidgetFromPackage(item *assets.PackageItem) interface{} {
 		return NewGroup()
 	case assets.ObjectTypeText, assets.ObjectTypeRichText:
 		return NewText()
+	case assets.ObjectTypeProgressBar:
+		return NewProgressBar()
+	case assets.ObjectTypeSlider:
+		return NewSlider()
+	case assets.ObjectTypeScrollBar:
+		return NewScrollBar()
 	default:
 		return nil
 	}

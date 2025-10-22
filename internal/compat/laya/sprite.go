@@ -20,6 +20,7 @@ type Sprite struct {
 	width         float64
 	height        float64
 	pivot         Point // normalized (0-1) pivot factors
+	scrollRect    *Rect
 	pivotAsAnchor bool
 	pivotOffset   Point
 	skewX         float64
@@ -164,6 +165,25 @@ func (s *Sprite) MouseEnabled() bool {
 // SetMouseEnabled toggles participation in hit testing for this sprite.
 func (s *Sprite) SetMouseEnabled(enabled bool) {
 	s.mouseEnabled = enabled
+}
+
+// SetScrollRect defines the clipping rectangle applied to this sprite.
+func (s *Sprite) SetScrollRect(rect *Rect) {
+	if rect == nil {
+		s.scrollRect = nil
+		return
+	}
+	copy := *rect
+	s.scrollRect = &copy
+}
+
+// ScrollRect returns a copy of the sprite's clipping rectangle, if any.
+func (s *Sprite) ScrollRect() *Rect {
+	if s.scrollRect == nil {
+		return nil
+	}
+	copy := *s.scrollRect
+	return &copy
 }
 
 // Dispatcher exposes the internal event dispatcher.
@@ -412,17 +432,28 @@ func (s *Sprite) HitTest(global Point) *Sprite {
 	if !s.visible {
 		return nil
 	}
+	local := s.GlobalToLocal(global)
+	if rect := s.scrollRect; rect != nil {
+		right := rect.X + rect.W
+		bottom := rect.Y + rect.H
+		if rect.W <= 0 || rect.H <= 0 ||
+			local.X < rect.X || local.X > right ||
+			local.Y < rect.Y || local.Y > bottom {
+			return nil
+		}
+	}
 	for i := len(s.children) - 1; i >= 0; i-- {
 		if hit := s.children[i].HitTest(global); hit != nil {
 			return hit
 		}
 	}
-	if s.width == 0 && s.height == 0 {
-		return nil
-	}
-	local := s.GlobalToLocal(global)
-	if local.X < 0 || local.Y < 0 || local.X > s.width || local.Y > s.height {
-		return nil
+	if s.scrollRect == nil {
+		if s.width == 0 && s.height == 0 {
+			return nil
+		}
+		if local.X < 0 || local.Y < 0 || local.X > s.width || local.Y > s.height {
+			return nil
+		}
 	}
 	if s.hitTester != nil && !s.hitTester(local.X, local.Y) {
 		return nil

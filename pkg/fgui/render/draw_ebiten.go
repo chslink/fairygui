@@ -5,7 +5,6 @@ package render
 import (
 	"errors"
 	"fmt"
-	"image"
 	"image/color"
 	"log"
 	"math"
@@ -14,16 +13,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/text"
-	"github.com/hajimehoshi/ebiten/v2/vector"
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/basicfont"
-	"golang.org/x/image/math/fixed"
-
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
 )
 
 var (
@@ -148,13 +144,13 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		}
 	case string:
 		if data != "" {
-			if err := drawTextImage(target, combined, nil, data, alpha, obj.Width(), obj.Height()); err != nil {
+			if err := drawTextImage(target, combined, nil, data, alpha, obj.Width(), obj.Height(), atlas); err != nil {
 				return err
 			}
 		}
 	case *widgets.GTextField:
 		if textValue := data.Text(); textValue != "" {
-			if err := drawTextImage(target, combined, data, textValue, alpha, obj.Width(), obj.Height()); err != nil {
+			if err := drawTextImage(target, combined, data, textValue, alpha, obj.Width(), obj.Height(), atlas); err != nil {
 				return err
 			}
 		}
@@ -174,7 +170,7 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			}
 		}
 		if textValue := data.Title(); textValue != "" {
-			if err := drawTextImage(target, textMatrix, nil, textValue, alpha, obj.Width(), obj.Height()); err != nil {
+			if err := drawTextImage(target, textMatrix, nil, textValue, alpha, obj.Width(), obj.Height(), atlas); err != nil {
 				return err
 			}
 		}
@@ -368,150 +364,6 @@ func applyAlpha(src *color.NRGBA, alpha float64) color.NRGBA {
 	out := *src
 	out.A = uint8(math.Round(float64(out.A) * alpha))
 	return out
-}
-
-func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextField, value string, alpha float64, width, height float64) error {
-	if strings.TrimSpace(value) == "" {
-		return nil
-	}
-	face := selectFontFace(field)
-	lines := strings.Split(value, "\n")
-	metrics := face.Metrics()
-	ascent := metrics.Ascent.Ceil()
-	descent := metrics.Descent.Ceil()
-	lineHeight := ascent + descent
-	if lineHeight <= 0 {
-		lineHeight = metrics.Height.Ceil()
-	}
-	if lineHeight <= 0 {
-		lineHeight = 1
-	}
-	letterSpacing := 0
-	leading := 0
-	align := widgets.TextAlignLeft
-	valign := widgets.TextVerticalAlignTop
-	col := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
-	if field != nil {
-		if v := parseColor(field.Color()); v != nil {
-			col = *v
-		}
-		if field.FontSize() > 0 {
-			if sized := fontFaceForSize(field.FontSize()); sized != nil {
-				face = sized
-				metrics = face.Metrics()
-				ascent = metrics.Ascent.Ceil()
-				descent = metrics.Descent.Ceil()
-				lineHeight = ascent + descent
-				if lineHeight <= 0 {
-					lineHeight = metrics.Height.Ceil()
-				}
-				if lineHeight <= 0 {
-					lineHeight = 1
-				}
-			}
-		}
-		if field.LetterSpacing() != 0 {
-			letterSpacing = field.LetterSpacing()
-		}
-		if field.Leading() != 0 {
-			leading = field.Leading()
-		}
-		align = field.Align()
-		valign = field.VerticalAlign()
-	}
-	maxWidth := 0.0
-	for _, line := range lines {
-		bound := text.BoundString(face, line)
-		lineWidth := float64(bound.Dx())
-		if letterSpacing != 0 && len(line) > 1 {
-			lineWidth += float64(letterSpacing * (len(line) - 1))
-		}
-		if lineWidth > maxWidth {
-			maxWidth = lineWidth
-		}
-	}
-	if len(lines) == 0 {
-		lines = []string{""}
-	}
-	lineHeightWithLeading := lineHeight + leading
-	textHeight := float64(lineHeight) + float64(lineHeightWithLeading-lineHeight)*(math.Max(0, float64(len(lines)-1)))
-	if width <= 0 {
-		width = maxWidth
-	}
-	if height <= 0 {
-		height = textHeight
-	}
-	imgW := int(math.Ceil(width))
-	imgH := int(math.Ceil(height))
-	if imgW <= 0 {
-		imgW = int(math.Max(1, maxWidth))
-	}
-	if imgW <= 0 {
-		imgW = 1
-	}
-	if imgH <= 0 {
-		imgH = int(math.Max(1, textHeight))
-	}
-	if imgH <= 0 {
-		imgH = 1
-	}
-	textImg := ebiten.NewImage(imgW, imgH)
-	startY := 0.0
-	if valign == widgets.TextVerticalAlignMiddle {
-		startY = (float64(imgH) - textHeight) / 2
-	} else if valign == widgets.TextVerticalAlignBottom {
-		startY = float64(imgH) - textHeight
-	}
-	if startY < 0 {
-		startY = 0
-	}
-	drawer := font.Drawer{
-		Dst:  textImg,
-		Src:  image.NewUniform(col),
-		Face: face,
-	}
-	for idx, line := range lines {
-		bound := text.BoundString(face, line)
-		lineWidth := float64(bound.Dx())
-		if letterSpacing != 0 && len(line) > 1 {
-			lineWidth += float64(letterSpacing * (len(line) - 1))
-		}
-		startX := 0.0
-		switch align {
-		case widgets.TextAlignCenter:
-			startX = (float64(imgW) - lineWidth) / 2
-		case widgets.TextAlignRight:
-			startX = float64(imgW) - lineWidth
-		default:
-			startX = 0
-		}
-		if startX < 0 {
-			startX = 0
-		}
-		y := startY + float64(idx)*float64(lineHeightWithLeading) + float64(ascent)
-		drawer.Dot = fixed.Point26_6{
-			X: fixed.Int26_6(startX * 64),
-			Y: fixed.Int26_6(y * 64),
-		}
-		if letterSpacing == 0 {
-			drawer.DrawString(line)
-			continue
-		}
-		spacing := fixed.I(letterSpacing)
-		runes := []rune(line)
-		for i, r := range runes {
-			drawer.DrawString(string(r))
-			if i != len(runes)-1 {
-				drawer.Dot.X += spacing
-			}
-		}
-	}
-	opts := &ebiten.DrawImageOptions{GeoM: geo}
-	if alpha < 1 {
-		opts.ColorM.Scale(1, 1, 1, alpha)
-	}
-	target.DrawImage(textImg, opts)
-	return nil
 }
 
 func selectFontFace(field *widgets.GTextField) font.Face {

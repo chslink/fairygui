@@ -106,6 +106,35 @@ func TestStageMouseEvents(t *testing.T) {
 	}
 }
 
+func TestStageMouseWheel(t *testing.T) {
+	env := testutil.NewStageEnv(t, 200, 200)
+	stage := env.Stage
+
+	child := laya.NewSprite()
+	child.SetSize(100, 100)
+	stage.AddChild(child)
+
+	count := 0
+	child.Dispatcher().On(laya.EventMouseWheel, func(evt laya.Event) {
+		count++
+		pe, ok := evt.Data.(laya.PointerEvent)
+		if !ok {
+			t.Fatalf("expected PointerEvent payload")
+		}
+		if pe.Target != child {
+			t.Fatalf("expected wheel target child, got %v", pe.Target)
+		}
+		if pe.WheelY != -1 {
+			t.Fatalf("expected WheelY=-1, got %v", pe.WheelY)
+		}
+	})
+
+	env.Advance(time.Millisecond*16, laya.MouseState{X: 50, Y: 50, WheelY: -1})
+	if count != 1 {
+		t.Fatalf("expected wheel event once, got %d", count)
+	}
+}
+
 func TestSpritePivotRotationBounds(t *testing.T) {
 	sprite := laya.NewSprite()
 	sprite.SetSize(100, 50)
@@ -201,6 +230,28 @@ func TestSpriteMouseEnabled(t *testing.T) {
 	child.SetMouseEnabled(true)
 	if hit := parent.HitTest(laya.Point{X: 20, Y: 20}); hit != child {
 		t.Fatalf("expected child hit after re-enabling, got %v", hit)
+	}
+}
+
+func TestSpriteScrollRectHitTest(t *testing.T) {
+	parent := laya.NewSprite()
+	parent.SetSize(200, 200)
+	child := laya.NewSprite()
+	child.SetSize(80, 80)
+	child.SetPosition(120, 120)
+	parent.AddChild(child)
+
+	if hit := parent.HitTest(laya.Point{X: 150, Y: 150}); hit != child {
+		t.Fatalf("expected child hit before applying scrollRect, got %v", hit)
+	}
+
+	parent.SetScrollRect(&laya.Rect{X: 0, Y: 0, W: 100, H: 100})
+
+	if hit := parent.HitTest(laya.Point{X: 150, Y: 150}); hit != nil {
+		t.Fatalf("expected miss outside scrollRect, got %v", hit)
+	}
+	if hit := parent.HitTest(laya.Point{X: 50, Y: 50}); hit != parent {
+		t.Fatalf("expected parent hit inside scrollRect, got %v", hit)
 	}
 }
 

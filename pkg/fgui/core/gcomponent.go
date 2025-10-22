@@ -1,8 +1,15 @@
 package core
 
+import (
+	"github.com/chslink/fairygui/internal/compat/laya"
+	"github.com/chslink/fairygui/pkg/fgui/utils"
+)
+
 // GComponent is a container object capable of holding child objects.
 type GComponent struct {
 	*GObject
+	container       *laya.Sprite
+	scrollPane      *ScrollPane
 	children        []*GObject
 	controllers     []*Controller
 	opaque          bool
@@ -38,9 +45,118 @@ type HitTest struct {
 // NewGComponent constructs an empty UI component.
 func NewGComponent() *GComponent {
 	base := NewGObject()
-	return &GComponent{
-		GObject: base,
-		hitTest: HitTest{Mode: HitTestModeNone},
+	comp := &GComponent{
+		GObject:   base,
+		container: base.DisplayObject(),
+		hitTest:   HitTest{Mode: HitTestModeNone},
+	}
+	base.SetData(comp)
+	return comp
+}
+
+func (c *GComponent) childContainer() *laya.Sprite {
+	if c == nil {
+		return nil
+	}
+	if c.container == nil {
+		c.container = c.DisplayObject()
+	}
+	return c.container
+}
+
+func (c *GComponent) ensureContainer() *laya.Sprite {
+	if c == nil {
+		return nil
+	}
+	display := c.DisplayObject()
+	if c.container == nil {
+		c.container = display
+		return c.container
+	}
+	if c.container != display || display == nil {
+		return c.container
+	}
+	newContainer := laya.NewSprite()
+	newContainer.SetOwner(c)
+	children := display.Children()
+	for _, child := range children {
+		display.RemoveChild(child)
+		newContainer.AddChild(child)
+	}
+	display.AddChild(newContainer)
+	c.container = newContainer
+	return c.container
+}
+
+// Container returns the internal display container holding child sprites。
+func (c *GComponent) Container() *laya.Sprite {
+	return c.childContainer()
+}
+
+// EnsureContainer guarantees the component uses a dedicated child container and returns it。
+func (c *GComponent) EnsureContainer() *laya.Sprite {
+	return c.ensureContainer()
+}
+
+// SetupScroll parses scroll pane配置并绑定到组件上。
+func (c *GComponent) SetupScroll(buf *utils.ByteBuffer) {
+	if c == nil || buf == nil {
+		return
+	}
+	scrollTypeValue := int(buf.ReadByte())
+	scrollBarDisplay := int(buf.ReadByte())
+	flags := buf.ReadInt32()
+	if buf.ReadBool() {
+		_ = buf.ReadInt32()
+		_ = buf.ReadInt32()
+		_ = buf.ReadInt32()
+		_ = buf.ReadInt32()
+	}
+	_ = buf.ReadS()
+	_ = buf.ReadS()
+	_ = buf.ReadS()
+	_ = buf.ReadS()
+
+	mode := ScrollTypeBoth
+	switch scrollTypeValue {
+	case int(ScrollTypeHorizontal):
+		mode = ScrollTypeHorizontal
+	case int(ScrollTypeVertical):
+		mode = ScrollTypeVertical
+	}
+	pane := c.EnsureScrollPane(mode)
+	if pane == nil {
+		return
+	}
+	pane.SetMouseWheelEnabled(scrollBarDisplay != int(ScrollBarDisplayHidden))
+	if flags&2 != 0 {
+		pane.snapToItem = true
+	}
+	if flags&8 != 0 {
+		pane.pageMode = true
+		pane.pageSize = laya.Point{}
+	}
+	if flags&16 != 0 {
+		pane.touchEffect = true
+	} else if flags&32 != 0 {
+		pane.touchEffect = false
+	}
+	if flags&256 != 0 {
+		pane.inertiaDisabled = true
+	}
+	pane.OnOwnerSizeChanged()
+}
+
+// SetSize overrides GObject.SetSize to同步滚动视图。
+func (c *GComponent) SetSize(width, height float64) {
+	if c == nil {
+		return
+	}
+	oldWidth := c.Width()
+	oldHeight := c.Height()
+	c.GObject.SetSize(width, height)
+	if c.scrollPane != nil && (width != oldWidth || height != oldHeight) {
+		c.scrollPane.OnOwnerSizeChanged()
 	}
 }
 
@@ -66,8 +182,8 @@ func (c *GComponent) AddChildAt(child *GObject, index int) {
 	c.children = append(c.children, nil)
 	copy(c.children[index+1:], c.children[index:])
 	c.children[index] = child
-	if c.DisplayObject() != nil && child.DisplayObject() != nil {
-		c.DisplayObject().AddChild(child.DisplayObject())
+	if container := c.childContainer(); container != nil && child.DisplayObject() != nil {
+		container.AddChild(child.DisplayObject())
 	}
 	for _, ctrl := range c.controllers {
 		if ctrl != nil {
@@ -93,8 +209,8 @@ func (c *GComponent) RemoveChildAt(index int) {
 	}
 	child := c.children[index]
 	child.parent = nil
-	if c.DisplayObject() != nil && child.DisplayObject() != nil {
-		c.DisplayObject().RemoveChild(child.DisplayObject())
+	if container := c.childContainer(); container != nil && child.DisplayObject() != nil {
+		container.RemoveChild(child.DisplayObject())
 	}
 	copy(c.children[index:], c.children[index+1:])
 	c.children = c.children[:len(c.children)-1]
@@ -207,12 +323,12 @@ func (c *GComponent) upsertTransition(index int, info TransitionInfo) {
 
 // ControllerByName looks up a controller with the given name.
 func (c *GComponent) ControllerByName(name string) *Controller {
- for _, ctrl := range c.controllers {
-  if ctrl != nil && ctrl.Name == name {
-   return ctrl
-  }
- }
- return nil
+	for _, ctrl := range c.controllers {
+		if ctrl != nil && ctrl.Name == name {
+			return ctrl
+		}
+	}
+	return nil
 }
 
 // ControllerAt returns the controller at the provided index.

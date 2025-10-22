@@ -420,7 +420,7 @@ func parseComponentData(item *PackageItem) {
 		cd.Margin.Right = int(buf.ReadInt32())
 	}
 
-	cd.Overflow = buf.ReadUint8()
+	cd.Overflow = OverflowType(buf.ReadUint8())
 
 	if buf.ReadBool() {
 		_ = buf.Skip(8)

@@ -176,6 +176,45 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			f.applyButtonTemplate(ctx, widget, pkg, owner, resolvedItem)
 		}
 		obj = widget.GComponent.GObject
+		if obj != nil && (obj.Width() == 0 || obj.Height() == 0) {
+			if tpl := widget.TemplateComponent(); tpl != nil {
+				width := tpl.Width()
+				height := tpl.Height()
+				if width <= 0 {
+					width = tpl.GObject.Width()
+				}
+				if height <= 0 {
+					height = tpl.GObject.Height()
+				}
+				if width <= 0 {
+					width = obj.Width()
+				}
+				if height <= 0 {
+					height = obj.Height()
+				}
+				if width > 0 || height > 0 {
+					obj.SetSize(width, height)
+				}
+			} else if resolvedItem != nil && resolvedItem.Component != nil {
+				width := float64(resolvedItem.Component.InitWidth)
+				height := float64(resolvedItem.Component.InitHeight)
+				if width <= 0 {
+					width = float64(resolvedItem.Component.SourceWidth)
+				}
+				if height <= 0 {
+					height = float64(resolvedItem.Component.SourceHeight)
+				}
+				if width <= 0 {
+					width = obj.Width()
+				}
+				if height <= 0 {
+					height = obj.Height()
+				}
+				if width > 0 || height > 0 {
+					obj.SetSize(width, height)
+				}
+			}
+		}
 		resource := child.Src
 		if resource == "" {
 			resource = child.Data

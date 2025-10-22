@@ -1,6 +1,10 @@
 package widgets
 
-import "github.com/chslink/fairygui/pkg/fgui/core"
+import (
+	"math"
+
+	"github.com/chslink/fairygui/pkg/fgui/core"
+)
 
 // GTextField is a minimal text widget.
 type TextAlign string
@@ -31,24 +35,34 @@ const (
 // GTextField is a minimal text widget.
 type GTextField struct {
 	*core.GObject
-	text         string
-	color        string
-	outlineColor string
-	fontSize     int
-	font         string
-	align        TextAlign
-	vertical     TextVerticalAlign
-	autoSize     TextAutoSize
-	singleLine   bool
-	underline    bool
-	italic       bool
-	bold         bool
-	letterSpace  int
-	leading      int
-	strokeSize   float64
-	strokeColor  string
-	ubbEnabled   bool
-	templateVars bool
+	text           string
+	color          string
+	outlineColor   string
+	fontSize       int
+	font           string
+	align          TextAlign
+	vertical       TextVerticalAlign
+	autoSize       TextAutoSize
+	singleLine     bool
+	underline      bool
+	italic         bool
+	bold           bool
+	letterSpace    int
+	leading        int
+	strokeSize     float64
+	strokeColor    string
+	ubbEnabled     bool
+	templateVars   bool
+	shadowColor    string
+	shadowOffsetX  float64
+	shadowOffsetY  float64
+	shadowBlur     float64
+	widthAutoSize  bool
+	heightAutoSize bool
+	layoutWidth    float64
+	layoutHeight   float64
+	textWidth      float64
+	textHeight     float64
 }
 
 // NewText creates a new text field widget.
@@ -59,6 +73,8 @@ func NewText() *GTextField {
 	field.align = TextAlignLeft
 	field.vertical = TextVerticalAlignTop
 	field.autoSize = TextAutoSizeBoth
+	field.widthAutoSize = true
+	field.heightAutoSize = true
 	field.GObject.SetData(field)
 	return field
 }
@@ -142,6 +158,9 @@ func (t *GTextField) VerticalAlign() TextVerticalAlign {
 // SetAutoSize configures the autosize behaviour.
 func (t *GTextField) SetAutoSize(value TextAutoSize) {
 	t.autoSize = value
+	t.widthAutoSize = value == TextAutoSizeBoth
+	t.heightAutoSize = value == TextAutoSizeBoth || value == TextAutoSizeHeight
+	t.applyAutoSize()
 }
 
 // AutoSize returns the stored autosize mode.
@@ -239,6 +258,29 @@ func (t *GTextField) UBBEnabled() bool {
 	return t.ubbEnabled
 }
 
+// SetShadow configures drop-shadow styling.
+func (t *GTextField) SetShadow(color string, offsetX, offsetY, blur float64) {
+	t.shadowColor = color
+	t.shadowOffsetX = offsetX
+	t.shadowOffsetY = offsetY
+	t.shadowBlur = blur
+}
+
+// ShadowColor returns the configured drop-shadow colour.
+func (t *GTextField) ShadowColor() string {
+	return t.shadowColor
+}
+
+// ShadowOffset returns the drop-shadow offset in pixels.
+func (t *GTextField) ShadowOffset() (float64, float64) {
+	return t.shadowOffsetX, t.shadowOffsetY
+}
+
+// ShadowBlur returns the configured blur radius.
+func (t *GTextField) ShadowBlur() float64 {
+	return t.shadowBlur
+}
+
 // SetTemplateVarsEnabled records whether template variables are active.
 func (t *GTextField) SetTemplateVarsEnabled(value bool) {
 	t.templateVars = value
@@ -247,4 +289,72 @@ func (t *GTextField) SetTemplateVarsEnabled(value bool) {
 // TemplateVarsEnabled reports template variable usage.
 func (t *GTextField) TemplateVarsEnabled() bool {
 	return t.templateVars
+}
+
+// UpdateLayoutMetrics stores the measured layout dimensions and applies auto-size rules.
+func (t *GTextField) UpdateLayoutMetrics(layoutWidth, layoutHeight, textWidth, textHeight float64) {
+	if t == nil || t.GObject == nil {
+		return
+	}
+	if math.IsNaN(layoutWidth) || math.IsInf(layoutWidth, 0) {
+		layoutWidth = 0
+	}
+	if math.IsNaN(layoutHeight) || math.IsInf(layoutHeight, 0) {
+		layoutHeight = 0
+	}
+	if layoutWidth < 0 {
+		layoutWidth = 0
+	}
+	if layoutHeight < 0 {
+		layoutHeight = 0
+	}
+	t.layoutWidth = layoutWidth
+	t.layoutHeight = layoutHeight
+	if textWidth < 0 {
+		textWidth = 0
+	}
+	if textHeight < 0 {
+		textHeight = 0
+	}
+	t.textWidth = textWidth
+	t.textHeight = textHeight
+	t.applyAutoSize()
+}
+
+// TextWidth returns the latest measured text width.
+func (t *GTextField) TextWidth() float64 {
+	return t.textWidth
+}
+
+// TextHeight returns the latest measured text height.
+func (t *GTextField) TextHeight() float64 {
+	return t.textHeight
+}
+
+func (t *GTextField) applyAutoSize() {
+	if t == nil || t.GObject == nil {
+		return
+	}
+	currentWidth := t.GObject.Width()
+	currentHeight := t.GObject.Height()
+
+	targetWidth := currentWidth
+	targetHeight := currentHeight
+
+	if t.widthAutoSize && t.layoutWidth > 0 {
+		targetWidth = t.layoutWidth
+	}
+	if t.heightAutoSize && t.layoutHeight > 0 {
+		targetHeight = t.layoutHeight
+	}
+
+	if !almostEqual(targetWidth, currentWidth) || !almostEqual(targetHeight, currentHeight) {
+		t.GObject.SetSize(targetWidth, targetHeight)
+	}
+}
+
+func almostEqual(a, b float64) bool {
+	const epsilon = 0.5
+	diff := math.Abs(a - b)
+	return diff <= epsilon
 }

@@ -79,3 +79,59 @@
 1. 补齐 `GList` 多选场景下的 SHIFT/CTRL 输入、区间选择与虚拟列表适配，规划跨包滚动交互方案。
 2. 将列表选中状态与 Button/Item 可视状态、gear 同步，补充渲染与交互测试矩阵。
 3. 将 mask 与 pixel hit-test 贯穿到 Ebiten 渲染阶段，实现遮罩裁剪与反向遮罩绘制。
+
+## 2025-10-24
+- [x] `widgets.GTextField` 补齐字号、颜色、字距、行距、水平/垂直对齐、描边占位等样式字段，`drawTextImage` 现按样式生成缓存贴图并复用系统字体缓存。
+- [x] 系统字体加载新增缓存索引，同字体多字号复用 `font.Face`，避免重复解析并方便按钮/标签共享字体。
+- [x] Builder `applyTextFieldSettings`/`applyLabelTemplate` 统一处理按钮标题与模板文本，保证 Transition Demo 内按钮标题样式正确落地。
+- [x] `widgets.GButton` 新增 `updateVisualState`，根据 hover/pressed/disabled/selected 切页以驱动控制器状态，恢复按钮悬浮与按下视觉反馈。
+- [x] 建立 BitmapFont 渲染管线：解析 `.fnt` 包内字体，注册到渲染字体表，`drawBitmapFont` 负责字形拼接与对齐，Demo 中数字字体可正确显示。
+- [x] 清理 Demo 层级的临时文本调试输出，确保只通过 FairyGUI 文本系统渲染。
+- [x] ScrollPane 栈初步落地：`GComponent` 拆分容器并接入 `core.ScrollPane`，兼容 Laya scrollRect 裁剪与滚轮输入，Builder 解析 overflow=Scroll/Hidden 配置并同步视口、内容尺寸。
+- [x] 新增 `widgets.GProgressBar/GSlider/GScrollBar`，Builder 解析模板与实例数据并绑定 ScrollPane；滚动条同步滚动监听，滑杆/进度条支持标题样式与拖拽交互。
+
+### Upcoming Focus（2025-10-24）
+1. 修复 Transition Demo「Play5」内 BitmapFont 与系统字体重复渲染问题，排查模板/控制器是否触发双重绘制。
+2. 调整 Transition 动画起始帧逻辑，解决首次播放时特效贴图延迟出现的情况，并补充保护性测试。
+3. 为 `drawTextImage` 与 `drawBitmapFont` 编写表驱动单测，覆盖对齐、字距/行距、多字号与中英文混排。
+4. 扩展按钮状态映射，兼容 FairyGUI 项目中自定义命名页（如 `down2/over2`），并回归主要场景。
+5. 补齐 ScrollPane 拖拽/分页/滚动条交互，并与 List、虚拟列表联动验证。
+
+## 2025-10-25
+- [x] 回归 Transition Demo，确认按钮点击/状态切换逻辑正常触发，定位 Play5 场景位图字体重复与首帧贴图延迟的剩余问题。
+- [x] 回归 Basics 场景，验证新接入的 ProgressBar/Slider/ScrollBar，记录按钮模板尺寸异常与子 Demo 尚未实现的差距。
+- [x] 梳理现有控件单测与 Demo 输出来匹配 TS 行为，为后续排期整理优先级。
+
+### Upcoming Focus（2025-10-25）
+1. 优先修复 Basics 场景按钮模板尺寸/布局，补齐各子 Demo（窗口、弹出、拖拽等）交互以对齐 Laya 版本。
+2. 排查 Transition.Play5 位图字体重复绘制与初始贴图延迟，补充 BitmapFont 渲染表驱动单测覆盖字距/对齐。
+3. 扩展按钮/控制器状态映射，支持自定义命名页（down2/over2 等），并在主 Demo 场景回归验证。
+4. 强化 ScrollPane 拖拽、分页、滚动条联动测试，覆盖 List/VirtualList 等组合场景。
+5. 跟进 `GTextField` 高级样式（描边、阴影、UBB）与富文本渲染计划，规划拆解与依赖。
+
+## 2025-10-26
+- [x] 扩展 `widgets.GTextField` 字段，新增阴影参数缓存与访问器，Builder 解析 shadow 配置并下发；补齐模板到渲染完整链路。
+- [x] 新增 `internal/text.ParseUBB`，实现颜色/字体/字号/粗斜体/下划线/url 等基础标签解析，输出段落样式切片。
+- [x] 重写 Ebiten 渲染侧文本管线，支持多段字体/字号混排、描边、阴影、加粗、下划线，系统/位图字体共存并按对齐、行距、字距布局。
+- [x] 修订文本贴图尺寸计算，引入效果 padding，避免描边与阴影被裁剪；按钮/标签文本现按 FairyGUI 样式绘制。
+- [x] 添加 UBB 解析表驱动单测及文字布局单测（`-tags ebiten`），保障跨段落 letterSpacing 计算与换行拆分。
+- [x] 打通 `GTextField` AutoSize 流程：渲染测量结果回写 widget，Both/Height 模式自动刷新 `GObject` 尺寸并暴露 `TextWidth/TextHeight`。
+
+### Upcoming Focus（2025-10-26）
+1. 完善 Italic 倾斜与字体描边厚度映射，实现与 TS 版本一致的倾斜矩阵与 stroke 扩散模型。
+2. 补齐 GTextField AutoSize 行为（尺寸回写 GObject）、UBB 高级标签（img/url callback）与 RichText 交互。
+3. 结合 Demo 场景回归验证阴影/描边效果，排查 Basics/Transition 场景中文本重复或首帧延迟残留问题。
+4. 将新文本渲染逻辑纳入性能/缓存评估，补写缓存命中单测与位图字体 Tint 适配方案。
+5. 在具备 Ebiten/GLFW 依赖环境下回归 `go test -tags ebiten ./pkg/fgui/render`，确保渲染侧单测长期可执行。
+
+## 2025-10-27
+- [x] 对照 `laya_src/demo` 审视 `demo/scenes` 现状：`MainMenu` 导航与 `TransitionDemo` 基本对齐，`BasicsDemo` 仅覆盖按钮/文本/网格/进度条子示例，其余场景仍停留在静态组件加载。
+- [x] 列出 Demo 行为缺口，涉及虚拟/循环列表渲染、下拉刷新回调、聊天与表情解析、背包窗口与物品随机化、摇杆模块、引导遮罩、冷却条 Tween 等，形成移植清单。
+- [x] 移植 Joystick Demo：实现 `demo/scenes/joystick.go` 与舞台触控事件，模拟 TS 版摇杆半径约束、回弹 tween 与角度广播。
+- [x] Basics Demo 恢复窗口/弹窗/拖拽三类子示例：补写简易窗口管理（含缩放动画、关闭按钮）、构建临时 Popup 菜单、实现局部拖拽/落点判定与 Stage 级监听。
+
+### Upcoming Focus（2025-10-27）
+1. 扩充 `demo/scenes/basics.go`，实现窗口、弹窗、拖拽、深度等子示例逻辑，并移植 `TestWin` 窗体与 Popup 菜单。
+2. 为 `VirtualList`、`LoopList`、`ListEffect`、`ScrollPane` 场景接入虚拟列表、循环滚动、动效触发与渲染器（需移植 `MailItem`、`ScrollPaneHeader` 等扩展组件）。
+3. 移植交互类场景：聊天消息/表情（`EmojiParser`）、背包窗口、引导遮罩定位与动画、冷却条 Tween 行为等。
+4. 梳理触控/拖拽/全局事件所需的 compat 能力缺口，补齐 `pkg/fgui` 端事件派发、定时器与 Transition hook，确保 Demo 行为可复刻。

@@ -2,6 +2,7 @@ package assets
 
 import (
 	"math"
+	"sync"
 
 	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
@@ -21,6 +22,15 @@ const (
 	PackageItemTypeUnknown
 	PackageItemTypeSpine
 	PackageItemTypeDragonBones
+)
+
+// OverflowType mirrors FairyGUI 的 overflow 枚举。
+type OverflowType uint8
+
+const (
+	OverflowTypeVisible OverflowType = iota
+	OverflowTypeHidden
+	OverflowTypeScroll
 )
 
 // ObjectType mirrors FairyGUI's runtime object types.
@@ -90,6 +100,10 @@ type PackageItem struct {
 	Sprite       *AtlasSprite
 	PixelHitTest *PixelHitTestData
 	Component    *ComponentData
+
+	bitmapFont *BitmapFont
+	fontOnce   sync.Once
+	fontErr    error
 }
 
 // AtlasSprite describes a sprite on an atlas texture.
@@ -169,7 +183,7 @@ type ComponentData struct {
 	PivotY       float32
 	PivotAnchor  bool
 	Margin       Margin
-	Overflow     uint8
+	Overflow     OverflowType
 
 	Children    []ComponentChild
 	Controllers []ControllerData
