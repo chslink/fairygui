@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
@@ -73,9 +74,6 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		return nil
 	}
 
-	local := ebiten.GeoM{}
-	local.Reset()
-
 	w := obj.Width()
 	h := obj.Height()
 	if w <= 0 {
@@ -103,31 +101,23 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		}
 	}
 
-	px, py := obj.Pivot()
-	if !obj.PivotAsAnchor() {
-		local.Translate(-px*w, -py*h)
-	}
-
-	sx, sy := obj.Scale()
-	if sx != 0 || sy != 0 {
-		local.Scale(sx, sy)
-	}
-
-	skewX, skewY := obj.Skew()
-	if skewX != 0 || skewY != 0 {
-		local.Skew(skewX, skewY)
-	}
-
-	rotation := obj.Rotation()
-	if rotation != 0 {
-		local.Rotate(rotation)
-	}
-
-	pos := obj.DisplayObject().Position()
-	local.Translate(pos.X, pos.Y)
-
-	combined := local
+	sprite := obj.DisplayObject()
+	localMatrix := sprite.LocalMatrix()
+	combined := ebiten.GeoM{}
+	combined.SetElement(0, 0, localMatrix.A)
+	combined.SetElement(0, 1, localMatrix.C)
+	combined.SetElement(0, 2, localMatrix.Tx)
+	combined.SetElement(1, 0, localMatrix.B)
+	combined.SetElement(1, 1, localMatrix.D)
+	combined.SetElement(1, 2, localMatrix.Ty)
 	combined.Concat(parentGeo)
+	combinedA := combined.Element(0, 0)
+	combinedB := combined.Element(0, 1)
+	combinedTx := combined.Element(0, 2)
+	combinedC := combined.Element(1, 0)
+	combinedD := combined.Element(1, 1)
+	combinedTy := combined.Element(1, 2)
+	log.Printf("[graph matrix] name=%s local=[[%.3f %.3f %.3f] [%.3f %.3f %.3f]] geo=[[%.3f %.3f %.3f] [%.3f %.3f %.3f]]", obj.Name(), localMatrix.A, localMatrix.C, localMatrix.Tx, localMatrix.B, localMatrix.D, localMatrix.Ty, combinedA, combinedB, combinedTx, combinedC, combinedD, combinedTy)
 
 	switch data := obj.Data().(type) {
 	case *assets.PackageItem:
@@ -315,39 +305,101 @@ func renderGraph(target *ebiten.Image, graph *widgets.GGraph, parentGeo ebiten.G
 	if w <= 0 || h <= 0 {
 		return nil
 	}
+	if obj := graph.GObject; obj != nil {
+		x := obj.X()
+		y := obj.Y()
+		px, py := obj.Pivot()
+		skewX, skewY := obj.Skew()
+		scaleX, scaleY := obj.Scale()
+		offset := laya.Point{}
+		displayPos := laya.Point{}
+		localMatrix := laya.Matrix{}
+		if sprite := obj.DisplayObject(); sprite != nil {
+			displayPos = sprite.Position()
+			offset = sprite.PivotOffset()
+			localMatrix = sprite.LocalMatrix()
+		}
+		log.Printf("[graph debug] name=%s xy=(%.2f,%.2f) display=(%.2f,%.2f) offset=(%.2f,%.2f) size=(%.2f,%.2f) pivot=(%.3f,%.3f) anchor=%t scale=(%.3f,%.3f) rotation=%.3f skew=(%.3f,%.3f) localMatrix=[%.3f %.3f %.3f %.3f %.3f %.3f]",
+			obj.Name(), x, y, displayPos.X, displayPos.Y, offset.X, offset.Y, obj.Width(), obj.Height(), px, py, obj.PivotAsAnchor(), scaleX, scaleY, obj.Rotation(), skewX, skewY,
+			localMatrix.A, localMatrix.C, localMatrix.Tx, localMatrix.B, localMatrix.D, localMatrix.Ty)
+	}
 	fillColor := parseColor(graph.FillColor())
 	lineColor := parseColor(graph.LineColor())
 	lineSize := graph.LineSize()
 	if (fillColor == nil || fillColor.A == 0) && (lineColor == nil || lineColor.A == 0 || lineSize <= 0) {
 		return nil
 	}
-	imgWidth := int(math.Ceil(w))
-	imgHeight := int(math.Ceil(h))
+	strokePad := computeStrokePadding(lineColor, lineSize)
+	imgWidth, imgHeight := ensureGraphCanvasSize(w, h, strokePad)
 	if imgWidth <= 0 || imgHeight <= 0 {
 		return nil
 	}
 	tmp := ebiten.NewImage(imgWidth, imgHeight)
+	offsetX := strokePad
+	offsetY := strokePad
+	var drew bool
 	switch graph.Type() {
-	case widgets.GraphTypeRect, widgets.GraphTypeEmpty:
-		if fillColor != nil {
-			tint := applyAlpha(fillColor, alpha)
-			vector.FillRect(tmp, 0, 0, float32(w), float32(h), tint, true)
+	case widgets.GraphTypeEmpty:
+		// TypeScript 实现中为空图形不会绘制任何内容。
+		return nil
+	case widgets.GraphTypeRect:
+		if radii := graph.CornerRadius(); len(radii) > 0 {
+			var path vector.Path
+			if buildRoundedRectPath(&path, w, h, radii, offsetX, offsetY) {
+				drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
+			}
 		}
-		if lineColor != nil && lineSize > 0 {
-			tint := applyAlpha(lineColor, alpha)
-			vector.StrokeRect(tmp, 0, 0, float32(w), float32(h), float32(lineSize), tint, true)
+		if !drew {
+			if fillColor != nil {
+				tint := applyAlpha(fillColor, alpha)
+				vector.FillRect(tmp, float32(offsetX), float32(offsetY), float32(w), float32(h), tint, true)
+				drew = true
+			}
+			if lineColor != nil && lineSize > 0 {
+				tint := applyAlpha(lineColor, alpha)
+				vector.StrokeRect(tmp, float32(offsetX), float32(offsetY), float32(w), float32(h), float32(lineSize), tint, true)
+				drew = true
+			}
+		}
+	case widgets.GraphTypeEllipse:
+		var path vector.Path
+		if buildEllipsePath(&path, w, h, offsetX, offsetY) {
+			drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
+		}
+	case widgets.GraphTypePolygon:
+		points := graph.PolygonPoints()
+		if len(points) >= 6 {
+			var path vector.Path
+			if buildPolygonPath(&path, points, offsetX, offsetY) {
+				drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
+			}
+		}
+	case widgets.GraphTypeRegularPolygon:
+		var path vector.Path
+		sides, startAngle, distances := graph.RegularPolygon()
+		if buildRegularPolygonPath(&path, w, h, sides, startAngle, distances, offsetX, offsetY) {
+			drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
 		}
 	default:
 		if fillColor != nil {
 			tint := applyAlpha(fillColor, alpha)
-			vector.FillRect(tmp, 0, 0, float32(w), float32(h), tint, true)
+			vector.FillRect(tmp, float32(offsetX), float32(offsetY), float32(w), float32(h), tint, true)
+			drew = true
 		}
 		if lineColor != nil && lineSize > 0 {
 			tint := applyAlpha(lineColor, alpha)
-			vector.StrokeRect(tmp, 0, 0, float32(w), float32(h), float32(lineSize), tint, true)
+			vector.StrokeRect(tmp, float32(offsetX), float32(offsetY), float32(w), float32(h), float32(lineSize), tint, true)
+			drew = true
 		}
 	}
-	opts := &ebiten.DrawImageOptions{GeoM: parentGeo}
+	if !drew {
+		return nil
+	}
+	geo := parentGeo
+	if strokePad > 0 {
+		geo = applyLocalOffset(geo, -strokePad, -strokePad)
+	}
+	opts := &ebiten.DrawImageOptions{GeoM: geo}
 	target.DrawImage(tmp, opts)
 	return nil
 }
@@ -364,6 +416,234 @@ func applyAlpha(src *color.NRGBA, alpha float64) color.NRGBA {
 	out := *src
 	out.A = uint8(math.Round(float64(out.A) * alpha))
 	return out
+}
+
+func drawGraphPath(dst *ebiten.Image, path *vector.Path, fillColor, lineColor *color.NRGBA, lineSize float64, alpha float64) bool {
+	if dst == nil || path == nil {
+		return false
+	}
+	drew := false
+	if fillColor != nil && fillColor.A > 0 {
+		tint := applyAlpha(fillColor, alpha)
+		var drawOpts vector.DrawPathOptions
+		drawOpts.AntiAlias = true
+		drawOpts.ColorScale.ScaleWithColor(tint)
+		vector.FillPath(dst, path, nil, &drawOpts)
+		drew = true
+	}
+	if lineColor != nil && lineColor.A > 0 && lineSize > 0 {
+		tint := applyAlpha(lineColor, alpha)
+		var strokeOpts vector.StrokeOptions
+		strokeOpts.Width = float32(lineSize)
+		strokeOpts.LineJoin = vector.LineJoinRound
+		strokeOpts.LineCap = vector.LineCapRound
+		var drawOpts vector.DrawPathOptions
+		drawOpts.AntiAlias = true
+		drawOpts.ColorScale.ScaleWithColor(tint)
+		vector.StrokePath(dst, path, &strokeOpts, &drawOpts)
+		drew = true
+	}
+	return drew
+}
+
+func buildRoundedRectPath(path *vector.Path, width, height float64, radii []float64, offsetX, offsetY float64) bool {
+	if path == nil || width <= 0 || height <= 0 {
+		return false
+	}
+	corners := normalizeCornerRadii(width, height, radii)
+	w := float32(width)
+	h := float32(height)
+	ox := float32(offsetX)
+	oy := float32(offsetY)
+	tl, tr, br, bl := corners[0], corners[1], corners[2], corners[3]
+
+	path.MoveTo(ox+tl, oy)
+	path.LineTo(ox+w-tr, oy)
+	if tr > 0 {
+		path.Arc(ox+w-tr, oy+tr, tr, -math.Pi/2, 0, vector.Clockwise)
+	} else {
+		path.LineTo(ox+w, oy)
+	}
+	path.LineTo(ox+w, oy+h-br)
+	if br > 0 {
+		path.Arc(ox+w-br, oy+h-br, br, 0, math.Pi/2, vector.Clockwise)
+	} else {
+		path.LineTo(ox+w, oy+h)
+	}
+	path.LineTo(ox+bl, oy+h)
+	if bl > 0 {
+		path.Arc(ox+bl, oy+h-bl, bl, math.Pi/2, math.Pi, vector.Clockwise)
+	} else {
+		path.LineTo(ox, oy+h)
+	}
+	path.LineTo(ox, oy+tl)
+	if tl > 0 {
+		path.Arc(ox+tl, oy+tl, tl, math.Pi, 3*math.Pi/2, vector.Clockwise)
+	} else {
+		path.LineTo(ox, oy)
+	}
+	path.Close()
+	return true
+}
+
+func normalizeCornerRadii(width, height float64, raw []float64) [4]float32 {
+	var vals [4]float32
+	tmp := [4]float64{}
+	for i := 0; i < 4; i++ {
+		if i < len(raw) {
+			tmp[i] = math.Max(0, raw[i])
+		} else {
+			tmp[i] = 0
+		}
+	}
+	tmp[0], tmp[1] = clampRadiusPair(width, tmp[0], tmp[1])
+	tmp[3], tmp[2] = clampRadiusPair(width, tmp[3], tmp[2])
+	tmp[0], tmp[3] = clampRadiusPair(height, tmp[0], tmp[3])
+	tmp[1], tmp[2] = clampRadiusPair(height, tmp[1], tmp[2])
+
+	for i := 0; i < 4; i++ {
+		vals[i] = float32(tmp[i])
+	}
+	return vals
+}
+
+func clampRadiusPair(limit, a, b float64) (float64, float64) {
+	if limit <= 0 {
+		return 0, 0
+	}
+	sum := a + b
+	if sum > limit && sum > 0 {
+		scale := limit / sum
+		a *= scale
+		b *= scale
+	}
+	return a, b
+}
+
+func buildEllipsePath(path *vector.Path, width, height float64, offsetX, offsetY float64) bool {
+	if path == nil || width <= 0 || height <= 0 {
+		return false
+	}
+	cx := float32(offsetX + width/2)
+	cy := float32(offsetY + height/2)
+	rx := float32(width / 2)
+	ry := float32(height / 2)
+	if rx <= 0 || ry <= 0 {
+		return false
+	}
+	const kappa = 0.5522847498307936
+	cxk := float32(kappa * width / 2)
+	cyk := float32(kappa * height / 2)
+
+	path.MoveTo(cx+rx, cy)
+	path.CubicTo(cx+rx, cy+cyk, cx+cxk, cy+ry, cx, cy+ry)
+	path.CubicTo(cx-cxk, cy+ry, cx-rx, cy+cyk, cx-rx, cy)
+	path.CubicTo(cx-rx, cy-cyk, cx-cxk, cy-ry, cx, cy-ry)
+	path.CubicTo(cx+cxk, cy-ry, cx+rx, cy-cyk, cx+rx, cy)
+	path.Close()
+	return true
+}
+
+func buildPolygonPath(path *vector.Path, points []float64, offsetX, offsetY float64) bool {
+	if path == nil || len(points) < 6 || len(points)%2 != 0 {
+		return false
+	}
+	ox := float32(offsetX)
+	oy := float32(offsetY)
+	path.MoveTo(float32(points[0])+ox, float32(points[1])+oy)
+	for i := 2; i < len(points); i += 2 {
+		path.LineTo(float32(points[i])+ox, float32(points[i+1])+oy)
+	}
+	path.Close()
+	return true
+}
+
+func buildRegularPolygonPath(path *vector.Path, width, height float64, sides int, startAngle float64, distances []float64, offsetX, offsetY float64) bool {
+	if path == nil || sides < 3 || width <= 0 || height <= 0 {
+		return false
+	}
+	radius := math.Min(width, height) / 2
+	if radius <= 0 {
+		return false
+	}
+	centerX := float32(offsetX + width/2)
+	centerY := float32(offsetY + height/2)
+	angle := startAngle * math.Pi / 180
+	step := 2 * math.Pi / float64(sides)
+	for i := 0; i < sides; i++ {
+		dist := 1.0
+		if i < len(distances) && !math.IsNaN(distances[i]) && distances[i] > 0 {
+			dist = distances[i]
+		}
+		x := centerX + float32(radius*dist*math.Cos(angle))
+		y := centerY + float32(radius*dist*math.Sin(angle))
+		if i == 0 {
+			path.MoveTo(x, y)
+		} else {
+			path.LineTo(x, y)
+		}
+		angle += step
+	}
+	path.Close()
+	return true
+}
+
+func localGeoMForObject(obj *core.GObject) ebiten.GeoM {
+	var geo ebiten.GeoM
+	geo.Reset()
+	if obj == nil {
+		return geo
+	}
+	if sprite := obj.DisplayObject(); sprite != nil {
+		matrix := sprite.LocalMatrix()
+		geo.SetElement(0, 0, matrix.A)
+		geo.SetElement(0, 1, matrix.C)
+		geo.SetElement(0, 2, matrix.Tx)
+		geo.SetElement(1, 0, matrix.B)
+		geo.SetElement(1, 1, matrix.D)
+		geo.SetElement(1, 2, matrix.Ty)
+	} else {
+		geo.Translate(obj.X(), obj.Y())
+	}
+	return geo
+}
+
+func computeStrokePadding(lineColor *color.NRGBA, lineSize float64) float64 {
+	if lineColor == nil || lineColor.A == 0 || lineSize <= 0 {
+		return 0
+	}
+	return math.Ceil(lineSize/2 + 1)
+}
+
+func ensureGraphCanvasSize(width, height float64, pad float64) (int, int) {
+	w := int(math.Ceil(width + 2*pad))
+	h := int(math.Ceil(height + 2*pad))
+	if w <= 0 {
+		w = 1
+	}
+	if h <= 0 {
+		h = 1
+	}
+	return w, h
+}
+
+func applyLocalOffset(src ebiten.GeoM, dx, dy float64) ebiten.GeoM {
+	if dx == 0 && dy == 0 {
+		return src
+	}
+	a := src.Element(0, 0)
+	b := src.Element(0, 1)
+	c := src.Element(1, 0)
+	d := src.Element(1, 1)
+	tx := src.Element(0, 2)
+	ty := src.Element(1, 2)
+
+	tx = a*dx + b*dy + tx
+	ty = c*dx + d*dy + ty
+
+	src.SetElement(0, 2, tx)
+	src.SetElement(1, 2, ty)
+	return src
 }
 
 func selectFontFace(field *widgets.GTextField) font.Face {

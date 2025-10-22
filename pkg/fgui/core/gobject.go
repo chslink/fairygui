@@ -185,7 +185,7 @@ func (g *GObject) SetSkew(skewX, skewY float64) {
 	g.skewX = skewX
 	g.skewY = skewY
 	if g.display != nil {
-		g.display.SetSkew(skewX, skewY)
+		g.display.SetSkew(-skewX, skewY)
 	}
 	g.refreshTransform()
 }
@@ -791,6 +791,11 @@ func (g *GObject) refreshTransform() {
 	if g.pivotAsAnchor {
 		x -= g.pivotX * g.width
 		y -= g.pivotY * g.height
+	}
+	if sprite := g.display; sprite != nil {
+		offset := sprite.PivotOffset()
+		x -= offset.X
+		y -= offset.Y
 	}
 	g.display.SetPosition(x, y)
 }

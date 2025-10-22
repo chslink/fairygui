@@ -419,6 +419,16 @@ func (s *Sprite) localMatrix() Matrix {
 	}
 }
 
+// LocalMatrix returns a copy of the local transform matrix.
+func (s *Sprite) LocalMatrix() Matrix {
+	return s.localMatrix()
+}
+
+// PivotOffset returns the cached pivot offset in local coordinates.
+func (s *Sprite) PivotOffset() Point {
+	return s.pivotOffset
+}
+
 func (s *Sprite) worldMatrix() Matrix {
 	local := s.localMatrix()
 	if s.parent == nil {
