@@ -3,7 +3,6 @@ package scenes
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"strconv"
 	"time"
@@ -61,7 +60,6 @@ func (d *TransitionDemo) Load(ctx context.Context, mgr *Manager) (*core.GCompone
 			if required {
 				return nil, newMissingComponentError(transitionPackageName, name)
 			}
-			log.Printf("[transition-demo] component %s missing; skip optional target", name)
 			return nil, nil
 		}
 		target, buildErr := env.Factory.BuildComponent(ctx, pkg, item)
@@ -204,7 +202,6 @@ func (d *TransitionDemo) playPowerUp() {
 				setText(comp.ChildByName("value"), strconv.Itoa(current))
 			})
 		d.valueTweener.OnComplete(func(*tween.GTweener) {
-			log.Printf("[transition-demo] value tween completed %d -> %d", startValue, endValue)
 		})
 	}
 	d.playTarget(target, setup)
@@ -214,15 +211,12 @@ func (d *TransitionDemo) playTarget(target *core.GComponent, setup func(*core.GC
 	if target == nil || d.stage == nil {
 		return
 	}
-	log.Printf("[transition-demo] play target %s data=%T", target.Name(), target.GObject.Data())
 	d.stopCurrent(true)
 	d.current = target
 	if setup != nil {
 		setup(target)
 	}
-	d.logStageChildren("before-add")
 	d.stage.AddChild(target.GObject)
-	d.logStageChildren("after-add")
 	d.setButtonsEnabled(false)
 	duration := d.playTransition(target, "t0")
 	if d.finishTweener != nil {
@@ -239,7 +233,6 @@ func (d *TransitionDemo) playTransition(comp *core.GComponent, name string) floa
 	}
 	tx := comp.Transition(name)
 	if tx == nil {
-		log.Printf("[transition-demo] transition %s missing on %s", name, comp.Name())
 		return defaultTransitionTime
 	}
 	info := tx.Info()
@@ -263,7 +256,6 @@ func (d *TransitionDemo) finishCurrent(target *core.GComponent) {
 	}
 	d.current = nil
 	d.setButtonsEnabled(true)
-	log.Printf("[transition-demo] finished target")
 }
 
 func (d *TransitionDemo) stopCurrent(resetButtons bool) {
@@ -291,20 +283,6 @@ func (d *TransitionDemo) setButtonsEnabled(enabled bool) {
 		}
 		btn.SetTouchable(enabled)
 		btn.SetVisible(enabled)
-	}
-}
-
-func (d *TransitionDemo) logStageChildren(tag string) {
-	if d.stage == nil {
-		return
-	}
-	children := d.stage.Children()
-	log.Printf("[transition-demo] stage %s children=%d", tag, len(children))
-	for i, child := range children {
-		if child == nil {
-			continue
-		}
-		log.Printf("[transition-demo] stage %s child[%d] name=%s data=%T visible=%t pos=(%.1f,%.1f) size=(%.1f,%.1f)", tag, i, child.Name(), child.Data(), child.Visible(), child.X(), child.Y(), child.Width(), child.Height())
 	}
 }
 

@@ -1,25 +1,16 @@
 {
-  "font": "Heiti SC Medium,SimSun",
-  "fontSize": 12,
-  "textColor": "#000000",
-  "fontAdjustment": false,
-  "colorScheme": [
-    "Custom color #FF0000"
-  ],
-  "fontSizeScheme": [
-    "Custom font size 30"
-  ],
-  "fontScheme": [
-    "默认字体"
-  ],
-  "scrollBars": {
-    "horizontal": "ui://9leh0eyfi3s65i",
-    "vertical": "ui://9leh0eyfi3s65w",
-    "defaultDisplay": "visible"
-  },
-  "tipsRes": "",
-  "buttonClickSound": "",
-  "pivot": "default",
-  "listClearOnPublish": false,
-  "fileName": "Common"
+	"buttonClickSound":"",
+	"colorScheme":["自定义颜色 #FF0000"],
+	"font":"宋体",
+	"fontScheme":["Default font"],
+	"fontSize":12,
+	"fontSizeScheme":["自定义字体大小 30"],
+	"pivot":"default",
+	"scrollBars":{
+		"defaultDisplay":"visible",
+		"horizontal":"ui://9leh0eyfi3s65i",
+		"vertical":"ui://9leh0eyfi3s65w"
+	},
+	"textColor":"#000000",
+	"tipsRes":""
 }

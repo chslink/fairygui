@@ -52,14 +52,14 @@ func NewManager(ctx context.Context, env *Environment) (*Manager, error) {
 	}
 
 	mgr.Register(mainMenuSceneName, func() Scene { return &MainMenu{} })
-	mgr.Register("BasicsDemo", func() Scene { return NewSimpleScene("BasicsDemo", "Basics") })
+	mgr.Register("BasicsDemo", func() Scene { return NewBasicsDemo() })
 	mgr.Register("TransitionDemo", func() Scene { return &TransitionDemo{} })
 	mgr.Register("VirtualListDemo", func() Scene { return NewSimpleScene("VirtualListDemo", "VirtualList") })
 	mgr.Register("LoopListDemo", func() Scene { return NewSimpleScene("LoopListDemo", "LoopList") })
 	mgr.Register("HitTestDemo", func() Scene { return NewSimpleScene("HitTestDemo", "HitTest") })
 	mgr.Register("PullToRefreshDemo", func() Scene { return NewSimpleScene("PullToRefreshDemo", "PullToRefresh") })
 	mgr.Register("ModalWaitingDemo", func() Scene { return NewSimpleScene("ModalWaitingDemo", "ModalWaiting") })
-	mgr.Register("JoystickDemo", func() Scene { return NewSimpleScene("JoystickDemo", "Joystick") })
+	mgr.Register("JoystickDemo", func() Scene { return NewJoystickDemo() })
 	mgr.Register("BagDemo", func() Scene { return NewSimpleScene("BagDemo", "Bag") })
 	mgr.Register("ChatDemo", func() Scene { return NewSimpleScene("ChatDemo", "Chat") })
 	mgr.Register("ListEffectDemo", func() Scene { return NewSimpleScene("ListEffectDemo", "ListEffect") })

@@ -5,9 +5,9 @@
     <component id="rpol1" name="BagButton.xml" path="/"/>
     <image id="rpol2" name="btnimage.png" path="/"/>
     <movieclip id="rpol3" name="quan.jta" path="/"/>
+    <component id="rpol4" name="GuideLayer.xml" path="/" exported="true"/>
     <component id="rpol5" name="Button1.xml" path="/"/>
     <movieclip id="xcfj6" name="rswcfhd.jta" path="/"/>
-    <component id="n3wrb" name="GuideLayer.xml" path="/" exported="true"/>
   </resources>
   <publish name="Guide">
     <atlas name="默认" index="0"/>
