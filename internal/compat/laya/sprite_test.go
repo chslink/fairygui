@@ -142,8 +142,9 @@ func TestSpritePivotRotationBounds(t *testing.T) {
 	sprite.SetPosition(200, 300)
 	sprite.SetRotation(math.Pi / 2) // 90 degrees
 
+	// 当pivotAsAnchor=true时，SetPosition的语义是"pivot点在全局(200,300)"
 	centerGlobal := sprite.LocalToGlobal(laya.Point{X: 50, Y: 25})
-	wantX, wantY := expectedPivotGlobal(100, 50, 0.5, 0.5, 200, 300, math.Pi/2, 0, 0, 1, 1)
+	wantX, wantY := 200.0, 300.0  // pivot点应该在SetPosition指定的位置
 	if math.Abs(centerGlobal.X-wantX) > 1e-6 || math.Abs(centerGlobal.Y-wantY) > 1e-6 {
 		t.Fatalf("unexpected pivot location got (%v,%v) want (%v,%v)", centerGlobal.X, centerGlobal.Y, wantX, wantY)
 	}
@@ -327,10 +328,11 @@ func TestSpritePivotWithoutAnchor(t *testing.T) {
 	sprite.SetPivotWithAnchor(0.4, 0.2, false)
 	sprite.SetPosition(80, 40)
 
-	offX, offY := expectedPivotOffset(100, 60, 0.4, 0.2, 0.25, -0.05, 0.1, 1.2, 0.9)
+	// When pivotAsAnchor=false, pivot is ONLY a rotation center
+	// Position should NOT be affected by pivot offset
 	got := sprite.Position()
-	wantX := 80 + offX
-	wantY := 40 + offY
+	wantX := 80.0
+	wantY := 40.0
 	if math.Abs(got.X-wantX) > 1e-6 || math.Abs(got.Y-wantY) > 1e-6 {
 		t.Fatalf("unexpected position with pivot (non-anchor): got (%v,%v) want (%v,%v)", got.X, got.Y, wantX, wantY)
 	}
@@ -363,12 +365,12 @@ func expectedPivotOffset(width, height, pivotX, pivotY, rotation, skewX, skewY, 
 
 	cosY := math.Cos(rotation + skewY)
 	sinY := math.Sin(rotation + skewY)
-	cosX := math.Cos(rotation - skewX)
-	sinX := math.Sin(rotation - skewX)
+	cosX := math.Cos(rotation - skewX)  // 恢复减法
+	sinX := math.Sin(rotation - skewX)  // 恢复减法
 
 	a := cosY * scaleX
 	b := sinY * scaleX
-	c := -sinX * scaleY
+	c := -sinX * scaleY  // 恢复负号
 	d := cosX * scaleY
 
 	transformedX := a*px + c*py
@@ -385,12 +387,12 @@ func expectedPivotGlobal(width, height, pivotX, pivotY float64, rawX, rawY, rota
 
 	cosY := math.Cos(rotation + skewY)
 	sinY := math.Sin(rotation + skewY)
-	cosX := math.Cos(rotation - skewX)
-	sinX := math.Sin(rotation - skewX)
+	cosX := math.Cos(rotation - skewX)  // 恢复减法
+	sinX := math.Sin(rotation - skewX)  // 恢复减法
 
 	a := cosY * scaleX
 	b := sinY * scaleX
-	c := -sinX * scaleY
+	c := -sinX * scaleY  // 恢复负号
 	d := cosX * scaleY
 
 	tx := baseX - px*a - py*c

@@ -111,13 +111,13 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 	combined.SetElement(1, 1, localMatrix.D)
 	combined.SetElement(1, 2, localMatrix.Ty)
 	combined.Concat(parentGeo)
-	combinedA := combined.Element(0, 0)
-	combinedB := combined.Element(0, 1)
-	combinedTx := combined.Element(0, 2)
-	combinedC := combined.Element(1, 0)
-	combinedD := combined.Element(1, 1)
-	combinedTy := combined.Element(1, 2)
-	log.Printf("[graph matrix] name=%s local=[[%.3f %.3f %.3f] [%.3f %.3f %.3f]] geo=[[%.3f %.3f %.3f] [%.3f %.3f %.3f]]", obj.Name(), localMatrix.A, localMatrix.C, localMatrix.Tx, localMatrix.B, localMatrix.D, localMatrix.Ty, combinedA, combinedB, combinedTx, combinedC, combinedD, combinedTy)
+	//combinedA := combined.Element(0, 0)
+	//combinedB := combined.Element(0, 1)
+	//combinedTx := combined.Element(0, 2)
+	//combinedC := combined.Element(1, 0)
+	//combinedD := combined.Element(1, 1)
+	//combinedTy := combined.Element(1, 2)
+	//log.Printf("[graph matrix] name=%s local=[[%.3f %.3f %.3f] [%.3f %.3f %.3f]] geo=[[%.3f %.3f %.3f] [%.3f %.3f %.3f]]", obj.Name(), localMatrix.A, localMatrix.C, localMatrix.Tx, localMatrix.B, localMatrix.D, localMatrix.Ty, combinedA, combinedB, combinedTx, combinedC, combinedD, combinedTy)
 
 	switch data := obj.Data().(type) {
 	case *assets.PackageItem:
@@ -249,6 +249,25 @@ func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *Atla
 		}
 	}
 
+	// 处理翻转：构建局部翻转变换，然后应用到parentGeo之前
+	var localGeo ebiten.GeoM
+	if flip := widget.Flip(); flip != widgets.FlipTypeNone {
+		scaleX := 1.0
+		scaleY := 1.0
+		tx := 0.0
+		ty := 0.0
+		if flip == widgets.FlipTypeHorizontal || flip == widgets.FlipTypeBoth {
+			scaleX = -1
+			tx = dstW
+		}
+		if flip == widgets.FlipTypeVertical || flip == widgets.FlipTypeBoth {
+			scaleY = -1
+			ty = dstH
+		}
+		localGeo.Scale(scaleX, scaleY)
+		localGeo.Translate(tx, ty)
+	}
+
 	if grid := item.Scale9Grid; grid != nil {
 		left := clampFloat(float64(grid.X), 0, srcW)
 		top := clampFloat(float64(grid.Y), 0, srcH)
@@ -270,25 +289,11 @@ func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *Atla
 				lastNineSliceLog.Store(item.ID, logKey)
 			}
 		}
-		if flip := widget.Flip(); flip != widgets.FlipTypeNone {
-			var flipGeo ebiten.GeoM
-			scaleX := 1.0
-			scaleY := 1.0
-			tx := 0.0
-			ty := 0.0
-			if flip == widgets.FlipTypeHorizontal || flip == widgets.FlipTypeBoth {
-				scaleX = -1
-				tx = dstW
-			}
-			if flip == widgets.FlipTypeVertical || flip == widgets.FlipTypeBoth {
-				scaleY = -1
-				ty = dstH
-			}
-			flipGeo.Scale(scaleX, scaleY)
-			flipGeo.Translate(tx, ty)
-			geo.Concat(flipGeo)
-		}
-		drawNineSlice(target, geo, img, slice, dstW, dstH, alpha, tint, scaleByTile, tileGrid, sprite, debugLabel)
+		// 组合变换：localGeo（翻转）在parentGeo（位置/旋转）之前应用
+		combinedGeo := ebiten.GeoM{}
+		combinedGeo.Concat(localGeo)
+		combinedGeo.Concat(geo)
+		drawNineSlice(target, combinedGeo, img, slice, dstW, dstH, alpha, tint, scaleByTile, tileGrid, sprite, debugLabel)
 		if debugNineSliceOverlayEnabled {
 			drawNineSliceOverlay(target, geo, slice, dstW, dstH)
 		}
@@ -314,21 +319,11 @@ func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *Atla
 	if srcH > 0 {
 		sy = dstH / srcH
 	}
-	scaleGeo := geo
-	tx := 0.0
-	ty := 0.0
-	if flip := widget.Flip(); flip != widgets.FlipTypeNone {
-		if flip == widgets.FlipTypeHorizontal || flip == widgets.FlipTypeBoth {
-			sx = -sx
-			tx = dstW
-		}
-		if flip == widgets.FlipTypeVertical || flip == widgets.FlipTypeBoth {
-			sy = -sy
-			ty = dstH
-		}
-	}
+	// 组合变换：先应用缩放和翻转（localGeo），再应用父级变换（geo）
+	scaleGeo := ebiten.GeoM{}
 	scaleGeo.Scale(sx, sy)
-	scaleGeo.Translate(tx, ty)
+	scaleGeo.Concat(localGeo)
+	scaleGeo.Concat(geo)
 	renderImageWithGeo(target, img, scaleGeo, alpha, tint, sprite)
 	if debugNineSlice {
 		logKey := fmt.Sprintf("simple:%s:%.1fx%.1f:%.2f:%.2f", item.ID, dstW, dstH, sx, sy)
@@ -481,24 +476,24 @@ func renderGraph(target *ebiten.Image, graph *widgets.GGraph, parentGeo ebiten.G
 	if w <= 0 || h <= 0 {
 		return nil
 	}
-	if obj := graph.GObject; obj != nil {
-		x := obj.X()
-		y := obj.Y()
-		px, py := obj.Pivot()
-		skewX, skewY := obj.Skew()
-		scaleX, scaleY := obj.Scale()
-		offset := laya.Point{}
-		displayPos := laya.Point{}
-		localMatrix := laya.Matrix{}
-		if s := obj.DisplayObject(); s != nil {
-			displayPos = s.Position()
-			offset = s.PivotOffset()
-			localMatrix = s.LocalMatrix()
-		}
-		log.Printf("[graph debug] name=%s xy=(%.2f,%.2f) display=(%.2f,%.2f) offset=(%.2f,%.2f) size=(%.2f,%.2f) pivot=(%.3f,%.3f) anchor=%t scale=(%.3f,%.3f) rotation=%.3f skew=(%.3f,%.3f) localMatrix=[%.3f %.3f %.3f %.3f %.3f %.3f]",
-			obj.Name(), x, y, displayPos.X, displayPos.Y, offset.X, offset.Y, obj.Width(), obj.Height(), px, py, obj.PivotAsAnchor(), scaleX, scaleY, obj.Rotation(), skewX, skewY,
-			localMatrix.A, localMatrix.C, localMatrix.Tx, localMatrix.B, localMatrix.D, localMatrix.Ty)
-	}
+	//if obj := graph.GObject; obj != nil {
+	//x := obj.X()
+	//y := obj.Y()
+	//px, py := obj.Pivot()
+	//skewX, skewY := obj.Skew()
+	//scaleX, scaleY := obj.Scale()
+	//offset := laya.Point{}
+	//displayPos := laya.Point{}
+	//localMatrix := laya.Matrix{}
+	//if s := obj.DisplayObject(); s != nil {
+	//	displayPos = s.Position()
+	//	offset = s.PivotOffset()
+	//	localMatrix = s.LocalMatrix()
+	//}
+	//log.Printf("[graph debug] name=%s xy=(%.2f,%.2f) display=(%.2f,%.2f) offset=(%.2f,%.2f) size=(%.2f,%.2f) pivot=(%.3f,%.3f) anchor=%t scale=(%.3f,%.3f) rotation=%.3f skew=(%.3f,%.3f) localMatrix=[%.3f %.3f %.3f %.3f %.3f %.3f]",
+	//	obj.Name(), x, y, displayPos.X, displayPos.Y, offset.X, offset.Y, obj.Width(), obj.Height(), px, py, obj.PivotAsAnchor(), scaleX, scaleY, obj.Rotation(), skewX, skewY,
+	//	localMatrix.A, localMatrix.C, localMatrix.Tx, localMatrix.B, localMatrix.D, localMatrix.Ty)
+	//}
 	fillColor := parseColor(graph.FillColor())
 	lineColor := parseColor(graph.LineColor())
 	lineSize := graph.LineSize()

@@ -412,6 +412,12 @@ func (s *Sprite) applyPivotOffset(emit bool) {
 }
 
 func (s *Sprite) updatePivotOffset() {
+	// 只有当 pivotAsAnchor = true 时才需要计算偏移
+	// 否则轴心点仅作为旋转中心，不影响位置
+	if !s.pivotAsAnchor {
+		s.pivotOffset = Point{}
+		return
+	}
 	if s.pivot.X == 0 && s.pivot.Y == 0 {
 		s.pivotOffset = Point{}
 		return
@@ -421,12 +427,12 @@ func (s *Sprite) updatePivotOffset() {
 
 	cosY := math.Cos(s.rotation + s.skewY)
 	sinY := math.Sin(s.rotation + s.skewY)
-	cosX := math.Cos(s.rotation - s.skewX)
-	sinX := math.Sin(s.rotation - s.skewX)
+	cosX := math.Cos(s.rotation - s.skewX)  // 恢复减法
+	sinX := math.Sin(s.rotation - s.skewX)  // 恢复减法
 
 	a := cosY * s.scaleX
 	b := sinY * s.scaleX
-	c := -sinX * s.scaleY
+	c := -sinX * s.scaleY  // 恢复负号
 	d := cosX * s.scaleY
 
 	transformedX := a*px + c*py
@@ -490,17 +496,30 @@ func (s *Sprite) localMatrix() Matrix {
 
 	cosY := math.Cos(rot + skewY)
 	sinY := math.Sin(rot + skewY)
-	cosX := math.Cos(rot - skewX)
-	sinX := math.Sin(rot - skewX)
+	cosX := math.Cos(rot - skewX)  // 恢复减法
+	sinX := math.Sin(rot - skewX)  // 恢复减法
 
 	a := cosY * s.scaleX
 	b := sinY * s.scaleX
-	c := -sinX * s.scaleY
+	c := -sinX * s.scaleY  // 恢复负号
 	d := cosX * s.scaleY
-	baseX := s.rawPosition.X + s.pivotOffset.X
-	baseY := s.rawPosition.Y + s.pivotOffset.Y
-	tx := baseX - pivotX*a - pivotY*c
-	ty := baseY - pivotX*b - pivotY*d
+
+	var tx, ty float64
+	if s.pivotAsAnchor {
+		// 当pivotAsAnchor=true时，rawPosition表示pivot点的全局位置
+		// 公式：rawPosition = (pivot在局部) 经过变换后的位置
+		// rawPosition.X = a*pivotX + c*pivotY + tx
+		// 解出：tx = rawPosition.X - a*pivotX - c*pivotY
+		tx = s.rawPosition.X - pivotX*a - pivotY*c
+		ty = s.rawPosition.Y - pivotX*b - pivotY*d
+	} else {
+		// 当pivotAsAnchor=false时，rawPosition表示左上角(0,0)的位置
+		// 但仍需围绕pivot点进行旋转缩放
+		// 标准pivot变换：先移到pivot，变换，再移回，最后平移到目标
+		// tx = position.X - pivotX*a - pivotY*c + pivotX
+		tx = s.rawPosition.X - pivotX*a - pivotY*c + pivotX
+		ty = s.rawPosition.Y - pivotX*b - pivotY*d + pivotY
+	}
 
 	return Matrix{
 		A:  a,

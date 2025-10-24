@@ -60,8 +60,7 @@ func renderGraphicsSprite(target *ebiten.Image, sprite *laya.Sprite, parentGeo e
 		}
 	}
 
-	geo := parentGeo
-	geo.Translate(offsetX, offsetY)
+	geo := applyLocalOffset(parentGeo, offsetX, offsetY)
 	opts := &ebiten.DrawImageOptions{GeoM: geo}
 	applyColorEffects(opts, sprite)
 	if alpha < 0 {

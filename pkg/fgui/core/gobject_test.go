@@ -87,10 +87,10 @@ func TestGObjectSkew(t *testing.T) {
 
 	sx, sy := obj.Skew()
 	if sx != 0.2 || sy != -0.1 {
-		t.Fatalf("expected skew (0.2,-0.1), got (%v,%v)", sx, sy)
+		t.Fatalf("expected skew (-0.2,-0.1), got (%v,%v)", sx, sy)
 	}
 	ax, ay := obj.DisplayObject().Skew()
-	if ax != 0.2 || ay != -0.1 {
+	if ax != -0.2 || ay != -0.1 {
 		t.Fatalf("sprite skew mismatch (%v,%v)", ax, ay)
 	}
 }

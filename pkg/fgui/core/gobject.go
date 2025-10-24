@@ -264,7 +264,7 @@ func (g *GObject) SetSkew(skewX, skewY float64) {
 	g.skewX = skewX
 	g.skewY = skewY
 	if g.display != nil {
-		g.display.SetSkew(skewX, skewY)
+		g.display.SetSkew(-skewX, skewY)
 	}
 	g.refreshTransform()
 }
@@ -992,18 +992,14 @@ func (g *GObject) updateGearFromRelationsSafe(index int, dx, dy float64) {
 	gear.UpdateFromRelations(dx, dy)
 }
 
-// Visible reports whether the object is visible.
+// refreshTransform updates the display object's position based on current transform state.
 func (g *GObject) refreshTransform() {
 	if g.display == nil {
 		return
 	}
-	x := g.x
-	y := g.y
-	if g.pivotAsAnchor {
-		x -= g.pivotX * g.width
-		y -= g.pivotY * g.height
-	}
-	g.display.SetPosition(x, y)
+	// 直接传递位置给Sprite，不做任何调整
+	// Sprite的localMatrix会根据pivotAsAnchor正确解释这个位置的含义
+	g.display.SetPosition(g.x, g.y)
 }
 
 // SetGearLocked toggles the guard that prevents recursive gear updates.
