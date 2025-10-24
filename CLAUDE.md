@@ -25,7 +25,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 开发环境限制
 
-⚠️ **沙盒环境限制**：当前开发环境无法运行需要实际 GUI 渲染的测试和 demo。
 
 **工作流程**：
 1. Claude 输出需要执行的测试/demo 命令
@@ -34,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **可在沙盒运行**：不依赖 Ebiten 渲染的纯逻辑测试（如 ByteBuffer、Relations、事件系统）
 
-**需 GUI 环境**：带 `-tags ebiten` 的测试、`go run ./demo`、`cmd/` 下的调试工具
+**需 GUI 环境**：带的测试、`go run ./demo`、`cmd/` 下的调试工具
 
 ## 构建与测试命令
 

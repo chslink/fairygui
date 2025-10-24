@@ -2,6 +2,7 @@ package scenes
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"strconv"
@@ -237,6 +238,23 @@ func (d *BasicsDemo) initText(component *core.GComponent) {
 	if component == nil {
 		return
 	}
+	const linkTemplate = "[img]ui://9leh0eyft9fj5f[/img][color=#FF0000]你点击了链接[/color]：%s"
+	rich := component.ChildByName("n12")
+	if rich != nil {
+		if sprite := rich.DisplayObject(); sprite != nil {
+			sprite.Dispatcher().On(laya.EventLink, func(evt laya.Event) {
+				link := ""
+				if str, ok := evt.Data.(string); ok {
+					link = str
+				} else if evt.Data != nil {
+					link = fmt.Sprint(evt.Data)
+				}
+				if setter, ok := rich.Data().(interface{ SetText(string) }); ok && setter != nil {
+					setter.SetText(fmt.Sprintf(linkTemplate, link))
+				}
+			})
+		}
+	}
 	copyBtn := component.ChildByName("n25")
 	dest := component.ChildByName("n24")
 	src := component.ChildByName("n22")
@@ -245,10 +263,12 @@ func (d *BasicsDemo) initText(component *core.GComponent) {
 	}
 	if sprite := copyBtn.DisplayObject(); sprite != nil {
 		sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
-			if textField, ok := dest.Data().(*widgets.GTextField); ok {
-				if source, ok := src.Data().(*widgets.GTextField); ok {
-					textField.SetText(source.Text())
-				}
+			var content string
+			if reader, ok := src.Data().(interface{ Text() string }); ok && reader != nil {
+				content = reader.Text()
+			}
+			if writer, ok := dest.Data().(interface{ SetText(string) }); ok && writer != nil {
+				writer.SetText(content)
 			}
 		})
 	}

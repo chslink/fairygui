@@ -1,5 +1,3 @@
-//go:build ebiten
-
 package render
 
 import (
@@ -23,12 +21,24 @@ import (
 	"golang.org/x/image/font/basicfont"
 )
 
+// clamp 限制数值在指定范围内
+func clamp(value, min, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
 var (
 	labelFont                    font.Face = basicfont.Face7x13
 	debugNineSlice                         = os.Getenv("FGUI_DEBUG_NINESLICE") != ""
 	debugNineSliceOverlayEnabled           = os.Getenv("FGUI_DEBUG_NINESLICE_OVERLAY") != ""
 	lastNineSliceLog             sync.Map
 	textureRectLog               sync.Map
+	fontCacheSize                        = 20 // 限制字体缓存大小，避免内存过度使用
 )
 
 // SetTextFont overrides the default font used when drawing text-based widgets.
@@ -147,6 +157,17 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			if err := drawTextImage(target, combined, data.GTextField, textValue, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
 				return err
 			}
+		}
+	case *widgets.GRichTextField:
+		// 富文本控件：继承自 GTextField，需要特殊处理
+		if textValue := data.Text(); textValue != "" {
+			if err := drawTextImage(target, combined, data.GTextField, textValue, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
+				return err
+			}
+		}
+		// 启用鼠标交互以支持链接点击
+		if sprite := obj.DisplayObject(); sprite != nil {
+			sprite.SetMouseEnabled(true)
 		}
 	case *widgets.GTextField:
 		if textValue := data.Text(); textValue != "" {
@@ -308,6 +329,25 @@ func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *Atla
 				textureRectLog.Store(item.ID, rectKey)
 			}
 		}
+		return nil
+	}
+
+	// 检查是否需要平铺渲染（针对没有 Scale9Grid 但设置了 ScaleByTile 的图片）
+	scaleByTile, tileGrid := widget.ScaleSettings()
+	if scaleByTile && item.Scale9Grid == nil {
+		// 对于平铺图片，使用整个图片作为中心区域进行平铺
+		debugLabel := fmt.Sprintf("tileimage=%s", item.ID)
+		if debugNineSlice {
+			logKey := fmt.Sprintf("tile:%s:%.1fx%.1f:%t:%d", item.ID, dstW, dstH, scaleByTile, tileGrid)
+			if prev, ok := lastNineSliceLog.Load(item.ID); !ok || prev != logKey {
+				log.Printf("[render][tile] id=%s dst=%.1fx%.1f src=%dx%d tile=%v grid=%d",
+					item.ID, dstW, dstH, bounds.Dx(), bounds.Dy(), scaleByTile, tileGrid)
+				lastNineSliceLog.Store(item.ID, logKey)
+			}
+		}
+		// 平铺渲染时，只应用位置变换，翻转变换在 tileImagePatch 中单独处理
+		// 使用完整的源图像区域
+		tileImagePatchWithFlip(target, geo, localGeo, img, 0, 0, float64(bounds.Dx()), float64(bounds.Dy()), 0, 0, dstW, dstH, alpha, tint, sprite, debugLabel)
 		return nil
 	}
 
@@ -657,13 +697,105 @@ func fontFaceForSize(size int) font.Face {
 
 func parseColor(value string) *color.NRGBA {
 	if value == "" {
-		return nil
+		// 改进：返回默认黑色而不是 nil
+		return &color.NRGBA{R: 0, G: 0, B: 0, A: 255}
 	}
 	raw := strings.TrimSpace(value)
 	lowered := strings.ToLower(raw)
+
+	// 支持常见颜色名称
+	colorNames := map[string]color.NRGBA{
+		"black":   {R: 0, G: 0, B: 0, A: 255},
+		"white":   {R: 255, G: 255, B: 255, A: 255},
+		"red":     {R: 255, G: 0, B: 0, A: 255},
+		"green":   {R: 0, G: 128, B: 0, A: 255},
+		"blue":    {R: 0, G: 0, B: 255, A: 255},
+		"yellow":  {R: 255, G: 255, B: 0, A: 255},
+		"cyan":    {R: 0, G: 255, B: 255, A: 255},
+		"magenta": {R: 255, G: 0, B: 255, A: 255},
+		"silver":  {R: 192, G: 192, B: 192, A: 255},
+		"gray":    {R: 128, G: 128, B: 128, A: 255},
+		"grey":    {R: 128, G: 128, B: 128, A: 255},
+		"maroon":  {R: 128, G: 0, B: 0, A: 255},
+		"olive":   {R: 128, G: 128, B: 0, A: 255},
+		"purple":  {R: 128, G: 0, B: 128, A: 255},
+		"teal":    {R: 0, G: 128, B: 128, A: 255},
+		"navy":    {R: 0, G: 0, B: 128, A: 255},
+		"orange":  {R: 255, G: 165, B: 0, A: 255},
+		"pink":    {R: 255, G: 192, B: 203, A: 255},
+		"brown":   {R: 165, G: 42, B: 42, A: 255},
+	}
+
+	if namedColor, exists := colorNames[lowered]; exists {
+		return &namedColor
+	}
+
+	// 支持透明颜色名称
+	if lowered == "transparent" || lowered == "none" {
+		return &color.NRGBA{R: 0, G: 0, B: 0, A: 0}
+	}
+
+	// 支持 rgb() 格式
+	if strings.HasPrefix(lowered, "rgb(") && strings.HasSuffix(lowered, ")") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(lowered, "rgb("), ")")
+		parts := strings.Split(inner, ",")
+		if len(parts) == 3 {
+			var r, g, b int
+			var err error
+			if r, err = strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
+				if g, err = strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
+					if b, err = strconv.Atoi(strings.TrimSpace(parts[2])); err == nil {
+						return &color.NRGBA{
+							R: uint8(clamp(r, 0, 255)),
+							G: uint8(clamp(g, 0, 255)),
+							B: uint8(clamp(b, 0, 255)),
+							A: 255,
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 支持 rgba() 格式
+	if strings.HasPrefix(lowered, "rgba(") && strings.HasSuffix(lowered, ")") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(lowered, "rgba("), ")")
+		parts := strings.Split(inner, ",")
+		if len(parts) == 4 {
+			var r, g, b, a int
+			var err error
+			if r, err = strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
+				if g, err = strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
+					if b, err = strconv.Atoi(strings.TrimSpace(parts[2])); err == nil {
+						if a, err = strconv.Atoi(strings.TrimSpace(parts[3])); err == nil {
+							return &color.NRGBA{
+								R: uint8(clamp(r, 0, 255)),
+								G: uint8(clamp(g, 0, 255)),
+								B: uint8(clamp(b, 0, 255)),
+								A: uint8(clamp(a, 0, 255)),
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	if strings.HasPrefix(lowered, "0x") {
 		hex := raw[2:]
 		switch len(hex) {
+		case 3: // 0xRGB 格式
+			if v, err := strconv.ParseUint(hex, 16, 32); err == nil {
+				r := uint8((v >> 8) & 0xF)
+				g := uint8((v >> 4) & 0xF)
+				b := uint8(v & 0xF)
+				return &color.NRGBA{
+					R: r | r<<4,
+					G: g | g<<4,
+					B: b | b<<4,
+					A: 0xff,
+				}
+			}
 		case 6:
 			if v, err := strconv.ParseUint(hex, 16, 32); err == nil {
 				return &color.NRGBA{
@@ -687,6 +819,18 @@ func parseColor(value string) *color.NRGBA {
 	if strings.HasPrefix(raw, "#") {
 		raw = strings.TrimPrefix(raw, "#")
 		switch len(raw) {
+		case 3: // #RGB 格式
+			if v, err := strconv.ParseUint(raw, 16, 32); err == nil {
+				r := uint8((v >> 8) & 0xF)
+				g := uint8((v >> 4) & 0xF)
+				b := uint8(v & 0xF)
+				return &color.NRGBA{
+					R: r | r<<4,
+					G: g | g<<4,
+					B: b | b<<4,
+					A: 0xff,
+				}
+			}
 		case 6:
 			if v, err := strconv.ParseUint(raw, 16, 32); err == nil {
 				return &color.NRGBA{
@@ -749,14 +893,44 @@ func parseColor(value string) *color.NRGBA {
 			}
 		}
 	}
-	return nil
+	// 改进：如果无法解析颜色，返回默认黑色而不是 nil
+	return &color.NRGBA{R: 0, G: 0, B: 0, A: 255}
 }
 
+// 改进的字体缓存机制
 func fontFaceCacheLookup(size int) font.Face {
+	// 首先检查系统字体缓存
+	systemFontMu.RLock()
+	if face, ok := systemFontCache[size]; ok {
+		systemFontMu.RUnlock()
+		return face
+	}
+	systemFontMu.RUnlock()
+
+	// 如果缓存中没有，尝试加载
 	face, err := getFontFace(size)
 	if err != nil {
-		return nil
+		// 回退到默认字体
+		if labelFont != nil {
+			return labelFont
+		}
+		return basicfont.Face7x13
 	}
+
+	// 缓存新加载的字体，但限制缓存大小
+	systemFontMu.Lock()
+	defer systemFontMu.Unlock()
+
+	// 如果缓存超过限制，清理最旧的条目
+	if len(systemFontCache) >= fontCacheSize {
+		// 简单的LRU策略：删除第一个条目
+		for k := range systemFontCache {
+			delete(systemFontCache, k)
+			break
+		}
+	}
+
+	systemFontCache[size] = face
 	return face
 }
 

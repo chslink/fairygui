@@ -43,7 +43,7 @@ func TestParseUBB(t *testing.T) {
 			name:  "underline_url",
 			input: "[url=event:a]link[/url]",
 			expected: []Segment{
-				{Text: "link", Style: Style{Color: "#ffffff", Bold: false, Italic: false, Underline: true, Font: "", FontSize: 16}},
+				{Text: "link", Style: Style{Color: "#ffffff", Bold: false, Italic: false, Underline: true, Font: "", FontSize: 16}, Link: "event:a"},
 			},
 		},
 		{
@@ -98,6 +98,9 @@ func TestParseUBB(t *testing.T) {
 				}
 				if got[i].Style.FontSize != tc.expected[i].Style.FontSize {
 					t.Fatalf("segment %d size mismatch: got %d expected %d", i, got[i].Style.FontSize, tc.expected[i].Style.FontSize)
+				}
+				if got[i].Link != tc.expected[i].Link {
+					t.Fatalf("segment %d link mismatch: got %q expected %q", i, got[i].Link, tc.expected[i].Link)
 				}
 			}
 		})

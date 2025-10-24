@@ -1,5 +1,3 @@
-//go:build ebiten
-
 package render
 
 import (

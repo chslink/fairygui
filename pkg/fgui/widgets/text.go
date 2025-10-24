@@ -3,6 +3,7 @@ package widgets
 import (
 	"math"
 
+	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
@@ -27,10 +28,11 @@ const (
 type TextAutoSize int
 
 const (
-	TextAutoSizeBoth TextAutoSize = iota
-	TextAutoSizeHeight
-	TextAutoSizeShrink
-	TextAutoSizeEllipsis
+	TextAutoSizeNone TextAutoSize = iota  // 0 - 对应 LayaAir 的 AutoSizeType.None
+	TextAutoSizeBoth                      // 1 - 对应 LayaAir 的 AutoSizeType.Both
+	TextAutoSizeHeight                    // 2 - 对应 LayaAir 的 AutoSizeType.Height
+	TextAutoSizeShrink                    // 3 - 对应 LayaAir 的 AutoSizeType.Shrink
+	TextAutoSizeEllipsis                  // 4 - 对应 LayaAir 的 AutoSizeType.Ellipsis
 )
 
 // GTextField is a minimal text widget.
@@ -64,6 +66,15 @@ type GTextField struct {
 	layoutHeight   float64
 	textWidth      float64
 	textHeight     float64
+	linkRegions    []TextLinkRegion
+	linkHandler    laya.Listener
+	onLayoutUpdated func() // 参考 TS 版本的 _onPostLayout 回调
+}
+
+// TextLinkRegion describes a clickable link region within the text.
+type TextLinkRegion struct {
+	Target string
+	Bounds laya.Rect
 }
 
 // NewText creates a new text field widget.
@@ -179,6 +190,11 @@ func (t *GTextField) SingleLine() bool {
 	return t.singleLine
 }
 
+// WidthAutoSize reports whether width auto-size mode is active.
+func (t *GTextField) WidthAutoSize() bool {
+	return t.widthAutoSize
+}
+
 // SetUnderline toggles underline rendering.
 func (t *GTextField) SetUnderline(value bool) {
 	t.underline = value
@@ -251,7 +267,15 @@ func (t *GTextField) StrokeColor() string {
 
 // SetUBBEnabled toggles UBB formatting support.
 func (t *GTextField) SetUBBEnabled(value bool) {
+	if t == nil {
+		return
+	}
 	t.ubbEnabled = value
+	if !value {
+		t.detachLinkHandler()
+	} else if len(t.linkRegions) > 0 {
+		t.attachLinkHandler()
+	}
 }
 
 // UBBEnabled reports whether UBB formatting is enabled.
@@ -292,6 +316,110 @@ func (t *GTextField) TemplateVarsEnabled() bool {
 	return t.templateVars
 }
 
+// SetLinkRegions updates the clickable link regions referenced by this field.
+func (t *GTextField) SetLinkRegions(regions []TextLinkRegion) {
+	if t == nil {
+		return
+	}
+	if len(regions) == 0 {
+		t.linkRegions = nil
+		t.detachLinkHandler()
+		return
+	}
+	copyRegions := make([]TextLinkRegion, len(regions))
+	copy(copyRegions, regions)
+	t.linkRegions = copyRegions
+	if t.ubbEnabled {
+		t.attachLinkHandler()
+	}
+}
+
+// LinkRegions returns a copy of the active link regions.
+func (t *GTextField) LinkRegions() []TextLinkRegion {
+	if t == nil || len(t.linkRegions) == 0 {
+		return nil
+	}
+	out := make([]TextLinkRegion, len(t.linkRegions))
+	copy(out, t.linkRegions)
+	return out
+}
+
+// SetLayoutUpdateCallback 设置布局更新回调，类似 TS 版本的 _onPostLayout
+func (t *GTextField) SetLayoutUpdateCallback(callback func()) {
+	if t == nil {
+		return
+	}
+	t.onLayoutUpdated = callback
+}
+
+// notifyLayoutUpdate 触发布局更新回调
+func (t *GTextField) notifyLayoutUpdate() {
+	if t == nil || t.onLayoutUpdated == nil {
+		return
+	}
+	// 异步调用回调，避免递归调用
+	defer func() {
+		if recover() != nil {
+			// 忽略回调中的 panic，避免影响主流程
+		}
+	}()
+	t.onLayoutUpdated()
+}
+
+// RequestLayout 请求重新计算布局，参考 TS 版本的 typeset 方法
+func (t *GTextField) RequestLayout() {
+	if t == nil {
+		return
+	}
+	// 标记需要重新计算，实际的布局计算在渲染时进行
+	t.layoutWidth = 0
+	t.layoutHeight = 0
+	// 如果有父组件，通知父组件也需要重新布局
+	if t.GObject != nil && t.GObject.Parent() != nil {
+		// 这里可以添加父组件布局更新逻辑
+	}
+}
+
+func (t *GTextField) attachLinkHandler() {
+	if t == nil || t.linkHandler != nil || len(t.linkRegions) == 0 || !t.ubbEnabled {
+		return
+	}
+	if t.GObject == nil {
+		return
+	}
+	sprite := t.GObject.DisplayObject()
+	if sprite == nil {
+		return
+	}
+	handler := func(evt laya.Event) {
+		pe, ok := evt.Data.(laya.PointerEvent)
+		if !ok {
+			return
+		}
+		local := sprite.GlobalToLocal(pe.Position)
+		for _, region := range t.linkRegions {
+			if region.Bounds.Contains(local) {
+				sprite.EmitWithBubble(laya.EventLink, region.Target)
+				return
+			}
+		}
+	}
+	sprite.Dispatcher().On(laya.EventClick, handler)
+	t.linkHandler = handler
+}
+
+func (t *GTextField) detachLinkHandler() {
+	if t == nil || t.linkHandler == nil {
+		return
+	}
+	if t.GObject != nil {
+		if sprite := t.GObject.DisplayObject(); sprite != nil {
+			sprite.Dispatcher().Off(laya.EventClick, t.linkHandler)
+		}
+	}
+	t.linkHandler = nil
+}
+
 // UpdateLayoutMetrics stores the measured layout dimensions and applies auto-size rules.
 func (t *GTextField) UpdateLayoutMetrics(layoutWidth, layoutHeight, textWidth, textHeight float64) {
 	if t == nil || t.GObject == nil {
@@ -309,6 +437,13 @@ func (t *GTextField) UpdateLayoutMetrics(layoutWidth, layoutHeight, textWidth, t
 	if layoutHeight < 0 {
 		layoutHeight = 0
 	}
+
+	// 检查是否发生了显著变化
+	sizeChanged := !almostEqual(t.layoutWidth, layoutWidth) ||
+		!almostEqual(t.layoutHeight, layoutHeight) ||
+		!almostEqual(t.textWidth, textWidth) ||
+		!almostEqual(t.textHeight, textHeight)
+
 	t.layoutWidth = layoutWidth
 	t.layoutHeight = layoutHeight
 	if textWidth < 0 {
@@ -319,7 +454,11 @@ func (t *GTextField) UpdateLayoutMetrics(layoutWidth, layoutHeight, textWidth, t
 	}
 	t.textWidth = textWidth
 	t.textHeight = textHeight
-	t.applyAutoSize()
+
+	// 只有在尺寸发生变化时才应用自动大小和触发回调
+	if sizeChanged {
+		t.applyAutoSize()
+	}
 }
 
 // SetupBeforeAdd populates text styling metadata from the component buffer.
@@ -410,15 +549,37 @@ func (t *GTextField) applyAutoSize() {
 	targetWidth := currentWidth
 	targetHeight := currentHeight
 
-	if t.widthAutoSize && t.layoutWidth > 0 {
-		targetWidth = t.layoutWidth
-	}
-	if t.heightAutoSize && t.layoutHeight > 0 {
-		targetHeight = t.layoutHeight
+	// 改进的自动大小逻辑，参考TS版本实现
+	if t.widthAutoSize {
+		// 优先使用布局度量值（由渲染层计算的结果）
+		if t.layoutWidth > 0 {
+			targetWidth = t.layoutWidth
+		} else if t.textWidth > 0 {
+			targetWidth = t.textWidth + t.getHorizontalPadding()
+		}
+		// 设置最小宽度保护
+		if targetWidth < t.minTextWidth() {
+			targetWidth = t.minTextWidth()
+		}
 	}
 
+	if t.heightAutoSize {
+		// 优先使用布局度量值（由渲染层计算的结果）
+		if t.layoutHeight > 0 {
+			targetHeight = t.layoutHeight
+		} else if t.textHeight > 0 {
+			targetHeight = t.textHeight + t.getVerticalPadding()
+		}
+		// 设置最小高度保护
+		if targetHeight < t.minTextHeight() {
+			targetHeight = t.minTextHeight()
+		}
+	}
+
+	// 只有在尺寸发生显著变化时才更新，避免不必要的布局重计算
 	if !almostEqual(targetWidth, currentWidth) || !almostEqual(targetHeight, currentHeight) {
 		t.GObject.SetSize(targetWidth, targetHeight)
+		t.notifyLayoutUpdate()
 	}
 }
 
@@ -426,4 +587,52 @@ func almostEqual(a, b float64) bool {
 	const epsilon = 0.5
 	diff := math.Abs(a - b)
 	return diff <= epsilon
+}
+
+// getHorizontalPadding 返回水平方向的总内边距
+func (t *GTextField) getHorizontalPadding() float64 {
+	if t == nil {
+		return 0
+	}
+	// LayaAir 的 labelPadding 是固定的 [2, 2, 2, 2]
+	// 描边效果由渲染层处理，不影响文字容器的 padding
+	padding := 4.0 // 左右各2像素
+
+	// 只有阴影会影响 padding（如果有的话）
+	if t.shadowOffsetX != 0 {
+		padding += math.Abs(t.shadowOffsetX)
+	}
+	return padding
+}
+
+// getVerticalPadding 返回垂直方向的总内边距
+func (t *GTextField) getVerticalPadding() float64 {
+	if t == nil {
+		return 0
+	}
+	// LayaAir 的 labelPadding 是固定的 [2, 2, 2, 2]
+	// 描边效果由渲染层处理，不影响文字容器的 padding
+	padding := 4.0 // 上下各2像素
+
+	// 只有阴影会影响 padding（如果有的话）
+	if t.shadowOffsetY != 0 {
+		padding += math.Abs(t.shadowOffsetY)
+	}
+	return padding
+}
+
+// minTextWidth 返回最小文本宽度
+func (t *GTextField) minTextWidth() float64 {
+	if t.fontSize > 0 {
+		return float64(t.fontSize) // 至少能容纳一个字符
+	}
+	return 12.0 // 默认最小宽度
+}
+
+// minTextHeight 返回最小文本高度
+func (t *GTextField) minTextHeight() float64 {
+	if t.fontSize > 0 {
+		return float64(t.fontSize) * 1.2 // 行高通常是字体大小的1.2倍
+	}
+	return 14.0 // 默认最小高度
 }

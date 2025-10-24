@@ -1,5 +1,3 @@
-//go:build ebiten
-
 package render
 
 import (
@@ -377,4 +375,189 @@ func solidImage() *ebiten.Image {
 		solidUnitImage.Fill(color.White)
 	})
 	return solidUnitImage
+}
+
+// tileImagePatchWithFlip renders a tiled pattern with flip effects applied per-tile.
+func tileImagePatchWithFlip(target *ebiten.Image, posGeo, flipGeo ebiten.GeoM, img *ebiten.Image, sx0, sy0, sw, sh, dx, dy, dw, dh, alpha float64, tint *color.NRGBA, sprite *laya.Sprite, debugLabel string) {
+	if sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0 {
+		return
+	}
+
+	// 获取源图像区域
+	bounds := img.Bounds()
+	subX0 := bounds.Min.X + int(math.Round(sx0))
+	subY0 := bounds.Min.Y + int(math.Round(sy0))
+	subX1 := bounds.Min.X + int(math.Round(sx0+sw))
+	subY1 := bounds.Min.Y + int(math.Round(sy0+sh))
+
+	// 边界检查
+	if subX0 < bounds.Min.X {
+		subX0 = bounds.Min.X
+	}
+	if subY0 < bounds.Min.Y {
+		subY0 = bounds.Min.Y
+	}
+	if subX1 > bounds.Max.X {
+		subX1 = bounds.Max.X
+	}
+	if subY1 > bounds.Max.Y {
+		subY1 = bounds.Max.Y
+	}
+	if subX1 <= subX0 || subY1 <= subY0 {
+		return
+	}
+
+	sourceImg, ok := img.SubImage(image.Rect(subX0, subY0, subX1, subY1)).(*ebiten.Image)
+	if !ok {
+		return
+	}
+
+	// 检查是否需要翻转
+	needFlip := false
+	flipScaleX := flipGeo.Element(0, 0)
+	flipScaleY := flipGeo.Element(1, 1)
+	if flipScaleX < 0 || flipScaleY < 0 {
+		needFlip = true
+	}
+
+	// 如果需要翻转，先创建翻转后的源图像
+	var processedImg *ebiten.Image
+	if needFlip {
+		processedImg = ebiten.NewImage(int(sw), int(sh))
+		opts := &ebiten.DrawImageOptions{}
+		// 构建围绕中心点的翻转变换
+		opts.GeoM.Translate(-sw/2, -sh/2)
+		opts.GeoM.Scale(flipScaleX, flipScaleY)
+		opts.GeoM.Translate(sw/2, sh/2)
+		processedImg.DrawImage(sourceImg, opts)
+	} else {
+		processedImg = sourceImg
+	}
+
+	// 计算需要平铺的行列数
+	cols := int(math.Ceil(dw / sw))
+	rows := int(math.Ceil(dh / sh))
+
+	if cols*rows > 2048 {
+		log.Printf("[tileImagePatchWithFlip] large tiling grid: %s cols=%d rows=%d srcPatch=(%.2f, %.2f)-(%.2f, %.2f) dst=(%.2f, %.2f)-(%.2f, %.2f)",
+			debugLabel, cols, rows, sx0, sy0, sx0+sw, sy0+sh, dx, dy, dx+dw, dy+dh)
+	}
+
+	// 平铺渲染每个tile
+	for y := 0; y < rows; y++ {
+		offsetY := float64(y) * sh
+
+		for x := 0; x < cols; x++ {
+			offsetX := float64(x) * sw
+
+			// 检查这个平铺块是否在目标区域内
+			if offsetX >= dw || offsetY >= dh {
+				continue
+			}
+
+			// 计算这个平铺块的渲染区域
+			renderW := sw
+			renderH := sh
+
+			// 如果平铺块超出边界，只渲染可见部分
+			if offsetX+renderW > dw {
+				renderW = dw - offsetX
+			}
+			if offsetY+renderH > dh {
+				renderH = dh - offsetY
+			}
+
+			if renderW <= 0 || renderH <= 0 {
+				continue
+			}
+
+			// 从源图像中裁剪需要的部分（边缘切割而非压缩）
+			tileBounds := processedImg.Bounds()
+			cropX0 := tileBounds.Min.X
+			cropY0 := tileBounds.Min.Y
+			cropX1 := tileBounds.Min.X + int(math.Round(renderW))
+			cropY1 := tileBounds.Min.Y + int(math.Round(renderH))
+
+			// 边界检查
+			if cropX1 > tileBounds.Max.X {
+				cropX1 = tileBounds.Max.X
+			}
+			if cropY1 > tileBounds.Max.Y {
+				cropY1 = tileBounds.Max.Y
+			}
+
+			if cropX1 <= cropX0 || cropY1 <= cropY0 {
+				continue
+			}
+
+			croppedTile := processedImg.SubImage(image.Rect(cropX0, cropY0, cropX1, cropY1)).(*ebiten.Image)
+			if croppedTile == nil {
+				continue
+			}
+
+			// 为每个平铺块计算变换（不缩放，直接平移到目标位置）
+			local := ebiten.GeoM{}
+			local.Translate(offsetX, offsetY)
+			local.Concat(posGeo)
+
+			opts := &ebiten.DrawImageOptions{}
+			opts.GeoM = local
+			// 翻转已在预处理阶段应用，这里只应用颜色效果
+			applyTintColor(opts, tint, alpha, sprite)
+
+			target.DrawImage(croppedTile, opts)
+		}
+	}
+}
+
+// drawImagePatchWithGeo renders an image patch using a pre-computed geometry transformation.
+// Unlike drawImagePatch, this function doesn't build its own transformation matrix
+// but uses the provided one directly.
+func drawImagePatchWithGeo(target *ebiten.Image, geo ebiten.GeoM, img *ebiten.Image, sx0, sy0, sw, sh, dw, dh, alpha float64, tint *color.NRGBA, sprite *laya.Sprite, debugLabel string) {
+	if dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0 {
+		return
+	}
+
+	bounds := img.Bounds()
+	x0 := bounds.Min.X + int(math.Round(sx0))
+	y0 := bounds.Min.Y + int(math.Round(sy0))
+	x1 := bounds.Min.X + int(math.Round(sx0+sw))
+	y1 := bounds.Min.Y + int(math.Round(sy0+sh))
+
+	if x0 < bounds.Min.X {
+		x0 = bounds.Min.X
+	}
+	if y0 < bounds.Min.Y {
+		y0 = bounds.Min.Y
+	}
+	if x1 > bounds.Max.X {
+		x1 = bounds.Max.X
+	}
+	if y1 > bounds.Max.Y {
+		y1 = bounds.Max.Y
+	}
+	if x1 <= x0 || y1 <= y0 {
+		return
+	}
+
+	actualSW := float64(x1 - x0)
+	actualSH := float64(y1 - y0)
+	if actualSW <= 0 || actualSH <= 0 {
+		return
+	}
+
+	subImg, ok := img.SubImage(image.Rect(x0, y0, x1, y1)).(*ebiten.Image)
+	if !ok {
+		return
+	}
+
+	if dw > debugLargeDimensionLimit || dh > debugLargeDimensionLimit || math.IsNaN(dw) || math.IsNaN(dh) || math.IsInf(dw, 0) || math.IsInf(dh, 0) {
+		log.Printf("[drawImagePatchWithGeo] suspicious dst patch: %s dst=(%.2f, %.2f) actualSrc=(%.2f, %.2f) srcRect=(%d,%d)-(%d,%d)",
+			debugLabel, dw, dh, actualSW, actualSH, x0, y0, x1, y1)
+	}
+
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM = geo
+	applyTintColor(opts, tint, alpha, sprite)
+	target.DrawImage(subImg, opts)
 }

@@ -12,8 +12,10 @@ func CreateWidget(meta *assets.ComponentChild) interface{} {
 		return NewImage()
 	case assets.ObjectTypeMovieClip:
 		return NewMovieClip()
-	case assets.ObjectTypeText, assets.ObjectTypeRichText:
+	case assets.ObjectTypeText:
 		return NewText()
+	case assets.ObjectTypeRichText:
+		return NewRichText()
 	case assets.ObjectTypeInputText:
 		return NewTextInput()
 	case assets.ObjectTypeButton:
@@ -65,8 +67,10 @@ func CreateWidgetFromPackage(item *assets.PackageItem) interface{} {
 		return NewGraph()
 	case assets.ObjectTypeGroup:
 		return NewGroup()
-	case assets.ObjectTypeText, assets.ObjectTypeRichText:
+	case assets.ObjectTypeText:
 		return NewText()
+	case assets.ObjectTypeRichText:
+		return NewRichText()
 	case assets.ObjectTypeInputText:
 		return NewTextInput()
 	case assets.ObjectTypeProgressBar:

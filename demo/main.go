@@ -1,5 +1,3 @@
-//go:build ebiten
-
 package main
 
 import (

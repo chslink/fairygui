@@ -1,5 +1,3 @@
-//go:build ebiten
-
 package render
 
 import (
@@ -7,13 +5,16 @@ import (
 	"image/color"
 	"math"
 	"strings"
+	"unicode"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
+
+	ebitenText "github.com/hajimehoshi/ebiten/v2/text"
+	textv2 "github.com/hajimehoshi/ebiten/v2/text/v2"
 
 	textutil "github.com/chslink/fairygui/internal/text"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
@@ -25,6 +26,8 @@ type renderedTextRun struct {
 	runes    []rune
 	style    textutil.Style
 	color    color.NRGBA
+	link     string
+	advances []float64
 	width    float64
 	ascent   float64
 	descent  float64
@@ -46,7 +49,111 @@ type renderedTextLine struct {
 	hasGlyph bool
 }
 
+type textPart struct {
+	run         *renderedTextRun
+	forcedBreak bool
+}
+
+func (r *renderedTextRun) spanWidth(start, end int, letterSpacing float64) float64 {
+	if r == nil || start >= end || start < 0 || end > len(r.runes) {
+		return 0
+	}
+	width := 0.0
+	for i := start; i < end; i++ {
+		width += r.advanceAt(i)
+		if i != end-1 {
+			width += letterSpacing
+		}
+	}
+	return width
+}
+
+func (r *renderedTextRun) spanForWidth(start int, maxWidth float64, letterSpacing float64) (int, float64) {
+	if r == nil || start < 0 || start >= len(r.runes) {
+		return start, 0
+	}
+	width := 0.0
+	lastBreak := -1
+	widthAtBreak := 0.0
+	for i := start; i < len(r.runes); i++ {
+		if isBreakRune(r.runes[i]) && i > start {
+			lastBreak = i
+			widthAtBreak = width
+		}
+		runeWidth := r.advanceAt(i)
+		if width > 0 {
+			runeWidth += letterSpacing
+		}
+		if maxWidth > 0 && width+runeWidth > maxWidth {
+			if lastBreak >= start {
+				return lastBreak, widthAtBreak
+			}
+			if width == 0 {
+				return i + 1, width + runeWidth
+			}
+			return i, width
+		}
+		width += runeWidth
+	}
+	return len(r.runes), width
+}
+
+func (r *renderedTextRun) advanceAt(idx int) float64 {
+	if r == nil || idx < 0 || idx >= len(r.runes) {
+		return 0
+	}
+	if r.advances != nil && idx < len(r.advances) {
+		return r.advances[idx]
+	}
+	if r.bitmap != nil {
+		if glyph := r.bitmap.Glyphs[r.runes[idx]]; glyph != nil {
+			return glyph.Advance
+		}
+		return r.bitmap.SpaceAdvance()
+	}
+	if r.face != nil {
+		// Ebiten 的标准方法：优先使用 GlyphAdvance
+		if adv, ok := r.face.GlyphAdvance(r.runes[idx]); ok {
+			return float64(adv) / 64.0 // 从26.6固定点转换为像素
+		}
+		// 备选：使用字形边界框
+		bounds, _, ok := r.face.GlyphBounds(r.runes[idx])
+		if ok {
+			return float64(bounds.Max.X-bounds.Min.X) / 64.0
+		}
+		// 最后备选：对于空格字符，使用字体大小的50%
+		if r.runes[idx] == ' ' {
+			return float64(r.fontSize) * 0.5
+		}
+		// 其他字符使用字体大小
+		return float64(r.fontSize) * 0.6
+	}
+	return 0
+}
+
+func (r *renderedTextRun) slice(start, end int, letterSpacing float64) *renderedTextRun {
+	if r == nil || start >= end || start < 0 || end > len(r.runes) {
+		return nil
+	}
+	clone := *r
+	clone.runes = append([]rune(nil), r.runes[start:end]...)
+	clone.text = string(clone.runes)
+	if len(r.advances) > 0 {
+		clone.advances = append([]float64(nil), r.advances[start:end]...)
+	} else {
+		clone.advances = nil
+	}
+	clone.width = r.spanWidth(start, end, letterSpacing)
+	return &clone
+}
+
 func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextField, value string, alpha float64, width, height float64, atlas *AtlasManager, sprite *laya.Sprite) error {
+	var linkRegions []widgets.TextLinkRegion
+	if field != nil {
+		defer func() {
+			field.SetLinkRegions(linkRegions)
+		}()
+	}
 	if strings.TrimSpace(value) == "" {
 		return nil
 	}
@@ -67,25 +174,42 @@ func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextFi
 		return nil
 	}
 
-	lines := splitSegmentsIntoLines(segments)
 	letterSpacing := float64(0)
 	leading := float64(0)
 	align := widgets.TextAlignLeft
 	valign := widgets.TextVerticalAlignTop
+	allowWrap := false
 	if field != nil {
 		letterSpacing = float64(field.LetterSpacing())
 		leading = float64(field.Leading())
 		align = field.Align()
 		valign = field.VerticalAlign()
+
+		// Laya 行为：是否换行仅由 widthAutoSize / singleLine 决定
+		allowWrap = !field.WidthAutoSize() && !field.SingleLine()
 	}
 
 	baseMetrics := resolveBaseMetrics(field)
-	renderedLines := make([]*renderedTextLine, 0, len(lines))
+	parts := buildTextParts(segments, field, baseColor, baseMetrics, letterSpacing)
+	wrapWidth := width
+	if wrapWidth <= 0 && field != nil {
+		wrapWidth = field.Width()
+	}
+	if wrapWidth > 0 {
+		padLeft, padRight := estimateHorizontalPadding(field)
+		wrapWidth -= padLeft + padRight
+		if wrapWidth < 0 {
+			wrapWidth = 0
+		}
+	}
+
+	wrapped := wrapRenderedRuns(parts, wrapWidth, letterSpacing, allowWrap)
+	renderedLines := make([]*renderedTextLine, 0, len(wrapped))
 	maxLineWidth := 0.0
 	textHeight := 0.0
 
-	for idx, parts := range lines {
-		line := buildRenderedLine(parts, field, baseColor, baseMetrics, letterSpacing)
+	for idx, runs := range wrapped {
+		line := buildRenderedLineFromRuns(runs, baseMetrics, letterSpacing)
 		renderedLines = append(renderedLines, line)
 		if line.width > maxLineWidth {
 			maxLineWidth = line.width
@@ -199,9 +323,11 @@ func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextFi
 			if run == nil {
 				continue
 			}
+			runStartX := cursorX
 			if run.hasGlyphs() {
 				if prevHadGlyph && letterSpacing != 0 {
 					cursorX += letterSpacing
+					runStartX = cursorX
 				}
 				if run.bitmap != nil {
 					if err := drawBitmapRun(textImg, run, cursorX, lineTop, letterSpacing, atlas); err != nil {
@@ -215,6 +341,17 @@ func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextFi
 			}
 			if run.style.Underline && run.width > 0 {
 				drawUnderline(textImg, cursorX-run.width, lineBaseline, run.width, run.fontSize, run.color)
+			}
+			if run.link != "" && run.width > 0 {
+				linkRegions = append(linkRegions, widgets.TextLinkRegion{
+					Target: run.link,
+					Bounds: laya.Rect{
+						X: runStartX,
+						Y: lineTop,
+						W: run.width,
+						H: line.height,
+					},
+				})
 			}
 		}
 
@@ -276,7 +413,7 @@ func splitSegmentsIntoLines(segments []textutil.Segment) [][]textutil.Segment {
 		chunks := strings.Split(seg.Text, "\n")
 		for idx, chunk := range chunks {
 			if chunk != "" {
-				current = append(current, textutil.Segment{Text: chunk, Style: seg.Style})
+				current = append(current, textutil.Segment{Text: chunk, Style: seg.Style, Link: seg.Link})
 			}
 			if idx != len(chunks)-1 {
 				lines = append(lines, current)
@@ -307,24 +444,26 @@ func resolveBaseMetrics(field *widgets.GTextField) baseMetrics {
 		face = selectFontFace(field)
 	}
 	metrics := face.Metrics()
-	ascent := float64(metrics.Ascent.Ceil())
-	descent := float64(metrics.Descent.Ceil())
-	if ascent <= 0 && descent <= 0 {
-		ascent = float64(metrics.Height.Ceil())
-	}
+
+	// 使用原始度量值，避免过度调整
+	ascent := float64(metrics.Ascent) / 64.0 // 从固定点转换为像素
+	descent := float64(metrics.Descent) / 64.0
+	height := float64(metrics.Height) / 64.0
+
+	// 处理异常值
 	if ascent <= 0 {
-		ascent = 1
+		ascent = float64(size) * 0.8 // 字体大小的80%作为上升部
 	}
-	if descent < 0 {
-		descent = 0
+	if descent <= 0 {
+		descent = float64(size) * 0.2 // 字体大小的20%作为下降部
 	}
-	lineHeight := ascent + descent
-	if lineHeight <= 0 {
-		lineHeight = float64(metrics.Height.Ceil())
-		if lineHeight <= 0 {
-			lineHeight = 1
-		}
+	if height <= 0 {
+		height = float64(size)
 	}
+
+	// LayaAir 通常使用固定的行高比例，但间距要更紧凑
+	lineHeight := ascent + descent + float64(size)*0.15 // 减少额外间距以更接近 LayaAir
+
 	return baseMetrics{
 		ascent:     ascent,
 		descent:    descent,
@@ -375,6 +514,7 @@ func buildRenderedRun(seg textutil.Segment, field *widgets.GTextField, baseColor
 		runes: []rune(seg.Text),
 		style: seg.Style,
 		color: baseColor,
+		link:  seg.Link,
 	}
 	if seg.Style.Color != "" {
 		if c := parseColor(seg.Style.Color); c != nil {
@@ -397,7 +537,20 @@ func buildRenderedRun(seg textutil.Segment, field *widgets.GTextField, baseColor
 	}
 	if font := lookupBitmapFont(fontRef); font != nil {
 		run.bitmap = font
-		run.width = bitmapLineWidth(run.runes, font, letterSpacing)
+		run.advances = make([]float64, len(run.runes))
+		width := 0.0
+		for idx, r := range run.runes {
+			advance := font.SpaceAdvance()
+			if glyph := font.Glyphs[r]; glyph != nil {
+				advance = glyph.Advance
+			}
+			run.advances[idx] = advance
+			width += advance
+			if idx != len(run.runes)-1 {
+				width += letterSpacing
+			}
+		}
+		run.width = width
 		run.ascent = font.LineHeight
 		if run.ascent <= 0 {
 			run.ascent = float64(run.fontSize)
@@ -412,8 +565,9 @@ func buildRenderedRun(seg textutil.Segment, field *widgets.GTextField, baseColor
 	}
 	run.face = face
 	metrics := face.Metrics()
-	run.ascent = float64(metrics.Ascent.Ceil())
-	run.descent = float64(metrics.Descent.Ceil())
+	// 直接使用固定点数值，避免取整导致的精度损失
+	run.ascent = float64(metrics.Ascent) / 64.0
+	run.descent = float64(metrics.Descent) / 64.0
 	if run.ascent <= 0 && run.descent <= 0 {
 		run.ascent = base.ascent
 		run.descent = base.descent
@@ -430,18 +584,22 @@ func buildRenderedRun(seg textutil.Segment, field *widgets.GTextField, baseColor
 		return run
 	}
 
+	run.advances = make([]float64, len(run.runes))
 	width := 0.0
 	for idx, r := range run.runes {
+		advance := 0.0
 		if adv, ok := face.GlyphAdvance(r); ok {
-			width += float64(adv) / 64.0
+			advance = float64(adv) / 64.0
 		} else {
 			bounds, _, ok := face.GlyphBounds(r)
 			if ok {
-				width += float64(bounds.Max.X-bounds.Min.X) / 64.0
+				advance = float64(bounds.Max.X-bounds.Min.X) / 64.0
 			} else {
-				width += float64(text.BoundString(face, string(r)).Dx())
+				advance = float64(ebitenText.BoundString(face, string(r)).Dx())
 			}
 		}
+		run.advances[idx] = advance
+		width += advance
 		if idx != len(run.runes)-1 {
 			width += letterSpacing
 		}
@@ -477,6 +635,182 @@ func computeTextPadding(field *widgets.GTextField, lines []*renderedTextLine) (l
 	return
 }
 
+func estimateHorizontalPadding(field *widgets.GTextField) (left, right float64) {
+	if field == nil {
+		return 0, 0
+	}
+	if stroke := field.StrokeSize(); stroke > 0 {
+		left = math.Max(left, stroke)
+		right = math.Max(right, stroke)
+	}
+	if c := parseColor(field.ShadowColor()); c != nil {
+		offX, _ := field.ShadowOffset()
+		if offX < 0 {
+			left = math.Max(left, -offX)
+		} else if offX > 0 {
+			right = math.Max(right, offX)
+		}
+	}
+	return
+}
+
+func buildTextParts(segments []textutil.Segment, field *widgets.GTextField, baseColor color.NRGBA, base baseMetrics, letterSpacing float64) []textPart {
+	var parts []textPart
+	for _, seg := range segments {
+		chunks := strings.Split(seg.Text, "\n")
+		if len(chunks) == 0 {
+			parts = append(parts, textPart{forcedBreak: true})
+			continue
+		}
+		for idx, chunk := range chunks {
+			if chunk != "" {
+				run := buildRenderedRun(textutil.Segment{Text: chunk, Style: seg.Style, Link: seg.Link}, field, baseColor, base, letterSpacing)
+				if run != nil && len(run.runes) > 0 {
+					parts = append(parts, textPart{run: run})
+				}
+			}
+			if idx != len(chunks)-1 {
+				parts = append(parts, textPart{forcedBreak: true})
+			}
+		}
+	}
+	if len(parts) == 0 {
+		parts = append(parts, textPart{forcedBreak: true})
+	}
+	return parts
+}
+
+func wrapRenderedRuns(parts []textPart, wrapWidth float64, letterSpacing float64, allowWrap bool) [][]*renderedTextRun {
+	lines := make([][]*renderedTextRun, 0)
+	current := make([]*renderedTextRun, 0)
+	currentWidth := 0.0
+
+	flush := func() {
+		lines = append(lines, current)
+		current = make([]*renderedTextRun, 0)
+		currentWidth = 0
+	}
+
+	for _, part := range parts {
+		if part.forcedBreak {
+			flush()
+			continue
+		}
+		run := part.run
+		if run == nil || len(run.runes) == 0 {
+			continue
+		}
+		if !allowWrap || wrapWidth <= 0 {
+			current, currentWidth = appendRun(current, currentWidth, run, letterSpacing)
+			continue
+		}
+		start := 0
+		for start < len(run.runes) {
+			if wrapWidth > 0 && currentWidth >= wrapWidth && len(current) > 0 {
+				flush()
+				continue
+			}
+			remaining := wrapWidth - currentWidth
+			if remaining <= 0 && len(current) > 0 {
+				flush()
+				continue
+			}
+			end, _ := run.spanForWidth(start, remaining, letterSpacing)
+			if end == start {
+				if len(current) > 0 {
+					flush()
+					continue
+				}
+				end = start + 1
+			}
+			chunk := run.slice(start, end, letterSpacing)
+			if chunk != nil && len(chunk.runes) > 0 {
+				current, currentWidth = appendRun(current, currentWidth, chunk, letterSpacing)
+			}
+			start = end
+			for start < len(run.runes) && isBreakRune(run.runes[start]) {
+				start++
+			}
+			if start < len(run.runes) {
+				flush()
+			}
+		}
+	}
+	lines = append(lines, current)
+	if len(lines) == 0 {
+		lines = append(lines, nil)
+	}
+	return lines
+}
+
+func appendRun(line []*renderedTextRun, currentWidth float64, run *renderedTextRun, letterSpacing float64) ([]*renderedTextRun, float64) {
+	if run == nil || len(run.runes) == 0 {
+		return line, currentWidth
+	}
+	if len(line) > 0 && letterSpacing != 0 {
+		currentWidth += letterSpacing
+	}
+	line = append(line, run)
+	currentWidth += run.width
+	return line, currentWidth
+}
+
+func buildRenderedLineFromRuns(runs []*renderedTextRun, base baseMetrics, letterSpacing float64) *renderedTextLine {
+	line := &renderedTextLine{
+		runs: make([]*renderedTextRun, 0, len(runs)),
+	}
+	prevHadGlyph := false
+
+	// 找到行中的主要字体大小，用于确定统一的基线
+	dominantSize := 0
+	dominantAscent := 0.0
+	dominantDescent := 0.0
+
+	for _, run := range runs {
+		if run == nil {
+			continue
+		}
+		line.runs = append(line.runs, run)
+		if run.hasGlyphs() {
+			if prevHadGlyph && letterSpacing != 0 {
+				line.width += letterSpacing
+			}
+			line.width += run.width
+			prevHadGlyph = true
+			line.hasGlyph = true
+
+			// 选择最大字体大小作为主要字体
+			if run.fontSize > dominantSize {
+				dominantSize = run.fontSize
+				dominantAscent = run.ascent
+				dominantDescent = run.descent
+			}
+		}
+	}
+
+	// 使用统一的基线：基于主要字体大小
+	if line.hasGlyph {
+		line.ascent = dominantAscent
+		line.descent = dominantDescent
+	} else {
+		line.ascent = base.ascent
+		line.descent = base.descent
+	}
+
+	// 确保行高足够容纳所有字符
+	// 但保持基线固定，这是关键修复
+	line.height = line.ascent + line.descent
+	if line.height <= 0 {
+		line.height = base.lineHeight
+	}
+
+	return line
+}
+
+func isBreakRune(r rune) bool {
+	return unicode.IsSpace(r)
+}
+
 func drawBitmapRun(dst *ebiten.Image, run *renderedTextRun, startX float64, lineTop float64, letterSpacing float64, atlas *AtlasManager) error {
 	if run.bitmap == nil || len(run.runes) == 0 {
 		return nil
@@ -486,14 +820,16 @@ func drawBitmapRun(dst *ebiten.Image, run *renderedTextRun, startX float64, line
 	for idx, r := range run.runes {
 		glyph := font.Glyphs[r]
 		advance := font.SpaceAdvance()
-		if glyph != nil {
+		if run.advances != nil && idx < len(run.advances) {
+			advance = run.advances[idx]
+		} else if glyph != nil {
 			advance = glyph.Advance
-			if glyph.Item != nil {
-				local := ebiten.GeoM{}
-				local.Translate(cursor+glyph.OffsetX, lineTop+glyph.OffsetY)
-				if err := drawPackageItem(dst, glyph.Item, local, atlas, 1, nil); err != nil {
-					return err
-				}
+		}
+		if glyph != nil && glyph.Item != nil {
+			local := ebiten.GeoM{}
+			local.Translate(cursor+glyph.OffsetX, lineTop+glyph.OffsetY)
+			if err := drawPackageItem(dst, glyph.Item, local, atlas, 1, nil); err != nil {
+				return err
 			}
 		}
 		if idx != len(run.runes)-1 {
@@ -509,85 +845,315 @@ func renderSystemRun(dst *ebiten.Image, run *renderedTextRun, startX float64, ba
 	if run.face == nil || len(run.runes) == 0 {
 		return
 	}
-	drawGlyphs := func(col color.NRGBA, offsetX, offsetY float64) {
-		src := image.NewUniform(col)
-		drawer := font.Drawer{
-			Dst:  dst,
-			Src:  src,
-			Face: run.face,
-		}
-		x := startX + offsetX
-		y := baseline + offsetY
-		for idx, r := range run.runes {
-			drawer.Dot = fixed.Point26_6{
-				X: fixed.Int26_6(x * 64),
-				Y: fixed.Int26_6(y * 64),
-			}
-			drawer.DrawString(string(r))
-			if adv, ok := run.face.GlyphAdvance(r); ok {
-				x += float64(adv) / 64.0
-			} else {
-				bounds, _, ok := run.face.GlyphBounds(r)
-				if ok {
-					x += float64(bounds.Max.X-bounds.Min.X) / 64.0
-				} else {
-					x += float64(text.BoundString(run.face, string(r)).Dx())
-				}
-			}
-			if idx != len(run.runes)-1 {
-				x += letterSpacing
-			}
-		}
+	if run.style.Italic {
+		renderItalicSystemRun(dst, run, startX, baseline, letterSpacing, strokeColor, strokeSize, shadowColor, shadowOffsetX, shadowOffsetY)
+		return
 	}
 
+	// 使用新的 text/v2 库渲染，基线计算更准确
+	textFace := textv2.NewGoXFace(run.face)
+
+	// 计算正确的渲染位置
+	renderY := baseline - run.ascent
+
+	// 如果有描边，使用高质量描边方案（临时图像 + alpha 膨胀）
 	if strokeColor != nil && strokeSize > 0 {
-		radius := int(math.Ceil(strokeSize))
-		for dx := -radius; dx <= radius; dx++ {
-			for dy := -radius; dy <= radius; dy++ {
-				if dx == 0 && dy == 0 {
-					continue
+		renderTextWithStroke(dst, run.text, run.face, startX, renderY, run.color, *strokeColor, strokeSize, run.style.Bold)
+
+		// 渲染阴影（在描边后）
+		if shadowColor != nil && (shadowOffsetX != 0 || shadowOffsetY != 0) {
+			renderTextWithStroke(dst, run.text, run.face, startX+shadowOffsetX, renderY+shadowOffsetY, *shadowColor, *shadowColor, 0, run.style.Bold)
+		}
+		return
+	}
+
+	// 无描边的正常渲染
+	opts := &textv2.DrawOptions{
+		LayoutOptions: textv2.LayoutOptions{
+			PrimaryAlign:   textv2.AlignStart,
+			SecondaryAlign: textv2.AlignStart,
+			LineSpacing:    0,
+		},
+	}
+	opts.GeoM.Translate(startX, renderY)
+	opts.ColorScale.ScaleWithColor(run.color)
+
+	// 渲染阴影
+	if shadowColor != nil && (shadowOffsetX != 0 || shadowOffsetY != 0) {
+		shadowOpts := *opts
+		shadowOpts.ColorScale.ScaleWithColor(*shadowColor)
+		shadowOpts.GeoM.Translate(shadowOffsetX, shadowOffsetY)
+		textv2.Draw(dst, run.text, textFace, &shadowOpts)
+	}
+
+	// 渲染主文本
+	textv2.Draw(dst, run.text, textFace, opts)
+
+	// 渲染粗体效果
+	if run.style.Bold {
+		boldOpts := *opts
+		boldOpts.GeoM.Translate(0.6, 0)
+		textv2.Draw(dst, run.text, textFace, &boldOpts)
+	}
+}
+
+// renderTextWithStroke 使用高质量算法渲染带描边的文本
+// 通过 alpha 通道膨胀避免多次绘制导致的锯齿感
+// 参数 x, y 是文本渲染区域的左上角位置（不是基线位置！）
+func renderTextWithStroke(dst *ebiten.Image, text string, fontFace font.Face, x, y float64, textColor, strokeColor color.NRGBA, strokeSize float64, bold bool) {
+	// 测量文本边界
+	bounds := ebitenText.BoundString(fontFace, text)
+
+	// 计算临时图像尺寸（需要包含描边空间）
+	padding := math.Ceil(strokeSize) * 2
+	tempWidth := bounds.Dx() + int(padding*2)
+	tempHeight := bounds.Dy() + int(padding*2)
+
+	if tempWidth <= 0 || tempHeight <= 0 {
+		return
+	}
+
+	// 创建临时图像用于渲染文本 alpha
+	temp := ebiten.NewImage(tempWidth, tempHeight)
+	defer temp.Dispose()
+
+	// 创建 textv2 face 用于渲染
+	textFace := textv2.NewGoXFace(fontFace)
+
+	// 在临时图像上渲染白色文本（只需要 alpha 通道）
+	tempOpts := &textv2.DrawOptions{
+		LayoutOptions: textv2.LayoutOptions{
+			PrimaryAlign:   textv2.AlignStart,
+			SecondaryAlign: textv2.AlignStart,
+		},
+	}
+	// textv2.Draw 的坐标是渲染区域左上角
+	// 在临时图像上，渲染区域左上角在 (padding, padding)
+	tempOpts.GeoM.Translate(padding, padding)
+	tempOpts.ColorScale.ScaleWithColor(color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+	textv2.Draw(temp, text, textFace, tempOpts)
+
+	// 如果需要粗体，额外绘制一次偏移
+	if bold {
+		boldOpts := *tempOpts
+		boldOpts.GeoM.Translate(0.6, 0)
+		textv2.Draw(temp, text, textFace, &boldOpts)
+	}
+
+	// 创建描边图像（通过膨胀 alpha 通道）
+	if strokeSize > 0 {
+		stroke := ebiten.NewImage(tempWidth, tempHeight)
+		defer stroke.Dispose()
+
+		// 使用简单的膨胀：在多个方向偏移绘制原始 alpha
+		// 这比 CPU 端的形态学膨胀更高效
+		iStrokeSize := int(math.Ceil(strokeSize))
+		for dy := -iStrokeSize; dy <= iStrokeSize; dy++ {
+			for dx := -iStrokeSize; dx <= iStrokeSize; dx++ {
+				// 圆形膨胀核
+				if dx*dx+dy*dy <= iStrokeSize*iStrokeSize {
+					drawOpts := &ebiten.DrawImageOptions{}
+					drawOpts.GeoM.Translate(float64(dx), float64(dy))
+					stroke.DrawImage(temp, drawOpts)
 				}
-				if math.Hypot(float64(dx), float64(dy)) > strokeSize+0.1 {
-					continue
-				}
-				drawGlyphs(*strokeColor, float64(dx), float64(dy))
 			}
 		}
+
+		// 将描边绘制到目标图像（使用描边颜色）
+		// 临时图像上，渲染区域左上角在 (padding, padding)
+		// 目标上，渲染区域左上角在 (x, y)
+		// 所以临时图像的 (padding, padding) 应该对应目标的 (x, y)
+		// 因此临时图像的 (0, 0) 应该对应目标的 (x - padding, y - padding)
+		strokeDrawOpts := &ebiten.DrawImageOptions{}
+		strokeDrawOpts.GeoM.Translate(x-padding, y-padding)
+		strokeDrawOpts.ColorScale.ScaleWithColor(strokeColor)
+		dst.DrawImage(stroke, strokeDrawOpts)
 	}
 
+	// 在描边上绘制原始文本（使用文本颜色）
+	textDrawOpts := &ebiten.DrawImageOptions{}
+	textDrawOpts.GeoM.Translate(x-padding, y-padding)
+	textDrawOpts.ColorScale.ScaleWithColor(textColor)
+	dst.DrawImage(temp, textDrawOpts)
+}
+
+func drawSystemGlyphs(dst *ebiten.Image, run *renderedTextRun, startX, baseline float64, letterSpacing float64, col color.NRGBA) {
+	if run == nil || run.face == nil || len(run.runes) == 0 {
+		return
+	}
+	src := image.NewUniform(col)
+	drawer := font.Drawer{
+		Dst:  dst,
+		Src:  src,
+		Face: run.face,
+	}
+	x := startX
+	// 使用更高精度的基线计算，确保文本定位准确
+	// Ebiten 的 font.Drawer 期望基线坐标以固定点格式提供
+	for idx, r := range run.runes {
+		// 将浮点坐标精确转换为固定点坐标
+		drawer.Dot = fixed.Point26_6{
+			X: fixed.Int26_6(math.Round(x*64) + 0.5), // 添加0.5以改善舍入精度
+			Y: fixed.Int26_6(math.Round(baseline*64) + 0.5),
+		}
+		drawer.DrawString(string(r))
+		advance := 0.0
+		if run.advances != nil && idx < len(run.advances) {
+			advance = run.advances[idx]
+		} else if adv, ok := run.face.GlyphAdvance(r); ok {
+			advance = float64(adv) / 64.0
+		} else {
+			bounds, _, ok := run.face.GlyphBounds(r)
+			if ok {
+				advance = float64(bounds.Max.X-bounds.Min.X) / 64.0
+			} else {
+				advance = float64(ebitenText.BoundString(run.face, string(r)).Dx())
+			}
+		}
+		x += advance
+		if idx != len(run.runes)-1 {
+			x += letterSpacing
+		}
+	}
+}
+
+func renderItalicSystemRun(dst *ebiten.Image, run *renderedTextRun, startX float64, baseline float64, letterSpacing float64, strokeColor *color.NRGBA, strokeSize float64, shadowColor *color.NRGBA, shadowOffsetX, shadowOffsetY float64) {
+	// 斜体文本渲染（与正常文本相同，只是添加 Skew 变换）
+	const italicShear = -0.25
+
+	textFace := textv2.NewGoXFace(run.face)
+	renderY := baseline - run.ascent
+
+	// 如果有描边，使用高质量描边方案
+	if strokeColor != nil && strokeSize > 0 {
+		renderTextWithStrokeAndSkew(dst, run.text, run.face, startX, renderY, run.color, *strokeColor, strokeSize, run.style.Bold, italicShear)
+
+		// 渲染阴影（在描边后）
+		if shadowColor != nil && (shadowOffsetX != 0 || shadowOffsetY != 0) {
+			renderTextWithStrokeAndSkew(dst, run.text, run.face, startX+shadowOffsetX, renderY+shadowOffsetY, *shadowColor, *shadowColor, 0, run.style.Bold, italicShear)
+		}
+		return
+	}
+
+	// 无描边的正常渲染
+	opts := &textv2.DrawOptions{
+		LayoutOptions: textv2.LayoutOptions{
+			PrimaryAlign:   textv2.AlignStart,
+			SecondaryAlign: textv2.AlignStart,
+			LineSpacing:    0,
+		},
+	}
+	opts.GeoM.Skew(italicShear, 0)
+	opts.GeoM.Translate(startX, renderY)
+	opts.ColorScale.ScaleWithColor(run.color)
+
+	// 渲染阴影
 	if shadowColor != nil && (shadowOffsetX != 0 || shadowOffsetY != 0) {
-		drawGlyphs(*shadowColor, shadowOffsetX, shadowOffsetY)
+		shadowOpts := *opts
+		shadowOpts.ColorScale.ScaleWithColor(*shadowColor)
+		shadowOpts.GeoM.Translate(shadowOffsetX, shadowOffsetY)
+		textv2.Draw(dst, run.text, textFace, &shadowOpts)
 	}
 
-	drawGlyphs(run.color, 0, 0)
+	// 渲染主文本
+	textv2.Draw(dst, run.text, textFace, opts)
+
+	// 渲染粗体效果
 	if run.style.Bold {
-		drawGlyphs(run.color, 0.6, 0)
+		boldOpts := *opts
+		boldOpts.GeoM.Translate(0.6, 0)
+		textv2.Draw(dst, run.text, textFace, &boldOpts)
 	}
+}
+
+// renderTextWithStrokeAndSkew 使用高质量算法渲染带描边和斜体变换的文本
+// 参数 x, y 是文本渲染区域的左上角位置（不是基线位置！）
+func renderTextWithStrokeAndSkew(dst *ebiten.Image, text string, fontFace font.Face, x, y float64, textColor, strokeColor color.NRGBA, strokeSize float64, bold bool, skew float64) {
+	// 测量文本边界
+	bounds := ebitenText.BoundString(fontFace, text)
+
+	// 计算临时图像尺寸（需要包含描边空间和斜体偏移）
+	padding := math.Ceil(strokeSize) * 2
+	skewOffset := math.Abs(skew * float64(bounds.Dy()))
+	tempWidth := bounds.Dx() + int(skewOffset+padding*2)
+	tempHeight := bounds.Dy() + int(padding*2)
+
+	if tempWidth <= 0 || tempHeight <= 0 {
+		return
+	}
+
+	// 创建临时图像用于渲染文本 alpha
+	temp := ebiten.NewImage(tempWidth, tempHeight)
+	defer temp.Dispose()
+
+	// 创建 textv2 face 用于渲染
+	textFace := textv2.NewGoXFace(fontFace)
+
+	// 在临时图像上渲染白色文本（应用斜体变换）
+	tempOpts := &textv2.DrawOptions{
+		LayoutOptions: textv2.LayoutOptions{
+			PrimaryAlign:   textv2.AlignStart,
+			SecondaryAlign: textv2.AlignStart,
+		},
+	}
+	tempOpts.GeoM.Skew(skew, 0)
+	// textv2.Draw 的坐标是渲染区域左上角
+	// 斜体需要额外的水平空间：skewOffset
+	// 在临时图像上，渲染区域左上角在 (padding + skewOffset, padding)
+	tempOpts.GeoM.Translate(padding+skewOffset, padding)
+	tempOpts.ColorScale.ScaleWithColor(color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+	textv2.Draw(temp, text, textFace, tempOpts)
+
+	// 如果需要粗体，额外绘制一次偏移
+	if bold {
+		boldOpts := *tempOpts
+		boldOpts.GeoM.Translate(0.6, 0)
+		textv2.Draw(temp, text, textFace, &boldOpts)
+	}
+
+	// 创建描边图像（通过膨胀 alpha 通道）
+	if strokeSize > 0 {
+		stroke := ebiten.NewImage(tempWidth, tempHeight)
+		defer stroke.Dispose()
+
+		// 使用圆形膨胀核
+		iStrokeSize := int(math.Ceil(strokeSize))
+		for dy := -iStrokeSize; dy <= iStrokeSize; dy++ {
+			for dx := -iStrokeSize; dx <= iStrokeSize; dx++ {
+				if dx*dx+dy*dy <= iStrokeSize*iStrokeSize {
+					drawOpts := &ebiten.DrawImageOptions{}
+					drawOpts.GeoM.Translate(float64(dx), float64(dy))
+					stroke.DrawImage(temp, drawOpts)
+				}
+			}
+		}
+
+		// 将描边绘制到目标图像
+		// 临时图像上，渲染区域左上角在 (padding + skewOffset, padding)
+		// 目标上，渲染区域左上角在 (x, y)
+		// 所以临时图像的 (padding + skewOffset, padding) 应该对应目标的 (x, y)
+		// 因此临时图像的 (0, 0) 应该对应目标的 (x - padding - skewOffset, y - padding)
+		strokeDrawOpts := &ebiten.DrawImageOptions{}
+		strokeDrawOpts.GeoM.Translate(x-padding-skewOffset, y-padding)
+		strokeDrawOpts.ColorScale.ScaleWithColor(strokeColor)
+		dst.DrawImage(stroke, strokeDrawOpts)
+	}
+
+	// 在描边上绘制原始文本
+	textDrawOpts := &ebiten.DrawImageOptions{}
+	textDrawOpts.GeoM.Translate(x-padding-skewOffset, y-padding)
+	textDrawOpts.ColorScale.ScaleWithColor(textColor)
+	dst.DrawImage(temp, textDrawOpts)
 }
 
 func drawUnderline(dst *ebiten.Image, startX, baseline, width float64, fontSize int, col color.NRGBA) {
 	if width <= 0 {
 		return
 	}
-	thickness := math.Max(1, float64(fontSize)/14)
-	y := baseline + thickness
+	// LayaAir 的下划线通常很细，约为字体大小的 1/20 左右
+	// 但至少要有 1 像素可见
+	thickness := math.Max(1, float64(fontSize)/20)
+	// 下划线位置：baseline 下方约 1-2 像素
+	y := baseline + 2.0
 	vector.DrawFilledRect(dst, float32(startX), float32(y), float32(width), float32(thickness), col, true)
-}
-
-func bitmapLineWidth(runes []rune, font *assets.BitmapFont, letterSpacing float64) float64 {
-	if len(runes) == 0 || font == nil {
-		return 0
-	}
-	width := 0.0
-	for idx, r := range runes {
-		adv := font.SpaceAdvance()
-		if glyph := font.Glyphs[r]; glyph != nil {
-			adv = glyph.Advance
-		}
-		width += adv
-		if idx != len(runes)-1 {
-			width += letterSpacing
-		}
-	}
-	return width
 }

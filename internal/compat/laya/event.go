@@ -36,6 +36,7 @@ const (
 	EventKeyPress       EventType = "keyPress"
 	EventFocusIn        EventType = "focusIn"
 	EventFocusOut       EventType = "focusOut"
+	EventLink           EventType = "link"
 )
 
 // Event carries the runtime payload for a dispatched event.

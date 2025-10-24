@@ -19,11 +19,13 @@ type Style struct {
 type Segment struct {
 	Text  string
 	Style Style
+	Link  string
 }
 
 type stackEntry struct {
 	tag   string
 	style Style
+	link  string
 }
 
 // ParseUBB converts a UBB formatted string into a slice of styled segments.
@@ -42,8 +44,12 @@ func ParseUBB(input string, base Style) []Segment {
 			return
 		}
 		current := builder.String()
-		style := stack[len(stack)-1].style
-		segments = append(segments, Segment{Text: current, Style: style})
+		top := stack[len(stack)-1]
+		segments = append(segments, Segment{
+			Text:  current,
+			Style: top.style,
+			Link:  top.link,
+		})
 		builder.Reset()
 	}
 
@@ -74,7 +80,12 @@ func ParseUBB(input string, base Style) []Segment {
 		}
 		if strings.EqualFold(token, "br") {
 			flush()
-			segments = append(segments, Segment{Text: "\n", Style: stack[len(stack)-1].style})
+			top := stack[len(stack)-1]
+			segments = append(segments, Segment{
+				Text:  "\n",
+				Style: top.style,
+				Link:  top.link,
+			})
 			continue
 		}
 		if strings.EqualFold(token, "/br") {
@@ -113,17 +124,17 @@ func ParseUBB(input string, base Style) []Segment {
 			flush()
 			style := stack[len(stack)-1].style
 			style.Bold = true
-			stack = append(stack, stackEntry{tag: name, style: style})
+			stack = append(stack, stackEntry{tag: name, style: style, link: stack[len(stack)-1].link})
 		case "i":
 			flush()
 			style := stack[len(stack)-1].style
 			style.Italic = true
-			stack = append(stack, stackEntry{tag: name, style: style})
+			stack = append(stack, stackEntry{tag: name, style: style, link: stack[len(stack)-1].link})
 		case "u":
 			flush()
 			style := stack[len(stack)-1].style
 			style.Underline = true
-			stack = append(stack, stackEntry{tag: name, style: style})
+			stack = append(stack, stackEntry{tag: name, style: style, link: stack[len(stack)-1].link})
 		case "color":
 			if attr == "" {
 				writeLiteral("[" + token + "]")
@@ -132,7 +143,7 @@ func ParseUBB(input string, base Style) []Segment {
 			flush()
 			style := stack[len(stack)-1].style
 			style.Color = attr
-			stack = append(stack, stackEntry{tag: name, style: style})
+			stack = append(stack, stackEntry{tag: name, style: style, link: stack[len(stack)-1].link})
 		case "size":
 			if attr == "" {
 				writeLiteral("[" + token + "]")
@@ -142,7 +153,7 @@ func ParseUBB(input string, base Style) []Segment {
 				flush()
 				style := stack[len(stack)-1].style
 				style.FontSize = v
-				stack = append(stack, stackEntry{tag: name, style: style})
+				stack = append(stack, stackEntry{tag: name, style: style, link: stack[len(stack)-1].link})
 			} else {
 				writeLiteral("[" + token + "]")
 			}
@@ -154,14 +165,14 @@ func ParseUBB(input string, base Style) []Segment {
 			flush()
 			style := stack[len(stack)-1].style
 			style.Font = attr
-			stack = append(stack, stackEntry{tag: name, style: style})
+			stack = append(stack, stackEntry{tag: name, style: style, link: stack[len(stack)-1].link})
 		case "url":
 			flush()
 			style := stack[len(stack)-1].style
 			if !style.Underline {
 				style.Underline = true
 			}
-			stack = append(stack, stackEntry{tag: name, style: style})
+			stack = append(stack, stackEntry{tag: name, style: style, link: attr})
 		default:
 			// Unsupported tag: emit literally.
 			writeLiteral("[" + token + "]")

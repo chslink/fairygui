@@ -1,5 +1,3 @@
-//go:build ebiten
-
 package render
 
 import (
@@ -16,11 +14,9 @@ func TestBuildRenderedLineLetterSpacingAcrossSegments(t *testing.T) {
 
 	baseStyle, baseColor := deriveBaseStyle(field)
 	base := resolveBaseMetrics(field)
-	segments := []textutil.Segment{
-		{Text: "A", Style: baseStyle},
-		{Text: "B", Style: baseStyle},
-	}
-	line := buildRenderedLine(segments, field, baseColor, base, float64(field.LetterSpacing()))
+	runA := buildRenderedRun(textutil.Segment{Text: "A", Style: baseStyle}, field, baseColor, base, float64(field.LetterSpacing()))
+	runB := buildRenderedRun(textutil.Segment{Text: "B", Style: baseStyle}, field, baseColor, base, float64(field.LetterSpacing()))
+	line := buildRenderedLineFromRuns([]*renderedTextRun{runA, runB}, base, float64(field.LetterSpacing()))
 	if len(line.runs) != 2 {
 		t.Fatalf("expected 2 runs, got %d", len(line.runs))
 	}
@@ -30,19 +26,28 @@ func TestBuildRenderedLineLetterSpacingAcrossSegments(t *testing.T) {
 	}
 }
 
-func TestSplitSegmentsIntoLines(t *testing.T) {
-	base := textutil.Style{Color: "#ffffff", FontSize: 12}
-	segments := []textutil.Segment{
-		{Text: "Hello\nWorld", Style: base},
+func TestWrapRenderedRunsBreaksLongText(t *testing.T) {
+	field := widgets.NewText()
+	field.SetFontSize(16)
+	baseStyle, baseColor := deriveBaseStyle(field)
+	base := resolveBaseMetrics(field)
+	run := buildRenderedRun(textutil.Segment{Text: "ABCD", Style: baseStyle}, field, baseColor, base, 0)
+	if run == nil {
+		t.Fatalf("failed to build run")
 	}
-	lines := splitSegmentsIntoLines(segments)
-	if len(lines) != 2 {
-		t.Fatalf("expected 2 lines, got %d", len(lines))
+	firstWidth := run.advanceAt(0)
+	parts := []textPart{{run: run}}
+	wrapped := wrapRenderedRuns(parts, firstWidth+0.1, 0, true)
+	if len(wrapped) != 4 {
+		t.Fatalf("expected 4 lines, got %d", len(wrapped))
 	}
-	if len(lines[0]) != 1 || lines[0][0].Text != "Hello" {
-		t.Fatalf("unexpected first line: %#v", lines[0])
-	}
-	if len(lines[1]) != 1 || lines[1][0].Text != "World" {
-		t.Fatalf("unexpected second line: %#v", lines[1])
+	sample := []rune("ABCD")
+	for i, line := range wrapped {
+		if len(line) != 1 {
+			t.Fatalf("line %d expected 1 segment, got %d", i, len(line))
+		}
+		if got := line[0].text; got != string(sample[i]) {
+			t.Fatalf("line %d text mismatch: %q", i, got)
+		}
 	}
 }

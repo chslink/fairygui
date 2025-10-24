@@ -223,6 +223,17 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 				before.SetupBeforeAdd(ensureCtx(), sub)
 			}
 		}
+	case *widgets.GRichTextField:
+		// 富文本必须在 GTextField 之前处理，因为它嵌入了 GTextField
+		obj = widget.GObject()
+		widget.SetText(child.Text)
+		if sub != nil {
+			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(ensureCtx(), sub)
+			}
+		}
+		// 关键：保持 Data 指向 GRichTextField 实例，不要覆盖
+		obj.SetData(widget)
 	case *widgets.GTextField:
 		obj = widget.GObject
 		widget.SetText(child.Text)
