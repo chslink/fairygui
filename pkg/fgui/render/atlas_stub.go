@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/chslink/fairygui/pkg/fgui/assets"
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // AtlasManager is a placeholder when the ebiten build tag is not enabled.
@@ -25,4 +26,9 @@ func (m *AtlasManager) LoadPackage(ctx context.Context, pkg *assets.Package) err
 // ResolveSprite always returns an error without the ebiten tag.
 func (m *AtlasManager) ResolveSprite(item *assets.PackageItem) (any, error) {
 	return nil, errors.New("render: sprite resolution requires ebiten build tag")
+}
+
+// ResolveMovieClipFrame always returns an error without the ebiten tag.
+func (m *AtlasManager) ResolveMovieClipFrame(item *assets.PackageItem, frame *assets.MovieClipFrame) (*ebiten.Image, error) {
+	return nil, errors.New("render: movie clip frame resolution requires ebiten build tag")
 }

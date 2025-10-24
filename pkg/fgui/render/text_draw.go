@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -45,7 +46,7 @@ type renderedTextLine struct {
 	hasGlyph bool
 }
 
-func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextField, value string, alpha float64, width, height float64, atlas *AtlasManager) error {
+func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextField, value string, alpha float64, width, height float64, atlas *AtlasManager, sprite *laya.Sprite) error {
 	if strings.TrimSpace(value) == "" {
 		return nil
 	}
@@ -227,6 +228,7 @@ func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextFi
 	if alpha < 1 {
 		opts.ColorM.Scale(1, 1, 1, alpha)
 	}
+	applyColorEffects(opts, sprite)
 	target.DrawImage(textImg, opts)
 	return nil
 }
@@ -489,7 +491,7 @@ func drawBitmapRun(dst *ebiten.Image, run *renderedTextRun, startX float64, line
 			if glyph.Item != nil {
 				local := ebiten.GeoM{}
 				local.Translate(cursor+glyph.OffsetX, lineTop+glyph.OffsetY)
-				if err := drawPackageItem(dst, glyph.Item, local, atlas, 1); err != nil {
+				if err := drawPackageItem(dst, glyph.Item, local, atlas, 1, nil); err != nil {
 					return err
 				}
 			}

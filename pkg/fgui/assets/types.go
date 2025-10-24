@@ -104,6 +104,11 @@ type PackageItem struct {
 	bitmapFont *BitmapFont
 	fontOnce   sync.Once
 	fontErr    error
+
+	Interval    int
+	RepeatDelay int
+	Swing       bool
+	Frames      []*MovieClipFrame
 }
 
 // AtlasSprite describes a sprite on an atlas texture.
@@ -121,6 +126,17 @@ type PixelHitTestData struct {
 	Height int
 	Scale  float32
 	Data   []byte
+}
+
+// MovieClipFrame holds the atlas sprite and timing metadata for a single frame.
+type MovieClipFrame struct {
+	SpriteID string
+	Sprite   *AtlasSprite
+	AddDelay int
+	OffsetX  int
+	OffsetY  int
+	Width    int
+	Height   int
 }
 
 // Load fills the hit test data from the provided buffer.
@@ -230,6 +246,7 @@ type ComponentChild struct {
 	URL           string
 	RawDataOffset int
 	RawDataLength int
+	BlendMode     int
 }
 
 // ControllerData describes a component controller.

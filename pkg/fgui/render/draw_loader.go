@@ -5,11 +5,13 @@ package render
 import (
 	"errors"
 	"fmt"
+	"image/color"
 	"log"
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
@@ -21,9 +23,7 @@ const (
 	loaderFillMethodRadial90   = int(widgets.LoaderFillMethodRadial90)
 	loaderFillMethodRadial180  = int(widgets.LoaderFillMethodRadial180)
 	loaderFillMethodRadial360  = int(widgets.LoaderFillMethodRadial360)
-)
 
-const (
 	loaderFillOriginTop = iota
 	loaderFillOriginBottom
 	loaderFillOriginLeft
@@ -62,6 +62,10 @@ func renderLoaderPackageItem(target *ebiten.Image, loader *widgets.GLoader, item
 	}
 
 	geo := parentGeo
+	var sprite *laya.Sprite
+	if loader != nil && loader.GObject != nil {
+		sprite = loader.GObject.DisplayObject()
+	}
 	sx, sy := loader.ContentScale()
 	if sx == 0 {
 		sx = 1
@@ -76,9 +80,9 @@ func renderLoaderPackageItem(target *ebiten.Image, loader *widgets.GLoader, item
 		geo.Translate(ox, oy)
 	}
 
-	if sprite := item.Sprite; sprite != nil {
-		if sprite.Offset.X != 0 || sprite.Offset.Y != 0 {
-			geo.Translate(float64(sprite.Offset.X), float64(sprite.Offset.Y))
+	if spriteInfo := item.Sprite; spriteInfo != nil {
+		if spriteInfo.Offset.X != 0 || spriteInfo.Offset.Y != 0 {
+			geo.Translate(float64(spriteInfo.Offset.X), float64(spriteInfo.Offset.Y))
 		}
 	}
 
@@ -106,15 +110,15 @@ func renderLoaderPackageItem(target *ebiten.Image, loader *widgets.GLoader, item
 			log.Printf("[renderLoader] suspicious scale9 target: %s dst=(%.2f, %.2f) bounds=%v scale=(%.2f, %.2f) offset=(%.2f, %.2f) grid=%+v tile=%v method=%d amount=%.4f",
 				debugLabel, dstW, dstH, bounds, sx, sy, ox, oy, *grid, loader.ScaleByTile(), method, amount)
 		}
-		drawNineSlice(target, geo, img, slice, dstW, dstH, alpha, loader.ScaleByTile(), loader.TileGridIndice(), debugLabel)
+		drawNineSlice(target, geo, img, slice, dstW, dstH, alpha, nil, loader.ScaleByTile(), loader.TileGridIndice(), sprite, debugLabel)
 		return nil
 	}
 
 	if method == loaderFillMethodNone || amount <= 0 {
-		return renderLoaderImage(target, loader, img, geo, alpha)
+		return renderLoaderImage(target, loader, img, geo, alpha, sprite)
 	}
 	if amount >= 0.9999 {
-		return renderLoaderImage(target, loader, img, geo, alpha)
+		return renderLoaderImage(target, loader, img, geo, alpha, sprite)
 	}
 
 	dstW, dstH := loader.ContentSize()
@@ -127,7 +131,7 @@ func renderLoaderPackageItem(target *ebiten.Image, loader *widgets.GLoader, item
 
 	points := computeFillPoints(dstW, dstH, method, loader.FillOrigin(), loader.FillClockwise(), amount)
 	if len(points) < 6 {
-		return renderLoaderImage(target, loader, img, geo, alpha)
+		return renderLoaderImage(target, loader, img, geo, alpha, sprite)
 	}
 
 	vertices := make([]ebiten.Vertex, len(points)/2)
@@ -157,16 +161,17 @@ func renderLoaderPackageItem(target *ebiten.Image, loader *widgets.GLoader, item
 	return nil
 }
 
-func renderLoaderImage(target *ebiten.Image, loader *widgets.GLoader, img *ebiten.Image, geo ebiten.GeoM, alpha float64) error {
-	renderImageWithGeo(target, img, geo, alpha)
+func renderLoaderImage(target *ebiten.Image, loader *widgets.GLoader, img *ebiten.Image, geo ebiten.GeoM, alpha float64, sprite *laya.Sprite) error {
+	renderImageWithGeo(target, img, geo, alpha, nil, sprite)
 	return nil
 }
 
-func renderImageWithGeo(target *ebiten.Image, img *ebiten.Image, geo ebiten.GeoM, alpha float64) {
-	opts := &ebiten.DrawImageOptions{GeoM: geo}
-	if alpha < 1 {
-		opts.ColorM.Scale(1, 1, 1, alpha)
+func renderImageWithGeo(target *ebiten.Image, img *ebiten.Image, geo ebiten.GeoM, alpha float64, tint *color.NRGBA, sprite *laya.Sprite) {
+	if target == nil || img == nil {
+		return
 	}
+	opts := &ebiten.DrawImageOptions{GeoM: geo}
+	applyTintColor(opts, tint, alpha, sprite)
 	target.DrawImage(img, opts)
 }
 

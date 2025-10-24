@@ -32,6 +32,14 @@ type GScrollBar struct {
 	stageUpListener   laya.Listener
 }
 
+// ComponentRoot exposes the embedded component for helpers.
+func (b *GScrollBar) ComponentRoot() *core.GComponent {
+	if b == nil {
+		return nil
+	}
+	return b.GComponent
+}
+
 // NewScrollBar 创建滚动条。
 func NewScrollBar() *GScrollBar {
 	comp := core.NewGComponent()

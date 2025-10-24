@@ -135,3 +135,30 @@
 2. 为 `VirtualList`、`LoopList`、`ListEffect`、`ScrollPane` 场景接入虚拟列表、循环滚动、动效触发与渲染器（需移植 `MailItem`、`ScrollPaneHeader` 等扩展组件）。
 3. 移植交互类场景：聊天消息/表情（`EmojiParser`）、背包窗口、引导遮罩定位与动画、冷却条 Tween 行为等。
 4. 梳理触控/拖拽/全局事件所需的 compat 能力缺口，补齐 `pkg/fgui` 端事件派发、定时器与 Transition hook，确保 Demo 行为可复刻。
+
+## 2025-10-28
+- [x] 在 `internal/compat/laya` 新增 `Graphics` 与 `HitArea`，`Sprite` 现保存绘图命令并同步命中测试，完整对齐 Laya `DisplayObject.graphics` 行为。
+- [x] `widgets.GGraph` 迁回 Laya 风格 API：恢复 `DrawRect/DrawEllipse/DrawPolygon/DrawRegularPolygon`，`updateGraph` 直接写入 compat `Graphics` 并刷新 `HitArea`。
+- [x] 渲染层改为消费 Sprite 上的 Graphics 命令，统一处理圆角矩形、椭圆、多边形绘制，移除原集中式 `renderGraph` 临时图片构建。
+- [x] `core.GObject` 在尺寸变化时回调宿主，实现 Graph 等组件在 `SetSize` 之后自动重绘。
+- [x] `widgets.GImage` 与 Loader 贴图绘制迁移到 `Sprite.Graphics.DrawTexture`，支持颜色覆盖、九宫格与平铺命令，Ebiten 渲染层解析纹理指令并沿用 Laya 变换/轴心逻辑。
+
+## 2025-10-29
+- [x] 渲染路径统一向 `drawPackageItem`、`drawNineSlice`、`renderImageWithGeo` 传入 `*laya.Sprite`，由 `applyTintColor/applyColorEffects` 套用 Sprite 的颜色滤镜、灰度与 `BlendMode`。
+- [x] `renderLoader`、`renderGraph` 等代码同步改造，Loader 九宫格/填充与矢量图形在最终绘制阶段都会尊重颜色矩阵和混合模式设置。
+- [x] `applyTintColor` 聚合 Alpha 缩放与色彩覆盖逻辑，避免重复缩放，同时补充文档记录新的渲染数据流。
+- [x] 新增 `GTree`/`GTreeNode`，扩展 `GList` 支持节点插入、删除和事件绑定；Builder 解析 `treeView="true"` 组件时构建层级、模板并恢复节点文本/图标/控制器，与 TS 行为对齐。
+
+## 2025-10-30
+- [x] `assets.PackageItem` 增加 MovieClip 元数据 (`Interval`/`RepeatDelay`/`Swing`/`Frames`)，`parseMovieClipData` 镜像 TS `loadMovieClip` 解析流程并附带单测覆盖真实 `Basics.fui`。
+- [x] `core.GRoot.Advance` 引入 `tickAll`，对外暴露 `core.RegisterTicker(func(delta))`，让 MovieClip、Tweener 等模块能获取逐帧时间片而不依赖 compat Scheduler 任务堆。
+- [x] 新增 `widgets.GMovieClip`：支持播放控制、`SetPlaySettings`、`SyncStatus`、时间缩放与颜色覆盖，挂接 `core.RegisterTicker` 自动推进帧序列并实现 `setup_beforeAdd` 行为，对应单测覆盖 Advance/TimeScale/EndHandler/SetupBeforeAdd 场景。
+- [x] `render.DrawComponent` 处理 `GMovieClip`，`AtlasManager.ResolveMovieClipFrame` 根据帧级 atlas sprite 裁剪贴图并缓存；渲染阶段按帧偏移/原始尺寸缩放输出，保持 Trim 图对齐。
+- [x] compat Stage 输入系统扩展：支持多指触控、键盘事件与 pointer capture/focus API，新增 `InputState`/`TouchInput`/`KeyboardEvent`，并在测试环境验证触控/键盘/捕获流程。
+- [x] Graphics 命令渲染：实现 `drawLine`/`drawPie` 等命令并在 Ebiten 渲染层解析 `Sprite.Graphics`，为通用 Sprite 图形绘制提供 fallback 支持。
+- [x] 同步 `docs/architecture.md` 与进度日志，记录新的 ticker 通道与 MovieClip 渲染架构。
+
+### Upcoming Focus（2025-10-30）
+1. 覆盖 MovieClip `flip`/`fill` 相关逻辑，确认 Loader/Transition 对 MovieClip 的 gear 与动画指令是否需要额外对齐。
+2. 在 demo Basics/Basics 的 MovieClip 场景验证翻转、重复延迟与颜色覆盖是否与 Laya 一致（需 GUI 环境运行反馈）。
+3. 为 `AtlasManager` 增补帧级缓存驱逐与九宫格/平铺路径共享逻辑，避免重复裁剪造成 GPU 纹理副本激增。

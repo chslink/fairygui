@@ -2,12 +2,32 @@ package core
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"sync/atomic"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
+	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/gears"
+	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
+
+// BlendMode represents sprite blending applied during rendering.
+type BlendMode int
+
+const (
+	BlendModeNormal BlendMode = iota
+	BlendModeAdd
+)
+
+func blendModeFromByte(value int) BlendMode {
+	switch value {
+	case 2:
+		return BlendModeAdd
+	default:
+		return BlendModeNormal
+	}
+}
 
 var gObjectCounter uint64
 
@@ -48,6 +68,10 @@ type GObject struct {
 	sourceHeight       float64
 	initWidth          float64
 	initHeight         float64
+	minWidth           float64
+	maxWidth           float64
+	minHeight          float64
+	maxHeight          float64
 	props              map[gears.ObjectPropID]any
 	tooltips           string
 	group              *GObject
@@ -55,6 +79,12 @@ type GObject struct {
 	colorFilterEnabled bool
 	shakeOffsetX       float64
 	shakeOffsetY       float64
+	customData         string
+	blendMode          BlendMode
+}
+
+type ownerSizeChanged interface {
+	OwnerSizeChanged(oldWidth, oldHeight float64)
 }
 
 // NewGObject creates a base object with a backing sprite.
@@ -148,6 +178,55 @@ func (g *GObject) SetSize(width, height float64) {
 		g.relations.OnOwnerSizeChanged(dw, dh, g.pivotAsAnchor)
 	}
 	g.notifyDependentsSize(dw, dh)
+	if handler, ok := g.data.(ownerSizeChanged); ok {
+		handler.OwnerSizeChanged(oldWidth, oldHeight)
+	}
+}
+
+// SetMinSize stores the minimum width and height constraints.
+func (g *GObject) SetMinSize(minWidth, minHeight float64) {
+	if g == nil {
+		return
+	}
+	if minWidth < 0 {
+		minWidth = 0
+	}
+	if minHeight < 0 {
+		minHeight = 0
+	}
+	g.minWidth = minWidth
+	g.minHeight = minHeight
+}
+
+// MinSize returns the minimum width and height constraints.
+func (g *GObject) MinSize() (float64, float64) {
+	if g == nil {
+		return 0, 0
+	}
+	return g.minWidth, g.minHeight
+}
+
+// SetMaxSize stores the maximum width and height constraints (0 means no limit).
+func (g *GObject) SetMaxSize(maxWidth, maxHeight float64) {
+	if g == nil {
+		return
+	}
+	if maxWidth < 0 {
+		maxWidth = 0
+	}
+	if maxHeight < 0 {
+		maxHeight = 0
+	}
+	g.maxWidth = maxWidth
+	g.maxHeight = maxHeight
+}
+
+// MaxSize returns the maximum width and height constraints (0 means no limit).
+func (g *GObject) MaxSize() (float64, float64) {
+	if g == nil {
+		return 0, 0
+	}
+	return g.maxWidth, g.maxHeight
 }
 
 // SetScale updates the scaling factors on both axes.
@@ -185,7 +264,7 @@ func (g *GObject) SetSkew(skewX, skewY float64) {
 	g.skewX = skewX
 	g.skewY = skewY
 	if g.display != nil {
-		g.display.SetSkew(-skewX, skewY)
+		g.display.SetSkew(skewX, skewY)
 	}
 	g.refreshTransform()
 }
@@ -300,23 +379,45 @@ func (g *GObject) Grayed() bool {
 // SetGrayed toggles the grayed state.
 func (g *GObject) SetGrayed(value bool) {
 	g.grayed = value
+	if g.display != nil {
+		g.display.SetGray(value)
+	}
 }
 
 // SetColorFilter 记录颜色滤镜参数（用于 Transition 等场景）。
 func (g *GObject) SetColorFilter(r, gFactor, b, a float64) {
 	g.colorFilter = [4]float64{r, gFactor, b, a}
-	g.colorFilterEnabled = true
+	g.colorFilterEnabled = !(math.Abs(r) <= 1e-6 && math.Abs(gFactor) <= 1e-6 && math.Abs(b) <= 1e-6 && math.Abs(a) <= 1e-6)
+	if g.display != nil {
+		g.display.SetColorFilter(r, gFactor, b, a)
+	}
 }
 
 // ClearColorFilter 移除当前颜色滤镜。
 func (g *GObject) ClearColorFilter() {
 	g.colorFilter = [4]float64{}
 	g.colorFilterEnabled = false
+	if g.display != nil {
+		g.display.ClearColorFilter()
+	}
 }
 
 // ColorFilter 返回颜色滤镜参数及是否启用。
 func (g *GObject) ColorFilter() (enabled bool, values [4]float64) {
 	return g.colorFilterEnabled, g.colorFilter
+}
+
+// SetBlendMode updates the rendering blend mode for the object.
+func (g *GObject) SetBlendMode(mode BlendMode) {
+	g.blendMode = mode
+	if g.display != nil {
+		g.display.SetBlendMode(laya.BlendMode(mode))
+	}
+}
+
+// BlendMode returns the current blend mode applied to this object.
+func (g *GObject) BlendMode() BlendMode {
+	return g.blendMode
 }
 
 // X returns the local X position.
@@ -668,6 +769,116 @@ func (g *GObject) SetTooltips(value string) {
 	g.tooltips = value
 }
 
+// SetCustomData stores arbitrary package-defined metadata string.
+func (g *GObject) SetCustomData(value string) {
+	if g == nil {
+		return
+	}
+	g.customData = value
+}
+
+// CustomData returns the package-defined metadata string.
+func (g *GObject) CustomData() string {
+	if g == nil {
+		return ""
+	}
+	return g.customData
+}
+
+// ApplyComponentChild copies common transform/appearance data from component child metadata.
+func (g *GObject) ApplyComponentChild(child *assets.ComponentChild) {
+	if g == nil || child == nil {
+		return
+	}
+	if child.Name != "" {
+		g.SetName(child.Name)
+	}
+	g.SetPosition(float64(child.X), float64(child.Y))
+	if child.Width >= 0 && child.Height >= 0 {
+		g.SetSize(float64(child.Width), float64(child.Height))
+	}
+	g.SetMinSize(float64(child.MinWidth), float64(child.MinHeight))
+	g.SetMaxSize(float64(child.MaxWidth), float64(child.MaxHeight))
+	g.SetScale(float64(child.ScaleX), float64(child.ScaleY))
+	g.SetSkew(float64(child.SkewX)*math.Pi/180.0, float64(child.SkewY)*math.Pi/180.0)
+	if child.PivotAnchor || child.PivotX != 0 || child.PivotY != 0 {
+		g.SetPivotWithAnchor(float64(child.PivotX), float64(child.PivotY), child.PivotAnchor)
+	}
+	g.SetAlpha(float64(child.Alpha))
+	g.SetRotation(float64(child.Rotation) * math.Pi / 180.0)
+	g.SetVisible(child.Visible)
+	g.SetTouchable(child.Touchable)
+	g.SetGrayed(child.Grayed)
+	g.SetCustomData(child.Data)
+	g.SetBlendMode(blendModeFromByte(child.BlendMode))
+}
+
+// SetupAfterAdd mirrors FairyGUI 的 setup_afterAdd 逻辑，读取提示、分组和控制器默认页等信息。
+func (g *GObject) SetupAfterAdd(parent *GComponent, buf *utils.ByteBuffer, start int) {
+	if g == nil || buf == nil || start < 0 {
+		return
+	}
+	saved := buf.Pos()
+	defer buf.SetPos(saved)
+	if buf.Seek(start, 1) {
+		if buf.Remaining() >= 2 {
+			if tip := buf.ReadS(); tip != nil {
+				g.SetTooltips(*tip)
+			}
+		}
+		if buf.Remaining() >= 2 {
+			groupIndex := int(buf.ReadInt16())
+			if groupIndex >= 0 && parent != nil {
+				if groupObj := parent.ChildAt(groupIndex); groupObj != nil {
+					g.SetGroup(groupObj)
+				}
+			}
+		}
+	}
+	component := componentFromObject(g)
+	if component == nil && parent != nil && parent.GObject == g {
+		component = parent
+	}
+	if component != nil && buf.Seek(start, 4) {
+		if buf.Remaining() >= 2 {
+			_ = buf.ReadInt16() // scroll pane page controller index (未实现)
+		}
+		if buf.Remaining() >= 2 {
+			cnt := int(buf.ReadInt16())
+			for i := 0; i < cnt; i++ {
+				if buf.Remaining() < 4 {
+					break
+				}
+				ctrlName := buf.ReadS()
+				pageID := buf.ReadS()
+				if ctrlName == nil || pageID == nil {
+					continue
+				}
+				if ctrl := component.ControllerByName(*ctrlName); ctrl != nil {
+					ctrl.SetSelectedPageID(*pageID)
+				}
+			}
+		}
+		if buf.Version >= 2 && buf.Remaining() >= 2 {
+			assignments := int(buf.ReadInt16())
+			for i := 0; i < assignments; i++ {
+				if buf.Remaining() < 6 {
+					break
+				}
+				targetPath := buf.ReadS()
+				propID := buf.ReadInt16()
+				value := buf.ReadS()
+				if targetPath == nil || value == nil {
+					continue
+				}
+				if target := FindChildByPath(component, *targetPath); target != nil {
+					target.SetProp(gears.ObjectPropID(propID), *value)
+				}
+			}
+		}
+	}
+}
+
 // Group returns the group object that owns this node, if any.
 func (g *GObject) Group() *GObject {
 	if g == nil {
@@ -791,11 +1002,6 @@ func (g *GObject) refreshTransform() {
 	if g.pivotAsAnchor {
 		x -= g.pivotX * g.width
 		y -= g.pivotY * g.height
-	}
-	if sprite := g.display; sprite != nil {
-		offset := sprite.PivotOffset()
-		x -= offset.X
-		y -= offset.Y
 	}
 	g.display.SetPosition(x, y)
 }

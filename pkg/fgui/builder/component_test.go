@@ -173,27 +173,27 @@ func TestBuildComponentFromRealFUI(t *testing.T) {
 
 func TestBuildComponentControllers(t *testing.T) {
 	root := filepath.Join("..", "..", "..", "demo", "assets")
-	data, err := os.ReadFile(filepath.Join(root, "MainMenu.fui"))
+	data, err := os.ReadFile(filepath.Join(root, "Basics.fui"))
 	if err != nil {
 		t.Skipf("demo assets unavailable: %v", err)
 	}
-	pkg, err := assets.ParsePackage(data, filepath.Join(root, "MainMenu"))
+	pkg, err := assets.ParsePackage(data, filepath.Join(root, "Basics"))
 	if err != nil {
 		t.Fatalf("ParsePackage failed: %v", err)
 	}
 
 	var mainComponent *assets.PackageItem
 	for _, item := range pkg.Items {
-		if item.Type == assets.PackageItemTypeComponent && item.Name == "Main" {
+		if item.Type == assets.PackageItemTypeComponent && item.Name == "Demo_Controller" {
 			mainComponent = item
 			break
 		}
 	}
 	if mainComponent == nil {
-		t.Fatalf("Main component not found in MainMenu.fui")
+		t.Fatalf("Demo_Controller component not found in Basics.fui")
 	}
 	if len(mainComponent.Component.Controllers) == 0 {
-		t.Fatalf("expected component controllers in Main component")
+		t.Fatalf("expected component controllers in Demo_Controller component")
 	}
 
 	factory := NewFactory(nil, nil)
@@ -812,6 +812,10 @@ func TestSetupComponentControllersAppliesSelection(t *testing.T) {
 	component.AddController(ctrl)
 	ctrl.SetSelectedIndex(1) // start from non-default to observe override
 
+	targetObj := core.NewGObject()
+	targetObj.SetName("target")
+	component.AddChild(targetObj)
+
 	data := []byte{
 		0x05, 0x01, // segCount=5, useShort=1
 		0x00, 0x00, // block0 offset
@@ -832,12 +836,22 @@ func TestSetupComponentControllersAppliesSelection(t *testing.T) {
 	buf.StringTable = []string{"", "ctrl", "page", "target", "value"}
 	buf.Version = 2
 
-	setupComponentControllers(holder, buf)
+	resolver := noopSetupResolver{}
+	holder.SetupAfterAdd(component, buf, 0)
+	component.SetupAfterAdd(buf, 0, resolver, resolver)
 
 	if got := ctrl.SelectedPageID(); got != "page" {
 		t.Fatalf("expected controller override to select page %q, got %q", "page", got)
 	}
 }
+
+type noopSetupResolver struct{}
+
+func (noopSetupResolver) MaskChild(int) *core.GObject { return nil }
+
+func (noopSetupResolver) PixelData(string) *assets.PixelHitTestData { return nil }
+
+func (noopSetupResolver) Configure(*core.GComponent, core.HitTest, *assets.PixelHitTestData) {}
 
 func computePivotOffset(width, height float64, pivotX, pivotY float64, rotation, skewX, skewY float64, scaleX, scaleY float64) (float64, float64) {
 	px := pivotX * width

@@ -10,8 +10,12 @@ func CreateWidget(meta *assets.ComponentChild) interface{} {
 	switch meta.Type {
 	case assets.ObjectTypeImage:
 		return NewImage()
+	case assets.ObjectTypeMovieClip:
+		return NewMovieClip()
 	case assets.ObjectTypeText, assets.ObjectTypeRichText:
 		return NewText()
+	case assets.ObjectTypeInputText:
+		return NewTextInput()
 	case assets.ObjectTypeButton:
 		return NewButton()
 	case assets.ObjectTypeLoader:
@@ -30,6 +34,10 @@ func CreateWidget(meta *assets.ComponentChild) interface{} {
 		return NewSlider()
 	case assets.ObjectTypeScrollBar:
 		return NewScrollBar()
+	case assets.ObjectTypeComboBox:
+		return NewComboBox()
+	case assets.ObjectTypeTree:
+		return NewTree()
 	default:
 		return nil
 	}
@@ -51,18 +59,26 @@ func CreateWidgetFromPackage(item *assets.PackageItem) interface{} {
 		return NewLoader()
 	case assets.ObjectTypeImage:
 		return NewImage()
+	case assets.ObjectTypeMovieClip:
+		return NewMovieClip()
 	case assets.ObjectTypeGraph:
 		return NewGraph()
 	case assets.ObjectTypeGroup:
 		return NewGroup()
 	case assets.ObjectTypeText, assets.ObjectTypeRichText:
 		return NewText()
+	case assets.ObjectTypeInputText:
+		return NewTextInput()
 	case assets.ObjectTypeProgressBar:
 		return NewProgressBar()
 	case assets.ObjectTypeSlider:
 		return NewSlider()
 	case assets.ObjectTypeScrollBar:
 		return NewScrollBar()
+	case assets.ObjectTypeComboBox:
+		return NewComboBox()
+	case assets.ObjectTypeTree:
+		return NewTree()
 	default:
 		return nil
 	}

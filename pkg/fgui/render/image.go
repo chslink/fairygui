@@ -10,6 +10,7 @@ import (
 	"math"
 	"sync"
 
+	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
@@ -30,7 +31,7 @@ var (
 
 const debugLargeDimensionLimit = 8192.0
 
-func drawNineSlice(target *ebiten.Image, baseGeo ebiten.GeoM, img *ebiten.Image, slice nineSlice, dstW, dstH float64, alpha float64, scaleByTile bool, tileGrid int, debugLabel string) {
+func drawNineSlice(target *ebiten.Image, baseGeo ebiten.GeoM, img *ebiten.Image, slice nineSlice, dstW, dstH float64, alpha float64, tint *color.NRGBA, scaleByTile bool, tileGrid int, sprite *laya.Sprite, debugLabel string) {
 	if target == nil || img == nil {
 		return
 	}
@@ -116,11 +117,11 @@ func drawNineSlice(target *ebiten.Image, baseGeo ebiten.GeoM, img *ebiten.Image,
 				}
 			}
 			if tileCenter && xi == 1 && yi == 1 {
-				tileImagePatch(target, baseGeo, img, sx0, sy0, srcWidth, srcHeight, dx0, dy0, dstWidth, dstHeight, alpha, debugLabel)
+				tileImagePatch(target, baseGeo, img, sx0, sy0, srcWidth, srcHeight, dx0, dy0, dstWidth, dstHeight, alpha, tint, sprite, debugLabel)
 				continue
 			}
 
-			drawImagePatch(target, baseGeo, img, sx0, sy0, srcWidth, srcHeight, dx0, dy0, dstWidth, dstHeight, alpha, debugLabel)
+			drawImagePatch(target, baseGeo, img, sx0, sy0, srcWidth, srcHeight, dx0, dy0, dstWidth, dstHeight, alpha, tint, sprite, debugLabel)
 		}
 	}
 }
@@ -159,7 +160,7 @@ func drawNineSliceOverlay(target *ebiten.Image, baseGeo ebiten.GeoM, slice nineS
 	drawRect(left, top, right-left, bottom-top, color.RGBA{0xff, 0xd7, 0x00, 0xff})
 }
 
-func drawImagePatch(target *ebiten.Image, baseGeo ebiten.GeoM, img *ebiten.Image, sx0, sy0, sw, sh, dx, dy, dw, dh, alpha float64, debugLabel string) {
+func drawImagePatch(target *ebiten.Image, baseGeo ebiten.GeoM, img *ebiten.Image, sx0, sy0, sw, sh, dx, dy, dw, dh, alpha float64, tint *color.NRGBA, sprite *laya.Sprite, debugLabel string) {
 	if dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0 {
 		return
 	}
@@ -210,13 +211,11 @@ func drawImagePatch(target *ebiten.Image, baseGeo ebiten.GeoM, img *ebiten.Image
 	}
 
 	opts := &ebiten.DrawImageOptions{GeoM: geo}
-	if alpha < 1 {
-		opts.ColorM.Scale(1, 1, 1, alpha)
-	}
+	applyTintColor(opts, tint, alpha, sprite)
 	target.DrawImage(subImg, opts)
 }
 
-func tileImagePatch(target *ebiten.Image, baseGeo ebiten.GeoM, img *ebiten.Image, sx0, sy0, sw, sh, dx, dy, dw, dh, alpha float64, debugLabel string) {
+func tileImagePatch(target *ebiten.Image, baseGeo ebiten.GeoM, img *ebiten.Image, sx0, sy0, sw, sh, dx, dy, dw, dh, alpha float64, tint *color.NRGBA, sprite *laya.Sprite, debugLabel string) {
 	if sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0 {
 		return
 	}
@@ -243,9 +242,30 @@ func tileImagePatch(target *ebiten.Image, baseGeo ebiten.GeoM, img *ebiten.Image
 				continue
 			}
 
-			drawImagePatch(target, baseGeo, img, sx0, sy0, remainingW, remainingH, dx+offsetX, dy+offsetY, remainingW, remainingH, alpha, debugLabel)
+			drawImagePatch(target, baseGeo, img, sx0, sy0, remainingW, remainingH, dx+offsetX, dy+offsetY, remainingW, remainingH, alpha, tint, sprite, debugLabel)
 		}
 	}
+}
+
+func applyTintColor(opts *ebiten.DrawImageOptions, tint *color.NRGBA, alpha float64, sprite *laya.Sprite) {
+	if opts == nil {
+		return
+	}
+	scaleR, scaleG, scaleB := 1.0, 1.0, 1.0
+	scaleA := alpha
+	if tint != nil {
+		scaleR = float64(tint.R) / 255.0
+		scaleG = float64(tint.G) / 255.0
+		scaleB = float64(tint.B) / 255.0
+		scaleA *= float64(tint.A) / 255.0
+	}
+	if scaleA < 0 {
+		scaleA = 0
+	} else if scaleA > 1 {
+		scaleA = 1
+	}
+	opts.ColorM.Scale(scaleR, scaleG, scaleB, scaleA)
+	applyColorEffects(opts, sprite)
 }
 
 func drawColor9Slice(target *ebiten.Image, baseGeo ebiten.GeoM, w, h float64, slice nineSlice, col color.Color) {

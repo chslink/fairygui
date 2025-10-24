@@ -32,16 +32,20 @@
   - Wrap `*ebiten.Image` and metadata (transform, alpha, hit area) in Go structs implementing a retained hierarchy similar to Laya's `Sprite`.
   - Provide methods used by FairyGUI (`AddChild`, `RemoveChild`, bounds transforms, local/global matrix conversion).
   - Integrate with Ebiten via a traversal invoked from `GRoot.Draw`.
+- 按 Laya 行为缓存 `Graphics` 命令与 `HitArea`，渲染层从 compat `Sprite` 读取矢量指令再绘制，避免 widget 层直接依赖 Ebiten。
+  - `GImage` 等纹理类组件同样通过 `Graphics.DrawTexture` 记录 `drawImage` / `draw9Grid` / `fillTexture`，保持与 Laya 行为一致，由渲染层解析贴图指令并应用颜色、九宫格、平铺等特性。
+  - `Sprite` 负责暴露灰度、颜色矩阵与混合模式，渲染层统一接收 `*laya.Sprite` 并在 `applyColorEffects` 中套用滤镜与 `BlendMode`，保证与 TS 运行时一致的着色顺序。
 
 - **Math Types**
   - Implement lightweight `Point`, `Rect`, `Matrix` structs with methods matching the TypeScript signatures. Keep conversions to `image.Point` when calling Ebiten.
 
 - **Event System**
   - Introduce `EventDispatcher` interface with `On`, `Off`, `Emit`, `Bubble`. Backed by Go maps of listener IDs. Provide common event constants mirroring `Laya.Event`.
-  - Translate Ebiten input events (mouse, touch, keyboard) into compat events via an input router on each update tick.
+  - Translate Ebiten input events (mouse, multi-touch, keyboard) into compat events via an input router on each update tick，并支持 focus/capture 状态管理。
 
 - **Timer & Scheduler**
   - Implement a `Timer` singleton that tracks elapsed time from `Game.Update`. Support `CallLater`, frame loops, and delayed callbacks used by gears and tweens.
+  - 提供 `core.RegisterTicker` 让 MovieClip、GTween 等组件在 `GRoot.Advance` 中获得逐帧 `delta`，保持与 Laya `frameLoop` 的行为一致。
 
 - **Loader & Assets**
   - Build an async loader service that reads from Go filesystem or embedded resources, returning `[]byte`/`*ebiten.Image`. Support batched loading analogous to `AssetProxy`.
@@ -81,4 +85,3 @@
 - Progress log (`docs/refactor-progress.md`) updated per milestone.
 - Go packages with idiomatic APIs and lint-clean code.
 - Comprehensive unit and integration tests to ensure behavioural parity.
-

@@ -32,6 +32,14 @@ func (env *StageEnv) Advance(delta time.Duration, mouse laya.MouseState) {
 	env.Stage.Update(delta, mouse)
 }
 
+// AdvanceInput progresses the simulated time with a full input state.
+func (env *StageEnv) AdvanceInput(delta time.Duration, input laya.InputState) {
+	env.T.Helper()
+	env.Time += delta
+	env.lastMouse = input.Mouse
+	env.Stage.UpdateInput(delta, input)
+}
+
 // Scheduler returns the stage scheduler for chaining timer assertions.
 func (env *StageEnv) Scheduler() *laya.Scheduler {
 	return env.Stage.Scheduler()

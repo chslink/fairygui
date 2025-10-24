@@ -7,6 +7,7 @@ import (
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
 
 // GSlider 代表可拖动的滑杆控件。
@@ -41,6 +42,14 @@ type GSlider struct {
 
 	stageMoveListener laya.Listener
 	stageUpListener   laya.Listener
+}
+
+// ComponentRoot exposes the embedded component for helpers.
+func (s *GSlider) ComponentRoot() *core.GComponent {
+	if s == nil {
+		return nil
+	}
+	return s.GComponent
 }
 
 // NewSlider 构建默认 slider。
@@ -456,4 +465,47 @@ func (s *GSlider) unregisterStageDrag() {
 	if s.stageUpListener != nil {
 		dispatcher.Off(laya.EventStageMouseUp, s.stageUpListener)
 	}
+}
+
+// SetupAfterAdd 解析滑杆的初始值及区间。
+func (s *GSlider) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
+	if s == nil || buf == nil {
+		return
+	}
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+	if !buf.Seek(0, 6) || buf.Remaining() <= 0 {
+		s.applyValue(false)
+		return
+	}
+	expected := assets.ObjectTypeSlider
+	if ctx != nil {
+		switch {
+		case ctx.ResolvedItem != nil && ctx.ResolvedItem.ObjectType != assets.ObjectTypeComponent:
+			expected = ctx.ResolvedItem.ObjectType
+		case ctx.Child != nil && ctx.Child.Type != 0:
+			expected = ctx.Child.Type
+		}
+	}
+	if assets.ObjectType(buf.ReadByte()) != expected {
+		s.applyValue(false)
+		return
+	}
+	if buf.Remaining() < 4 {
+		s.applyValue(false)
+		return
+	}
+	value := float64(buf.ReadInt32())
+	if buf.Remaining() < 4 {
+		s.applyValue(false)
+		return
+	}
+	max := float64(buf.ReadInt32())
+	min := s.Min()
+	if buf.Version >= 2 && buf.Remaining() >= 4 {
+		min = float64(buf.ReadInt32())
+	}
+	s.SetMin(min)
+	s.SetMax(max)
+	s.SetValue(value)
 }

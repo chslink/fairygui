@@ -6,6 +6,7 @@ import (
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
 
 // ButtonMode mirrors FairyGUI's button selection modes.
@@ -59,6 +60,14 @@ type GButton struct {
 	pressed            bool
 	baseScaleX         float64
 	baseScaleY         float64
+}
+
+// ComponentRoot exposes the underlying component for compatibility helpers.
+func (b *GButton) ComponentRoot() *core.GComponent {
+	if b == nil {
+		return nil
+	}
+	return b.GComponent
 }
 
 // NewButton creates a button widget.
@@ -196,6 +205,100 @@ func (b *GButton) SetSelected(value bool) {
 // ChangeStateOnClick indicates if the button toggles state on click.
 func (b *GButton) ChangeStateOnClick() bool {
 	return b.changeStateOnClick
+}
+
+// SetupAfterAdd applies button instance configuration encoded in the component buffer.
+func (b *GButton) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
+	if b == nil || buf == nil || ctx == nil || ctx.Child == nil {
+		return
+	}
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+	if !buf.Seek(0, 6) || buf.Remaining() <= 0 {
+		return
+	}
+	objType := assets.ObjectType(buf.ReadByte())
+	childType := ctx.Child.Type
+	if objType != childType {
+		if ctx.ResolvedItem != nil && objType == ctx.ResolvedItem.ObjectType {
+			// Allowed: specialised component (e.g., template button).
+		} else if childType != assets.ObjectTypeComponent {
+			return
+		}
+	}
+	readS := func() *string {
+		if buf.Remaining() < 2 {
+			return nil
+		}
+		return buf.ReadS()
+	}
+	readBool := func() (bool, bool) {
+		if buf.Remaining() < 1 {
+			return false, false
+		}
+		return buf.ReadBool(), true
+	}
+	readInt16 := func() (int16, bool) {
+		if buf.Remaining() < 2 {
+			return 0, false
+		}
+		return buf.ReadInt16(), true
+	}
+	readInt32 := func() (int32, bool) {
+		if buf.Remaining() < 4 {
+			return 0, false
+		}
+		return buf.ReadInt32(), true
+	}
+	readFloat32 := func() (float32, bool) {
+		if buf.Remaining() < 4 {
+			return 0, false
+		}
+		return buf.ReadFloat32(), true
+	}
+
+	if title := readS(); title != nil && *title != "" {
+		b.SetTitle(*title)
+	}
+	if selectedTitle := readS(); selectedTitle != nil && *selectedTitle != "" {
+		b.SetSelectedTitle(*selectedTitle)
+	}
+	if icon := readS(); icon != nil && *icon != "" {
+		b.SetIcon(*icon)
+	}
+	if selectedIcon := readS(); selectedIcon != nil && *selectedIcon != "" {
+		b.SetSelectedIcon(*selectedIcon)
+	}
+	if hasColor, ok := readBool(); ok && hasColor {
+		if buf.Remaining() >= 4 {
+			if color := buf.ReadColorString(true); color != "" {
+				b.SetTitleColor(color)
+			}
+		}
+	}
+	if size, ok := readInt32(); ok && size != 0 {
+		b.SetTitleFontSize(int(size))
+	}
+	if idx, ok := readInt16(); ok && idx >= 0 && ctx.Parent != nil {
+		controllers := ctx.Parent.Controllers()
+		if int(idx) < len(controllers) {
+			b.SetRelatedController(controllers[idx])
+		}
+	}
+	if page := readS(); page != nil {
+		b.SetRelatedPageID(*page)
+	}
+	if sound := readS(); sound != nil && *sound != "" {
+		b.SetSound(*sound)
+	}
+	if hasVolume, ok := readBool(); ok && hasVolume {
+		if vol, ok := readFloat32(); ok {
+			b.SetSoundVolumeScale(float64(vol))
+		}
+	}
+	if selected, ok := readBool(); ok {
+		b.SetSelected(selected)
+	}
 }
 
 // SetChangeStateOnClick updates whether the button should toggle on click.

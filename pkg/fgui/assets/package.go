@@ -207,6 +207,7 @@ func parseItems(buf *utils.ByteBuffer, pkg *Package) error {
 			item.Smoothing = buf.ReadBool()
 			item.ObjectType = ObjectTypeMovieClip
 			item.RawData = buf.ReadBuffer()
+			parseMovieClipData(item)
 		case PackageItemTypeFont:
 			item.RawData = buf.ReadBuffer()
 		case PackageItemTypeComponent:
@@ -279,6 +280,7 @@ func parseItems(buf *utils.ByteBuffer, pkg *Package) error {
 	if err := parsePixelHitTests(buf, pkg); err != nil {
 		return err
 	}
+	linkMovieClipSprites(pkg)
 
 	return nil
 }
@@ -378,6 +380,80 @@ func decompressRaw(data []byte) ([]byte, error) {
 	fr := flate.NewReader(reader)
 	defer fr.Close()
 	return io.ReadAll(fr)
+}
+
+func parseMovieClipData(item *PackageItem) {
+	if item == nil || item.RawData == nil {
+		return
+	}
+	buf := item.RawData
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+
+	if !buf.Seek(0, 0) {
+		return
+	}
+	item.Interval = int(buf.ReadInt32())
+	item.Swing = buf.ReadBool()
+	item.RepeatDelay = int(buf.ReadInt32())
+
+	if !buf.Seek(0, 1) {
+		return
+	}
+	frameCount := int(buf.ReadInt16())
+	if frameCount <= 0 {
+		item.Frames = nil
+		return
+	}
+
+	frames := make([]*MovieClipFrame, 0, frameCount)
+	for i := 0; i < frameCount; i++ {
+		nextPos := int(buf.ReadInt16()) + buf.Pos()
+
+		offsetX := int(buf.ReadInt32())
+		offsetY := int(buf.ReadInt32())
+		width := int(buf.ReadInt32())
+		height := int(buf.ReadInt32())
+		addDelay := int(buf.ReadInt32())
+		spriteID := stringValue(buf.ReadS())
+
+		frame := &MovieClipFrame{
+			SpriteID: spriteID,
+			AddDelay: addDelay,
+			OffsetX:  offsetX,
+			OffsetY:  offsetY,
+			Width:    width,
+			Height:   height,
+		}
+		if spriteID != "" && item.Owner != nil {
+			if sprite := item.Owner.Sprites[spriteID]; sprite != nil {
+				frame.Sprite = sprite
+			}
+		}
+		frames = append(frames, frame)
+
+		_ = buf.SetPos(nextPos)
+	}
+	item.Frames = frames
+}
+
+func linkMovieClipSprites(pkg *Package) {
+	if pkg == nil {
+		return
+	}
+	for _, item := range pkg.Items {
+		if item == nil || item.Type != PackageItemTypeMovieClip || len(item.Frames) == 0 {
+			continue
+		}
+		for _, frame := range item.Frames {
+			if frame == nil || frame.Sprite != nil || frame.SpriteID == "" {
+				continue
+			}
+			if sprite := pkg.Sprites[frame.SpriteID]; sprite != nil {
+				frame.Sprite = sprite
+			}
+		}
+	}
 }
 
 func parseComponentData(item *PackageItem) {
@@ -554,7 +630,7 @@ func parseComponentChild(buf *utils.ByteBuffer, start int, length int) Component
 			child.Grayed = buf.ReadBool()
 		}
 		if remaining() > 0 {
-			_ = buf.ReadByte() // blend mode
+			child.BlendMode = int(buf.ReadByte())
 		}
 		if remaining() > 0 {
 			switch filter := buf.ReadByte(); filter {

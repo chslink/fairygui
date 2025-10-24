@@ -143,10 +143,23 @@ func (g *game) syncStageSize() {
 func (g *game) mouseState() fgui.MouseState {
 	x, y := ebiten.CursorPosition()
 	wheelX, wheelY := ebiten.Wheel()
+	buttons := fgui.MouseButtons{
+		Left:   ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft),
+		Right:  ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight),
+		Middle: ebiten.IsMouseButtonPressed(ebiten.MouseButtonMiddle),
+	}
+	modifiers := fgui.KeyModifiers{
+		Shift: ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight),
+		Ctrl:  ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight),
+		Alt:   ebiten.IsKeyPressed(ebiten.KeyAltLeft) || ebiten.IsKeyPressed(ebiten.KeyAltRight),
+		Meta:  ebiten.IsKeyPressed(ebiten.KeyMetaLeft) || ebiten.IsKeyPressed(ebiten.KeyMetaRight),
+	}
 	state := fgui.MouseState{
 		X:       float64(x),
 		Y:       float64(y),
-		Primary: ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft),
+		Primary: buttons.Left,
+		Buttons: buttons,
+		Modifiers: modifiers,
 		WheelX:  wheelX,
 		WheelY:  wheelY,
 	}

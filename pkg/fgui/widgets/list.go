@@ -6,7 +6,36 @@ import (
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
+
+// ListLayoutType mirrors FairyGUI 的列表布局枚举。
+type ListLayoutType int
+
+const (
+	ListLayoutTypeSingleColumn ListLayoutType = iota
+	ListLayoutTypeSingleRow
+	ListLayoutTypeFlowHorizontal
+	ListLayoutTypeFlowVertical
+	ListLayoutTypePagination
+)
+
+// ListChildrenRenderOrder mirrors FairyGUI 的子对象渲染顺序。
+type ListChildrenRenderOrder int
+
+const (
+	ListChildrenRenderOrderAscent ListChildrenRenderOrder = iota
+	ListChildrenRenderOrderDescent
+	ListChildrenRenderOrderArch
+)
+
+// ListMargin 记录列表内容边距。
+type ListMargin struct {
+	Top    int
+	Bottom int
+	Left   int
+	Right  int
+}
 
 // GList represents a minimal list widget backed by a component package item.
 type GList struct {
@@ -15,6 +44,7 @@ type GList struct {
 	defaultItem    string
 	resource       string
 	items          []*core.GObject
+	itemHandlers   map[*core.GObject]laya.Listener
 	selected       int
 	selectionMode  ListSelectionMode
 	selectionCtrl  *core.Controller
@@ -24,6 +54,28 @@ type GList struct {
 	lastSelected   int
 	updatingCtrl   bool
 	updatingList   bool
+	layout         ListLayoutType
+	align          LoaderAlign
+	verticalAlign  LoaderAlign
+	lineGap        int
+	columnGap      int
+	lineCount      int
+	columnCount    int
+	autoResizeItem bool
+	childrenOrder  ListChildrenRenderOrder
+	apexIndex      int
+	margin         ListMargin
+	overflow       assets.OverflowType
+	scrollToView   bool
+	foldInvisible  bool
+}
+
+// ComponentRoot exposes the embedded component for helpers.
+func (l *GList) ComponentRoot() *core.GComponent {
+	if l == nil {
+		return nil
+	}
+	return l.GComponent
 }
 
 // ListSelectionMode mirrors FairyGUI's list selection options.
@@ -43,6 +95,9 @@ func NewList() *GList {
 		selected:      -1,
 		lastSelected:  -1,
 		selectionMode: ListSelectionModeSingle,
+		layout:        ListLayoutTypeSingleColumn,
+		align:         LoaderAlignLeft,
+		verticalAlign: LoaderAlignTop,
 	}
 }
 
@@ -130,15 +185,105 @@ func (l *GList) SetSelectionController(ctrl *core.Controller) {
 
 // AddItem appends a child object to the list and wires basic click selection.
 func (l *GList) AddItem(obj *core.GObject) {
+	l.InsertItemAt(obj, len(l.items))
+}
+
+// InsertItemAt inserts an object at the specified index.
+func (l *GList) InsertItemAt(obj *core.GObject, index int) {
 	if l == nil || obj == nil {
 		return
 	}
-	l.GComponent.AddChild(obj)
-	index := len(l.items)
-	l.items = append(l.items, obj)
-	obj.On(laya.EventClick, func(evt laya.Event) {
-		l.handleItemClick(index)
-	})
+	if index < 0 {
+		index = 0
+	}
+	if index > len(l.items) {
+		index = len(l.items)
+	}
+	l.GComponent.AddChildAt(obj, index)
+	l.items = append(l.items, nil)
+	copy(l.items[index+1:], l.items[index:])
+	l.items[index] = obj
+	l.attachItemClick(obj)
+	if l.selected >= index && l.selected != -1 {
+		l.selected++
+	}
+	if len(l.selectedSet) > 0 {
+		updated := make(map[int]struct{}, len(l.selectedSet))
+		for idx := range l.selectedSet {
+			if idx >= index {
+				updated[idx+1] = struct{}{}
+			} else {
+				updated[idx] = struct{}{}
+			}
+		}
+		l.selectedSet = updated
+	}
+}
+
+// RemoveItemAt removes the object at the given index.
+func (l *GList) RemoveItemAt(index int) {
+	if l == nil || index < 0 || index >= len(l.items) {
+		return
+	}
+	obj := l.items[index]
+	if handler, ok := l.itemHandlers[obj]; ok {
+		obj.Off(laya.EventClick, handler)
+		delete(l.itemHandlers, obj)
+	}
+	l.GComponent.RemoveChild(obj)
+	copy(l.items[index:], l.items[index+1:])
+	l.items = l.items[:len(l.items)-1]
+
+	if l.selected == index {
+		l.selected = -1
+	} else if l.selected > index {
+		l.selected--
+	}
+
+	if len(l.selectedSet) > 0 {
+		updated := make(map[int]struct{}, len(l.selectedSet))
+		for idx := range l.selectedSet {
+			switch {
+			case idx == index:
+				// drop
+			case idx > index:
+				updated[idx-1] = struct{}{}
+			default:
+				updated[idx] = struct{}{}
+			}
+		}
+		if len(updated) == 0 {
+			l.selectedSet = nil
+		} else {
+			l.selectedSet = updated
+		}
+	}
+}
+
+func (l *GList) attachItemClick(obj *core.GObject) {
+	if l.itemHandlers == nil {
+		l.itemHandlers = make(map[*core.GObject]laya.Listener)
+	}
+	if handler, ok := l.itemHandlers[obj]; ok && handler != nil {
+		obj.Off(laya.EventClick, handler)
+	}
+	handler := func(evt laya.Event) {
+		index := l.indexOf(obj)
+		if index >= 0 {
+			l.handleItemClick(index)
+		}
+	}
+	l.itemHandlers[obj] = handler
+	obj.On(laya.EventClick, handler)
+}
+
+func (l *GList) indexOf(obj *core.GObject) int {
+	for idx, item := range l.items {
+		if item == obj {
+			return idx
+		}
+	}
+	return -1
 }
 
 // Items returns the child objects tracked by the list.
@@ -458,4 +603,251 @@ func (l *GList) applyItemSelection(index int, selected bool) {
 	case interface{ SetSelected(bool) }:
 		data.SetSelected(selected)
 	}
+}
+
+// Layout returns当前列表布局类型。
+func (l *GList) Layout() ListLayoutType {
+	if l == nil {
+		return ListLayoutTypeSingleColumn
+	}
+	return l.layout
+}
+
+// Align 返回水平对齐方式。
+func (l *GList) Align() LoaderAlign {
+	if l == nil {
+		return LoaderAlignLeft
+	}
+	return l.align
+}
+
+// VerticalAlign 返回垂直对齐方式。
+func (l *GList) VerticalAlign() LoaderAlign {
+	if l == nil {
+		return LoaderAlignTop
+	}
+	return l.verticalAlign
+}
+
+// LineGap 返回行间距。
+func (l *GList) LineGap() int {
+	return l.lineGap
+}
+
+// ColumnGap 返回列间距。
+func (l *GList) ColumnGap() int {
+	return l.columnGap
+}
+
+// LineCount 返回行数限制。
+func (l *GList) LineCount() int {
+	return l.lineCount
+}
+
+// ColumnCount 返回列数限制。
+func (l *GList) ColumnCount() int {
+	return l.columnCount
+}
+
+// AutoResizeItem 表示是否自动调整子项尺寸。
+func (l *GList) AutoResizeItem() bool {
+	return l.autoResizeItem
+}
+
+// ChildrenRenderOrder 返回子对象渲染顺序。
+func (l *GList) ChildrenRenderOrder() ListChildrenRenderOrder {
+	return l.childrenOrder
+}
+
+// ApexIndex 返回拱形顺序起点索引。
+func (l *GList) ApexIndex() int {
+	return l.apexIndex
+}
+
+// Margin 返回内容边距。
+func (l *GList) Margin() ListMargin {
+	return l.margin
+}
+
+// Overflow 返回溢出处理策略。
+func (l *GList) Overflow() assets.OverflowType {
+	return l.overflow
+}
+
+// ScrollItemToViewOnClick 指示点击条目时是否滚动至可视区域。
+func (l *GList) ScrollItemToViewOnClick() bool {
+	return l.scrollToView
+}
+
+// FoldInvisibleItems 指示是否折叠不可见元素。
+func (l *GList) FoldInvisibleItems() bool {
+	return l.foldInvisible
+}
+
+// SetupBeforeAdd 解析列表加入父节点前的配置。
+func (l *GList) SetupBeforeAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
+	if l == nil || buf == nil {
+		return
+	}
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+	if !buf.Seek(0, 5) || buf.Remaining() <= 0 {
+		return
+	}
+	l.layout = clampListLayout(ListLayoutType(buf.ReadByte()))
+	if buf.Remaining() > 0 {
+		mode := ListSelectionMode(buf.ReadByte())
+		if mode < ListSelectionModeSingle || mode > ListSelectionModeNone {
+			mode = ListSelectionModeSingle
+		}
+		l.SetSelectionMode(mode)
+	}
+	if buf.Remaining() > 0 {
+		l.align = mapListAlign(buf.ReadByte())
+	}
+	if buf.Remaining() > 0 {
+		l.verticalAlign = mapListVerticalAlign(buf.ReadByte())
+	}
+	if buf.Remaining() >= 2 {
+		l.lineGap = int(buf.ReadInt16())
+	}
+	if buf.Remaining() >= 2 {
+		l.columnGap = int(buf.ReadInt16())
+	}
+	if buf.Remaining() >= 2 {
+		l.lineCount = int(buf.ReadInt16())
+	}
+	if buf.Remaining() >= 2 {
+		l.columnCount = int(buf.ReadInt16())
+	}
+	if buf.Remaining() > 0 {
+		l.autoResizeItem = buf.ReadBool()
+	}
+	if buf.Remaining() > 0 {
+		l.childrenOrder = mapChildrenRenderOrder(buf.ReadByte())
+	}
+	if buf.Remaining() >= 2 {
+		l.apexIndex = int(buf.ReadInt16())
+	}
+	if buf.Remaining() > 0 {
+		if buf.ReadBool() {
+			if buf.Remaining() >= 16 {
+				l.margin.Top = int(buf.ReadInt32())
+				l.margin.Bottom = int(buf.ReadInt32())
+				l.margin.Left = int(buf.ReadInt32())
+				l.margin.Right = int(buf.ReadInt32())
+			}
+		} else {
+			l.margin = ListMargin{}
+		}
+	}
+	if buf.Remaining() > 0 {
+		l.overflow = assets.OverflowType(buf.ReadByte())
+	} else {
+		l.overflow = assets.OverflowTypeVisible
+	}
+	if l.overflow == assets.OverflowTypeScroll {
+		savedPos := buf.Pos()
+		if buf.Seek(0, 7) {
+			l.GComponent.SetupScroll(buf)
+		}
+		_ = buf.SetPos(savedPos)
+	}
+	if buf.Remaining() > 0 && buf.ReadBool() {
+		if buf.Remaining() >= 8 {
+			_ = buf.Skip(8)
+		}
+	}
+	if buf.Version >= 2 {
+		if buf.Remaining() > 0 {
+			l.scrollToView = buf.ReadBool()
+		}
+		if buf.Remaining() > 0 {
+			l.foldInvisible = buf.ReadBool()
+		}
+	}
+	if !buf.Seek(0, 8) {
+		return
+	}
+	if def := buf.ReadS(); def != nil && *def != "" {
+		l.SetDefaultItem(*def)
+	}
+	if buf.Remaining() < 2 {
+		return
+	}
+	cnt := int(buf.ReadInt16())
+	for i := 0; i < cnt; i++ {
+		if buf.Remaining() < 2 {
+			break
+		}
+		nextPos := int(buf.ReadInt16()) + buf.Pos()
+		if buf.Remaining() >= 2 {
+			_ = buf.ReadS()
+		}
+		if nextPos < 0 || nextPos > buf.Len() {
+			break
+		}
+		_ = buf.SetPos(nextPos)
+	}
+}
+
+// SetupAfterAdd 在组件加入父对象后应用控制器索引等设置。
+func (l *GList) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
+	if l == nil || buf == nil {
+		return
+	}
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+	if !buf.Seek(0, 6) || buf.Remaining() < 2 {
+		return
+	}
+	index := int(buf.ReadInt16())
+	if index < 0 || ctx == nil || ctx.Parent == nil {
+		return
+	}
+	controllers := ctx.Parent.Controllers()
+	if index >= len(controllers) {
+		return
+	}
+	l.SetSelectionController(controllers[index])
+}
+
+func mapListAlign(code int8) LoaderAlign {
+	switch code {
+	case 1:
+		return LoaderAlignCenter
+	case 2:
+		return LoaderAlignRight
+	default:
+		return LoaderAlignLeft
+	}
+}
+
+func mapListVerticalAlign(code int8) LoaderAlign {
+	switch code {
+	case 1:
+		return LoaderAlignMiddle
+	case 2:
+		return LoaderAlignBottom
+	default:
+		return LoaderAlignTop
+	}
+}
+
+func mapChildrenRenderOrder(code int8) ListChildrenRenderOrder {
+	switch code {
+	case 1:
+		return ListChildrenRenderOrderDescent
+	case 2:
+		return ListChildrenRenderOrderArch
+	default:
+		return ListChildrenRenderOrderAscent
+	}
+}
+
+func clampListLayout(value ListLayoutType) ListLayoutType {
+	if value < ListLayoutTypeSingleColumn || value > ListLayoutTypePagination {
+		return ListLayoutTypeSingleColumn
+	}
+	return value
 }

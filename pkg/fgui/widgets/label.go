@@ -1,7 +1,10 @@
 package widgets
 
-import "github.com/chslink/fairygui/pkg/fgui/assets"
-import "github.com/chslink/fairygui/pkg/fgui/core"
+import (
+	"github.com/chslink/fairygui/pkg/fgui/assets"
+	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/utils"
+)
 
 // GLabel represents a simple label widget (text + optional icon).
 type GLabel struct {
@@ -17,6 +20,14 @@ type GLabel struct {
 	titleColor        string
 	titleOutlineColor string
 	titleFontSize     int
+}
+
+// ComponentRoot exposes the underlying component for helpers.
+func (l *GLabel) ComponentRoot() *core.GComponent {
+	if l == nil {
+		return nil
+	}
+	return l.GComponent
 }
 
 // NewLabel constructs an empty label widget.
@@ -154,6 +165,49 @@ func (l *GLabel) SetTitleFontSize(size int) {
 // TitleFontSize returns the stored font size.
 func (l *GLabel) TitleFontSize() int {
 	return l.titleFontSize
+}
+
+// SetupAfterAdd applies label-specific overrides from the component buffer.
+func (l *GLabel) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
+	if l == nil || buf == nil || ctx == nil || ctx.Child == nil {
+		return
+	}
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+	if !buf.Seek(0, 6) || buf.Remaining() <= 0 {
+		return
+	}
+	objType := assets.ObjectType(buf.ReadByte())
+	if ctx.ResolvedItem != nil && objType != ctx.ResolvedItem.ObjectType {
+		return
+	}
+	if ctx.ResolvedItem == nil && objType != assets.ObjectTypeLabel {
+		return
+	}
+	if title := buf.ReadS(); title != nil {
+		l.SetTitle(*title)
+	}
+	if icon := buf.ReadS(); icon != nil {
+		l.SetIcon(*icon)
+		if ctx.ResolveIcon != nil {
+			if iconItem := ctx.ResolveIcon(*icon); iconItem != nil {
+				l.SetIconItem(iconItem)
+			}
+		}
+	}
+	if buf.ReadBool() {
+		l.SetTitleColor(buf.ReadColorString(true))
+	}
+	if size := buf.ReadInt32(); size != 0 {
+		l.SetTitleFontSize(int(size))
+	}
+	if buf.ReadBool() {
+		_ = buf.ReadS()
+		_ = buf.ReadS()
+		_ = buf.ReadInt32()
+		_ = buf.ReadInt32()
+		_ = buf.ReadBool()
+	}
 }
 
 func (l *GLabel) applyTitleState() {

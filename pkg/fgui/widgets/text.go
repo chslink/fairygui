@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
 
 // GTextField is a minimal text widget.
@@ -319,6 +320,74 @@ func (t *GTextField) UpdateLayoutMetrics(layoutWidth, layoutHeight, textWidth, t
 	t.textWidth = textWidth
 	t.textHeight = textHeight
 	t.applyAutoSize()
+}
+
+// SetupBeforeAdd populates text styling metadata from the component buffer.
+func (t *GTextField) SetupBeforeAdd(_ *SetupContext, buf *utils.ByteBuffer) {
+	if t == nil || buf == nil {
+		return
+	}
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+	if !buf.Seek(0, 5) {
+		return
+	}
+	if font := buf.ReadS(); font != nil && *font != "" {
+		t.SetFont(*font)
+	}
+	if size := int(buf.ReadInt16()); size > 0 {
+		t.SetFontSize(size)
+	}
+	if color := buf.ReadColorString(true); color != "" {
+		t.SetColor(color)
+	}
+	mapAlign := func(code int8) TextAlign {
+		switch code {
+		case 1:
+			return TextAlignCenter
+		case 2:
+			return TextAlignRight
+		default:
+			return TextAlignLeft
+		}
+	}
+	mapVAlign := func(code int8) TextVerticalAlign {
+		switch code {
+		case 1:
+			return TextVerticalAlignMiddle
+		case 2:
+			return TextVerticalAlignBottom
+		default:
+			return TextVerticalAlignTop
+		}
+	}
+	t.SetAlign(mapAlign(buf.ReadByte()))
+	t.SetVerticalAlign(mapVAlign(buf.ReadByte()))
+	t.SetLeading(int(buf.ReadInt16()))
+	t.SetLetterSpacing(int(buf.ReadInt16()))
+	t.SetUBBEnabled(buf.ReadBool())
+	t.SetAutoSize(TextAutoSize(buf.ReadByte()))
+	t.SetUnderline(buf.ReadBool())
+	t.SetItalic(buf.ReadBool())
+	t.SetBold(buf.ReadBool())
+	t.SetSingleLine(buf.ReadBool())
+	if buf.ReadBool() {
+		if strokeColor := buf.ReadColorString(true); strokeColor != "" {
+			t.SetStrokeColor(strokeColor)
+		}
+		t.SetStrokeSize(float64(buf.ReadFloat32()) + 1)
+	}
+	if buf.ReadBool() {
+		_ = buf.Skip(12) // shadow information currently unused
+	}
+	if buf.ReadBool() {
+		t.SetTemplateVarsEnabled(true)
+	}
+	if buf.Seek(0, 6) {
+		if text := buf.ReadS(); text != nil {
+			t.SetText(*text)
+		}
+	}
 }
 
 // TextWidth returns the latest measured text width.

@@ -131,19 +131,44 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 		root.AddController(ctrl)
 	}
 
-	for _, child := range item.Component.Children {
-		childObj := f.buildChild(ctx, pkg, item, root, &child)
+	for idx := range item.Component.Children {
+		child := &item.Component.Children[idx]
+		childObj := f.buildChild(ctx, pkg, item, root, child)
 		root.AddChild(childObj)
 	}
 
 	f.setupRelations(item, root)
 	f.setupGears(item, root)
-	setupObjectAfterAdd(root.GObject, root, item.RawData, 0)
-	f.applyComponentMaskAndHitTest(root, item)
-	f.applyComponentTransitions(root, item)
+	root.GObject.SetupAfterAdd(root, item.RawData, 0)
+	setupResolver := componentSetupResolver{component: root, item: item}
+	root.SetupAfterAdd(item.RawData, 0, setupResolver, setupResolver)
 
 	f.finalizeComponentSize(root)
 	return root, nil
+}
+
+func childBuffer(owner *assets.PackageItem, child *assets.ComponentChild) *utils.ByteBuffer {
+	if owner == nil || owner.RawData == nil || child == nil || child.RawDataLength <= 0 {
+		return nil
+	}
+	sub, err := owner.RawData.SubBuffer(child.RawDataOffset, child.RawDataLength)
+	if err != nil {
+		return nil
+	}
+	return sub
+}
+
+func (f *Factory) newSetupContext(ctx context.Context, pkg *assets.Package, owner *assets.PackageItem, parent *core.GComponent, child *assets.ComponentChild, resolved *assets.PackageItem) *widgets.SetupContext {
+	return &widgets.SetupContext{
+		Owner:        owner,
+		Child:        child,
+		Parent:       parent,
+		Package:      pkg,
+		ResolvedItem: resolved,
+		ResolveIcon: func(icon string) *assets.PackageItem {
+			return f.resolveIcon(ctx, pkg, icon)
+		},
+	}
 }
 
 func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *assets.PackageItem, parent *core.GComponent, child *assets.ComponentChild) *core.GObject {
@@ -156,6 +181,16 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			}
 		}
 	}
+	sub := childBuffer(owner, child)
+	var setupCtx *widgets.SetupContext
+	ensureCtx := func() *widgets.SetupContext {
+		if setupCtx == nil {
+			setupCtx = f.newSetupContext(ctx, pkg, owner, parent, child, resolvedItem)
+		} else {
+			setupCtx.ResolvedItem = resolvedItem
+		}
+		return setupCtx
+	}
 	var obj *core.GObject
 	switch widget := w.(type) {
 	case *widgets.GImage:
@@ -165,10 +200,46 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		}
 		widget.SetPackageItem(resolvedItem)
 		obj.SetData(widget)
+		if sub != nil {
+			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(ensureCtx(), sub)
+			}
+		}
+	case *widgets.GMovieClip:
+		obj = widget.GObject
+		if resolvedItem != nil && resolvedItem.Type == assets.PackageItemTypeMovieClip {
+			widget.SetPackageItem(resolvedItem)
+		} else if child.Src != "" {
+			if clipItem := f.resolveIcon(ctx, pkg, child.Src); clipItem != nil {
+				resolvedItem = clipItem
+				widget.SetPackageItem(clipItem)
+			}
+		} else {
+			widget.SetPackageItem(resolvedItem)
+		}
+		obj.SetData(widget)
+		if sub != nil {
+			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(ensureCtx(), sub)
+			}
+		}
 	case *widgets.GTextField:
 		obj = widget.GObject
 		widget.SetText(child.Text)
-		f.applyTextFieldSettings(widget, owner, child)
+		if sub != nil {
+			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(ensureCtx(), sub)
+			}
+		}
+		obj.SetData(widget)
+	case *widgets.GTextInput:
+		obj = widget.GObject
+		widget.SetText(child.Text)
+		if sub != nil {
+			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(ensureCtx(), sub)
+			}
+		}
 		obj.SetData(widget)
 	case *widgets.GButton:
 		if resolvedItem != nil {
@@ -229,7 +300,11 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 				widget.SetIconItem(iconItem)
 			}
 		}
-		f.applyButtonInstanceSettings(widget, parent, owner, child, resolvedItem)
+		if sub != nil {
+			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
+				after.SetupAfterAdd(ensureCtx(), sub)
+			}
+		}
 		obj.SetData(widget)
 	case *widgets.GLoader:
 		obj = widget.GObject
@@ -239,9 +314,16 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		}
 		autoSize := child.Width < 0 || child.Height < 0
 		widget.SetAutoSize(autoSize)
-		f.applyLoaderSettings(ctx, widget, pkg, owner, child)
+		if sub != nil {
+			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(ensureCtx(), sub)
+			}
+		}
 		if resolvedItem == nil {
 			resolvedItem = f.resolveIcon(ctx, pkg, widget.URL())
+		}
+		if setupCtx != nil {
+			setupCtx.ResolvedItem = resolvedItem
 		}
 		f.assignLoaderPackage(ctx, widget, pkg, resolvedItem)
 	case *widgets.GLabel:
@@ -261,50 +343,126 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			widget.SetPackageItem(resolvedItem)
 		}
 		f.applyLabelTemplate(ctx, widget, pkg, owner, resolvedItem)
-		f.applyLabelInstanceSettings(ctx, widget, pkg, owner, child, resolvedItem)
+		if sub != nil {
+			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
+				after.SetupAfterAdd(ensureCtx(), sub)
+			}
+		}
 	case *widgets.GList:
 		obj = widget.GComponent.GObject
 		widget.SetResource(child.Data)
 		widget.SetDefaultItem(child.Data)
 		widget.SetPackageItem(resolvedItem)
 		obj.SetData(widget)
+		if sub != nil {
+			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(ensureCtx(), sub)
+			}
+		}
+		if sub != nil {
+			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
+				after.SetupAfterAdd(ensureCtx(), sub)
+			}
+		}
+	case *widgets.GProgressBar:
+		obj = widget.GComponent.GObject
+		obj.SetData(widget)
+		if resolvedItem != nil {
+			widget.SetPackageItem(resolvedItem)
+		}
+		f.applyProgressBarTemplate(ctx, widget, pkg, owner, resolvedItem)
+		if sub != nil {
+			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
+				after.SetupAfterAdd(ensureCtx(), sub)
+			}
+		}
+	case *widgets.GSlider:
+		obj = widget.GComponent.GObject
+		obj.SetData(widget)
+		if resolvedItem != nil {
+			widget.SetPackageItem(resolvedItem)
+		}
+		f.applySliderTemplate(ctx, widget, pkg, owner, resolvedItem)
+		if sub != nil {
+			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
+				after.SetupAfterAdd(ensureCtx(), sub)
+			}
+		}
+	case *widgets.GScrollBar:
+		obj = widget.GComponent.GObject
+		obj.SetData(widget)
+		if resolvedItem != nil {
+			widget.SetPackageItem(resolvedItem)
+		}
+		f.applyScrollBarTemplate(ctx, widget, pkg, owner, resolvedItem)
+	case *widgets.GTree:
+		obj = widget.GComponent.GObject
+		obj.SetData(widget)
+		resource := child.Src
+		if resource == "" {
+			resource = child.Data
+		}
+		widget.SetResource(resource)
+		if resolvedItem != nil {
+			widget.SetPackageItem(resolvedItem)
+		}
+		if sub != nil {
+			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(ensureCtx(), sub)
+			}
+			f.populateTree(ctx, widget, pkg, owner, child, sub)
+			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
+				after.SetupAfterAdd(ensureCtx(), sub)
+			}
+		}
+	case *widgets.GComboBox:
+		obj = widget.GComponent.GObject
+		obj.SetData(widget)
+		resource := child.Src
+		if resource == "" {
+			resource = child.Data
+		}
+		widget.SetResource(resource)
+		if resolvedItem != nil {
+			widget.SetPackageItem(resolvedItem)
+		}
+		f.applyComboBoxTemplate(ctx, widget, pkg, owner, resolvedItem)
+		if sub != nil {
+			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
+				after.SetupAfterAdd(ensureCtx(), sub)
+			}
+		}
 	case *widgets.GGroup:
 		obj = widget.GObject
+		if sub != nil {
+			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(ensureCtx(), sub)
+			}
+		}
+		if sub != nil {
+			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
+				after.SetupAfterAdd(ensureCtx(), sub)
+			}
+		}
 	case *widgets.GGraph:
 		obj = widget.GObject
 		obj.SetData(widget)
-		f.applyGraphSettings(widget, owner, child)
+		if sub != nil {
+			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(ensureCtx(), sub)
+			}
+		}
 	default:
 		obj = core.NewGObject()
 	}
-	obj.SetName(child.Name)
+	if obj != nil {
+		obj.ApplyComponentChild(child)
+	}
 	rid := child.ID
 	if resolvedItem != nil && resolvedItem.ID != "" {
 		rid = resolvedItem.ID
 	}
 	obj.SetResourceID(rid)
-	obj.SetPosition(float64(child.X), float64(child.Y))
-	if child.Width >= 0 && child.Height >= 0 {
-		obj.SetSize(float64(child.Width), float64(child.Height))
-	}
-	if child.ScaleX != 1 || child.ScaleY != 1 {
-		obj.SetScale(float64(child.ScaleX), float64(child.ScaleY))
-	}
-	if child.Rotation != 0 {
-		obj.SetRotation(float64(child.Rotation) * math.Pi / 180)
-	}
-	if child.SkewX != 0 || child.SkewY != 0 {
-		obj.SetSkew(float64(child.SkewX)*math.Pi/180, float64(child.SkewY)*math.Pi/180)
-	}
-	if child.PivotAnchor || child.PivotX != 0 || child.PivotY != 0 {
-		obj.SetPivotWithAnchor(float64(child.PivotX), float64(child.PivotY), child.PivotAnchor)
-	}
-	if !child.Visible {
-		obj.SetVisible(false)
-	}
-	obj.SetTouchable(child.Touchable)
-	obj.SetGrayed(child.Grayed)
-	obj.SetAlpha(float64(child.Alpha))
 	if button, ok := obj.Data().(*widgets.GButton); ok {
 		button.UpdateTemplateBounds(obj.Width(), obj.Height())
 	}
@@ -335,7 +493,8 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			// already handled by applyButtonTemplate
 		case *widgets.GLabel:
 			f.applyLabelTemplate(ctx, data, pkg, owner, resolvedItem)
-			f.applyLabelInstanceSettings(ctx, data, pkg, owner, child, resolvedItem)
+		case *widgets.GComboBox:
+			f.applyComboBoxTemplate(ctx, data, pkg, owner, resolvedItem)
 		case *widgets.GList:
 			// list is a composite widget; no additional handling yet.
 		case *core.GComponent, nil:
@@ -509,147 +668,6 @@ func (f *Factory) resolveIcon(ctx context.Context, owner *assets.Package, icon s
 	return nil
 }
 
-func (f *Factory) applyLoaderSettings(ctx context.Context, loader *widgets.GLoader, pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild) {
-	if loader == nil || owner == nil || owner.RawData == nil || child == nil || child.RawDataLength <= 0 {
-		return
-	}
-	sub, err := owner.RawData.SubBuffer(child.RawDataOffset, child.RawDataLength)
-	if err != nil {
-		return
-	}
-	if !sub.Seek(0, 5) {
-		return
-	}
-	if url := sub.ReadS(); url != nil && *url != "" {
-		loader.SetURL(*url)
-	}
-
-	mapAlign := func(code int8, horizontal bool) widgets.LoaderAlign {
-		switch code {
-		case 1:
-			if horizontal {
-				return widgets.LoaderAlignCenter
-			}
-			return widgets.LoaderAlignMiddle
-		case 2:
-			if horizontal {
-				return widgets.LoaderAlignRight
-			}
-			return widgets.LoaderAlignBottom
-		default:
-			if horizontal {
-				return widgets.LoaderAlignLeft
-			}
-			return widgets.LoaderAlignTop
-		}
-	}
-
-	loader.SetAlign(mapAlign(sub.ReadByte(), true))
-	loader.SetVerticalAlign(mapAlign(sub.ReadByte(), false))
-
-	loader.SetFill(widgets.LoaderFillType(sub.ReadByte()))
-	loader.SetShrinkOnly(sub.ReadBool())
-	loader.SetAutoSize(sub.ReadBool())
-
-	_ = sub.ReadBool() // showErrorSign
-	loader.SetPlaying(sub.ReadBool())
-	loader.SetFrame(int(sub.ReadInt32()))
-
-	if sub.ReadBool() {
-		loader.SetColor(sub.ReadColorString(true))
-	}
-
-	fillMethod := sub.ReadByte()
-	loader.SetFillMethod(int(fillMethod))
-	if fillMethod != 0 {
-		loader.SetFillOrigin(int(sub.ReadByte()))
-		loader.SetFillClockwise(sub.ReadBool())
-		loader.SetFillAmount(float64(sub.ReadFloat32()))
-	}
-
-	if sub.Version >= 7 {
-		loader.SetUseResize(sub.ReadBool())
-	}
-
-	if pkg == nil && owner != nil {
-		pkg = owner.Owner
-	}
-	if resolved := f.resolveIcon(ctx, pkg, loader.URL()); resolved != nil {
-		f.assignLoaderPackage(ctx, loader, pkg, resolved)
-	}
-
-	loader.RefreshLayout()
-}
-
-func (f *Factory) applyTextFieldSettings(widget *widgets.GTextField, owner *assets.PackageItem, child *assets.ComponentChild) {
-	if widget == nil || owner == nil || owner.RawData == nil || child == nil || child.RawDataLength <= 0 {
-		return
-	}
-	sub, err := owner.RawData.SubBuffer(child.RawDataOffset, child.RawDataLength)
-	if err != nil {
-		return
-	}
-	if !sub.Seek(0, 5) {
-		return
-	}
-	if font := sub.ReadS(); font != nil && *font != "" {
-		widget.SetFont(*font)
-	}
-	if size := int(sub.ReadInt16()); size > 0 {
-		widget.SetFontSize(size)
-	}
-	if color := sub.ReadColorString(true); color != "" {
-		widget.SetColor(color)
-	}
-	mapAlign := func(code int8) widgets.TextAlign {
-		switch code {
-		case 1:
-			return widgets.TextAlignCenter
-		case 2:
-			return widgets.TextAlignRight
-		default:
-			return widgets.TextAlignLeft
-		}
-	}
-	mapVAlign := func(code int8) widgets.TextVerticalAlign {
-		switch code {
-		case 1:
-			return widgets.TextVerticalAlignMiddle
-		case 2:
-			return widgets.TextVerticalAlignBottom
-		default:
-			return widgets.TextVerticalAlignTop
-		}
-	}
-	widget.SetAlign(mapAlign(sub.ReadByte()))
-	widget.SetVerticalAlign(mapVAlign(sub.ReadByte()))
-	widget.SetLeading(int(sub.ReadInt16()))
-	widget.SetLetterSpacing(int(sub.ReadInt16()))
-	widget.SetUBBEnabled(sub.ReadBool())
-	widget.SetAutoSize(widgets.TextAutoSize(sub.ReadByte()))
-	widget.SetUnderline(sub.ReadBool())
-	widget.SetItalic(sub.ReadBool())
-	widget.SetBold(sub.ReadBool())
-	widget.SetSingleLine(sub.ReadBool())
-	if sub.ReadBool() {
-		if strokeColor := sub.ReadColorString(true); strokeColor != "" {
-			widget.SetStrokeColor(strokeColor)
-		}
-		widget.SetStrokeSize(float64(sub.ReadFloat32()) + 1)
-	}
-	if sub.ReadBool() {
-		_ = sub.Skip(12) // shadow data currently unused
-	}
-	if sub.ReadBool() {
-		widget.SetTemplateVarsEnabled(true)
-	}
-	if sub.Seek(0, 6) {
-		if text := sub.ReadS(); text != nil {
-			widget.SetText(*text)
-		}
-	}
-}
-
 func (f *Factory) applyButtonTemplate(ctx context.Context, widget *widgets.GButton, pkg *assets.Package, owner *assets.PackageItem, item *assets.PackageItem) {
 	if widget == nil || item == nil {
 		return
@@ -721,102 +739,6 @@ func (f *Factory) applyButtonTemplate(ctx context.Context, widget *widgets.GButt
 	}
 }
 
-func (f *Factory) applyButtonInstanceSettings(widget *widgets.GButton, parent *core.GComponent, owner *assets.PackageItem, child *assets.ComponentChild, resolved *assets.PackageItem) {
-	if widget == nil || owner == nil || owner.RawData == nil || child == nil || child.RawDataLength <= 0 {
-		return
-	}
-	sub, err := owner.RawData.SubBuffer(child.RawDataOffset, child.RawDataLength)
-	if err != nil {
-		return
-	}
-	if !sub.Seek(0, 6) || sub.Remaining() <= 0 {
-		return
-	}
-	objType := assets.ObjectType(sub.ReadByte())
-	if objType != child.Type {
-		if resolved != nil && objType == resolved.ObjectType {
-			// ok: specialised component (e.g., Button)
-		} else if child.Type == assets.ObjectTypeComponent {
-			// allow components that encode their runtime object type here
-		} else {
-			return
-		}
-	}
-	readS := func() *string {
-		if sub.Remaining() < 2 {
-			return nil
-		}
-		return sub.ReadS()
-	}
-	readBool := func() (bool, bool) {
-		if sub.Remaining() < 1 {
-			return false, false
-		}
-		return sub.ReadBool(), true
-	}
-	readInt16 := func() (int16, bool) {
-		if sub.Remaining() < 2 {
-			return 0, false
-		}
-		return sub.ReadInt16(), true
-	}
-	readInt32 := func() (int32, bool) {
-		if sub.Remaining() < 4 {
-			return 0, false
-		}
-		return sub.ReadInt32(), true
-	}
-	readFloat32 := func() (float32, bool) {
-		if sub.Remaining() < 4 {
-			return 0, false
-		}
-		return sub.ReadFloat32(), true
-	}
-
-	if title := readS(); title != nil && *title != "" {
-		widget.SetTitle(*title)
-	}
-	if selectedTitle := readS(); selectedTitle != nil && *selectedTitle != "" {
-		widget.SetSelectedTitle(*selectedTitle)
-	}
-	if icon := readS(); icon != nil && *icon != "" {
-		widget.SetIcon(*icon)
-	}
-	if selectedIcon := readS(); selectedIcon != nil && *selectedIcon != "" {
-		widget.SetSelectedIcon(*selectedIcon)
-	}
-	if hasColor, ok := readBool(); ok && hasColor {
-		if sub.Remaining() >= 4 {
-			if color := sub.ReadColorString(true); color != "" {
-				widget.SetTitleColor(color)
-			}
-		}
-	}
-	if size, ok := readInt32(); ok && size != 0 {
-		widget.SetTitleFontSize(int(size))
-	}
-	if idx, ok := readInt16(); ok && idx >= 0 && parent != nil {
-		controllers := parent.Controllers()
-		if int(idx) < len(controllers) {
-			widget.SetRelatedController(controllers[idx])
-		}
-	}
-	if page := readS(); page != nil {
-		widget.SetRelatedPageID(*page)
-	}
-	if sound := readS(); sound != nil && *sound != "" {
-		widget.SetSound(*sound)
-	}
-	if hasVolume, ok := readBool(); ok && hasVolume {
-		if vol, ok := readFloat32(); ok {
-			widget.SetSoundVolumeScale(float64(vol))
-		}
-	}
-	if selected, ok := readBool(); ok {
-		widget.SetSelected(selected)
-	}
-}
-
 func (f *Factory) applyLabelTemplate(ctx context.Context, widget *widgets.GLabel, pkg *assets.Package, owner *assets.PackageItem, item *assets.PackageItem) {
 	if widget == nil {
 		return
@@ -851,110 +773,389 @@ func (f *Factory) applyLabelTemplate(ctx context.Context, widget *widgets.GLabel
 	}
 }
 
-func (f *Factory) applyLabelInstanceSettings(ctx context.Context, widget *widgets.GLabel, pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild, item *assets.PackageItem) {
-	if widget == nil || owner == nil || owner.RawData == nil || child == nil || child.RawDataLength <= 0 {
+func (f *Factory) applyProgressBarTemplate(ctx context.Context, widget *widgets.GProgressBar, pkg *assets.Package, owner *assets.PackageItem, item *assets.PackageItem) {
+	if widget == nil {
 		return
 	}
-	sub, err := owner.RawData.SubBuffer(child.RawDataOffset, child.RawDataLength)
-	if err != nil {
+	if item != nil {
+		widget.SetPackageItem(item)
+	}
+	if item == nil {
+		item = widget.PackageItem()
+	}
+	if item == nil || item.Type != assets.PackageItemTypeComponent || item.RawData == nil {
 		return
 	}
-	if !sub.Seek(0, 6) || sub.Remaining() <= 0 {
-		return
-	}
-	objType := assets.ObjectType(sub.ReadByte())
-	isLabelObj := objType == assets.ObjectTypeLabel
-	if item != nil && objType != item.ObjectType {
-		return
-	}
-	if item == nil && !isLabelObj {
-		return
-	}
-	if title := sub.ReadS(); title != nil {
-		widget.SetTitle(*title)
-	}
-	if icon := sub.ReadS(); icon != nil {
-		widget.SetIcon(*icon)
-		if iconItem := f.resolveIcon(ctx, pkg, *icon); iconItem != nil {
-			widget.SetIconItem(iconItem)
+	if widget.TemplateComponent() == nil {
+		targetPkg := item.Owner
+		if targetPkg == nil {
+			targetPkg = pkg
+		}
+		if targetPkg == nil && owner != nil {
+			targetPkg = owner.Owner
+		}
+		if targetPkg != nil {
+			if tmpl, err := f.BuildComponent(ctx, targetPkg, item); err == nil && tmpl != nil {
+				widget.SetTemplateComponent(tmpl)
+			}
 		}
 	}
-	if sub.ReadBool() {
-		widget.SetTitleColor(sub.ReadColorString(true))
+	buf := item.RawData
+	saved := buf.Pos()
+	defer buf.SetPos(saved)
+	if !buf.Seek(0, 6) || buf.Remaining() == 0 {
+		return
 	}
-	if size := sub.ReadInt32(); size != 0 {
-		widget.SetTitleFontSize(int(size))
-	}
-	if sub.ReadBool() {
-		_ = sub.ReadS()
-		_ = sub.ReadS()
-		_ = sub.ReadInt32()
-		_ = sub.ReadInt32()
-		_ = sub.ReadBool()
+	widget.SetTitleType(widgets.ProgressTitleType(buf.ReadByte()))
+	if buf.Remaining() > 0 {
+		widget.SetReverse(buf.ReadBool())
 	}
 }
 
-func (f *Factory) applyGraphSettings(widget *widgets.GGraph, owner *assets.PackageItem, child *assets.ComponentChild) {
-	if widget == nil || owner == nil || owner.RawData == nil || child == nil || child.RawDataLength <= 0 {
+func (f *Factory) applySliderTemplate(ctx context.Context, widget *widgets.GSlider, pkg *assets.Package, owner *assets.PackageItem, item *assets.PackageItem) {
+	if widget == nil {
 		return
 	}
-	sub, err := owner.RawData.SubBuffer(child.RawDataOffset, child.RawDataLength)
-	if err != nil {
+	if item != nil {
+		widget.SetPackageItem(item)
+	}
+	if item == nil {
+		item = widget.PackageItem()
+	}
+	if item == nil || item.Type != assets.PackageItemTypeComponent || item.RawData == nil {
 		return
 	}
-	if !sub.Seek(0, 5) || sub.Remaining() <= 0 {
-		return
-	}
-	typeByte := sub.ReadByte()
-	widget.SetType(widgets.GraphType(typeByte))
-	if widget.Type() == widgets.GraphTypeEmpty {
-		return
-	}
-	if sub.Remaining() >= 4 {
-		widget.SetLineSize(float64(sub.ReadInt32()))
-	}
-	if sub.Remaining() >= 4 {
-		widget.SetLineColor(sub.ReadColorString(true))
-	}
-	if sub.Remaining() >= 4 {
-		widget.SetFillColor(sub.ReadColorString(true))
-	}
-	if sub.Remaining() > 0 && sub.ReadBool() {
-		radii := make([]float64, 0, 4)
-		for i := 0; i < 4 && sub.Remaining() >= 4; i++ {
-			radii = append(radii, float64(sub.ReadFloat32()))
+	if widget.TemplateComponent() == nil {
+		targetPkg := item.Owner
+		if targetPkg == nil {
+			targetPkg = pkg
 		}
-		widget.SetCornerRadius(radii)
-	}
-	switch widget.Type() {
-	case widgets.GraphTypePolygon:
-		if sub.Remaining() >= 2 {
-			cnt := int(sub.ReadInt16())
-			points := make([]float64, 0, cnt)
-			for i := 0; i < cnt && sub.Remaining() >= 4; i++ {
-				points = append(points, float64(sub.ReadFloat32()))
-			}
-			widget.SetPolygonPoints(points)
+		if targetPkg == nil && owner != nil {
+			targetPkg = owner.Owner
 		}
-	case widgets.GraphTypeRegularPolygon:
-		sides := 0
-		if sub.Remaining() >= 2 {
-			sides = int(sub.ReadInt16())
-		}
-		angle := 0.0
-		if sub.Remaining() >= 4 {
-			angle = float64(sub.ReadFloat32())
-		}
-		var distances []float64
-		if sub.Remaining() >= 2 {
-			cnt := int(sub.ReadInt16())
-			distances = make([]float64, 0, cnt)
-			for i := 0; i < cnt && sub.Remaining() >= 4; i++ {
-				distances = append(distances, float64(sub.ReadFloat32()))
+		if targetPkg != nil {
+			if tmpl, err := f.BuildComponent(ctx, targetPkg, item); err == nil && tmpl != nil {
+				widget.SetTemplateComponent(tmpl)
 			}
 		}
-		widget.SetRegularPolygon(sides, angle, distances)
 	}
+	buf := item.RawData
+	saved := buf.Pos()
+	defer buf.SetPos(saved)
+	if !buf.Seek(0, 6) || buf.Remaining() == 0 {
+		return
+	}
+	widget.SetTitleType(widgets.ProgressTitleType(buf.ReadByte()))
+	if buf.Remaining() > 0 {
+		widget.SetReverse(buf.ReadBool())
+	}
+	if buf.Version >= 2 {
+		if buf.Remaining() > 0 {
+			widget.SetWholeNumbers(buf.ReadBool())
+		}
+		if buf.Remaining() > 0 {
+			widget.SetChangeOnClick(buf.ReadBool())
+		}
+	}
+}
+
+func (f *Factory) applyScrollBarTemplate(ctx context.Context, widget *widgets.GScrollBar, pkg *assets.Package, owner *assets.PackageItem, item *assets.PackageItem) {
+	if widget == nil {
+		return
+	}
+	if item != nil {
+		widget.SetPackageItem(item)
+	}
+	if item == nil {
+		item = widget.PackageItem()
+	}
+	if item == nil || item.Type != assets.PackageItemTypeComponent || item.RawData == nil {
+		return
+	}
+	if widget.TemplateComponent() == nil {
+		targetPkg := item.Owner
+		if targetPkg == nil {
+			targetPkg = pkg
+		}
+		if targetPkg == nil && owner != nil {
+			targetPkg = owner.Owner
+		}
+		if targetPkg != nil {
+			if tmpl, err := f.BuildComponent(ctx, targetPkg, item); err == nil && tmpl != nil {
+				widget.SetTemplateComponent(tmpl)
+			}
+		}
+	}
+	buf := item.RawData
+	saved := buf.Pos()
+	defer buf.SetPos(saved)
+	if !buf.Seek(0, 6) || buf.Remaining() == 0 {
+		return
+	}
+	widget.SetFixedGrip(buf.ReadBool())
+}
+
+func (f *Factory) applyComboBoxTemplate(ctx context.Context, widget *widgets.GComboBox, pkg *assets.Package, owner *assets.PackageItem, item *assets.PackageItem) {
+	if widget == nil {
+		return
+	}
+	if item != nil {
+		widget.SetPackageItem(item)
+	}
+	if item == nil {
+		item = widget.PackageItem()
+	}
+	if item == nil || item.Type != assets.PackageItemTypeComponent || item.RawData == nil {
+		return
+	}
+	if widget.TemplateComponent() == nil {
+		targetPkg := item.Owner
+		if targetPkg == nil {
+			targetPkg = pkg
+		}
+		if targetPkg == nil && owner != nil {
+			targetPkg = owner.Owner
+		}
+		if targetPkg != nil {
+			if tmpl, err := f.BuildComponent(ctx, targetPkg, item); err == nil && tmpl != nil {
+				widget.SetTemplateComponent(tmpl)
+			}
+		}
+	}
+
+	if template := widget.TemplateComponent(); template != nil {
+		if ctrl := template.ControllerByName("button"); ctrl != nil {
+			widget.SetButtonController(ctrl)
+		} else if ctrl := template.ControllerByName("Button"); ctrl != nil {
+			widget.SetButtonController(ctrl)
+		}
+		if title := template.ChildByName("title"); title != nil {
+			widget.SetTitleObject(title)
+		}
+		if icon := template.ChildByName("icon"); icon != nil {
+			widget.SetIconObject(icon)
+		}
+	}
+
+	buf := item.RawData
+	saved := buf.Pos()
+	defer buf.SetPos(saved)
+	if !buf.Seek(0, 6) {
+		return
+	}
+	dropdownURL := buf.ReadS()
+	if dropdownURL == nil || *dropdownURL == "" {
+		return
+	}
+	url := *dropdownURL
+	widget.SetDropdownURL(url)
+
+	dropdownItem := f.resolveIcon(ctx, pkg, url)
+	if dropdownItem == nil {
+		return
+	}
+	widget.SetDropdownItem(dropdownItem)
+
+	targetPkg := dropdownItem.Owner
+	if targetPkg == nil {
+		targetPkg = pkg
+	}
+	if targetPkg == nil && owner != nil {
+		targetPkg = owner.Owner
+	}
+	if targetPkg == nil {
+		return
+	}
+	dropdownComp, err := f.BuildComponent(ctx, targetPkg, dropdownItem)
+	if err != nil || dropdownComp == nil {
+		return
+	}
+	widget.SetDropdownComponent(dropdownComp)
+
+	if listObj := dropdownComp.ChildByName("list"); listObj != nil {
+		switch data := listObj.Data().(type) {
+		case *widgets.GList:
+			widget.SetList(data)
+		case *core.GComponent:
+			if embedded := data.ChildByName("list"); embedded != nil {
+				if list, ok := embedded.Data().(*widgets.GList); ok {
+					widget.SetList(list)
+				}
+			}
+		}
+	}
+}
+
+func (f *Factory) populateTree(ctx context.Context, tree *widgets.GTree, pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild, buf *utils.ByteBuffer) {
+	if tree == nil || buf == nil {
+		return
+	}
+	saved := buf.Pos()
+	defer buf.SetPos(saved)
+	if !buf.Seek(0, 8) {
+		return
+	}
+	if def := buf.ReadS(); def != nil && *def != "" {
+		tree.SetDefaultItem(*def)
+	}
+	if buf.Remaining() < 2 {
+		return
+	}
+	count := int(buf.ReadInt16())
+	var lastNode *widgets.GTreeNode
+	prevLevel := 0
+	for i := 0; i < count; i++ {
+		if buf.Remaining() < 2 {
+			break
+		}
+		nextPos := int(buf.ReadInt16()) + buf.Pos()
+		resPtr := buf.ReadS()
+		resource := stringFromPtr(resPtr)
+		if resource == "" {
+			resource = tree.DefaultItem()
+		}
+		if resource == "" {
+			if nextPos >= 0 && nextPos <= buf.Len() {
+				buf.SetPos(nextPos)
+			}
+			continue
+		}
+		isFolder := false
+		if buf.Remaining() > 0 {
+			isFolder = buf.ReadBool()
+		}
+		level := 0
+		if buf.Remaining() > 0 {
+			level = int(buf.ReadUint8())
+		}
+		node := widgets.NewTreeNode(isFolder, resource)
+		if cell := f.buildTreeCell(ctx, tree, pkg, owner, resource); cell != nil {
+			node.SetCell(cell)
+		}
+		if isFolder {
+			node.SetExpanded(true)
+		}
+		var parentNode *widgets.GTreeNode
+		if i == 0 {
+			parentNode = tree.RootNode()
+		} else if level > prevLevel {
+			parentNode = lastNode
+		} else if level == prevLevel {
+			parentNode = lastNode.Parent()
+		} else {
+			cursor := lastNode
+			for j := level; j <= prevLevel; j++ {
+				if cursor != nil {
+					cursor = cursor.Parent()
+				}
+			}
+			parentNode = cursor
+		}
+		if parentNode == nil {
+			parentNode = tree.RootNode()
+		}
+		parentNode.AddChild(node)
+		f.setupTreeNodeItem(buf, node)
+		lastNode = node
+		prevLevel = level
+		if nextPos >= 0 && nextPos <= buf.Len() {
+			buf.SetPos(nextPos)
+		} else {
+			break
+		}
+	}
+}
+
+func (f *Factory) buildTreeCell(ctx context.Context, tree *widgets.GTree, pkg *assets.Package, owner *assets.PackageItem, resource string) *core.GComponent {
+	if tree == nil {
+		return nil
+	}
+	res := resource
+	if res == "" {
+		res = tree.DefaultItem()
+	}
+	if res == "" {
+		return nil
+	}
+	item := f.resolveIcon(ctx, pkg, res)
+	if item == nil && owner != nil && owner.Owner != nil {
+		if alt := owner.Owner.ItemByID(res); alt != nil {
+			item = alt
+		} else if alt := owner.Owner.ItemByName(res); alt != nil {
+			item = alt
+		}
+	}
+	if item == nil {
+		return nil
+	}
+	if item.Type != assets.PackageItemTypeComponent || item.Component == nil {
+		return nil
+	}
+	targetPkg := item.Owner
+	if targetPkg == nil {
+		targetPkg = pkg
+	}
+	if targetPkg == nil {
+		return nil
+	}
+	comp, err := f.BuildComponent(ctx, targetPkg, item)
+	if err != nil || comp == nil {
+		return nil
+	}
+	return comp
+}
+
+func (f *Factory) setupTreeNodeItem(buf *utils.ByteBuffer, node *widgets.GTreeNode) {
+	if buf == nil || node == nil {
+		return
+	}
+	if text := stringFromPtr(buf.ReadS()); text != "" {
+		node.SetText(text)
+	}
+	_ = buf.ReadS() // selected title
+	if icon := stringFromPtr(buf.ReadS()); icon != "" {
+		node.SetIcon(icon)
+	}
+	_ = buf.ReadS() // selected icon
+	if name := stringFromPtr(buf.ReadS()); name != "" {
+		if cell := node.Cell(); cell != nil {
+			cell.GObject.SetName(name)
+		}
+	}
+	cell := node.Cell()
+	if buf.Remaining() >= 2 {
+		cnt := int(buf.ReadInt16())
+		for i := 0; i < cnt; i++ {
+			ctrlName := stringFromPtr(buf.ReadS())
+			pageID := stringFromPtr(buf.ReadS())
+			if cell != nil && ctrlName != "" && pageID != "" {
+				if ctrl := cell.ControllerByName(ctrlName); ctrl != nil {
+					ctrl.SetSelectedPageID(pageID)
+				}
+			}
+		}
+	}
+	if buf.Version >= 2 && buf.Remaining() >= 2 {
+		assigns := int(buf.ReadInt16())
+		for i := 0; i < assigns; i++ {
+			targetPath := stringFromPtr(buf.ReadS())
+			propID := gears.ObjectPropID(buf.ReadInt16())
+			value := stringFromPtr(buf.ReadS())
+			if cell == nil || targetPath == "" || value == "" {
+				continue
+			}
+			if target := core.FindChildByPath(cell, targetPath); target != nil {
+				target.SetProp(propID, value)
+			}
+		}
+	}
+}
+
+func stringFromPtr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func (f *Factory) assignLoaderPackage(ctx context.Context, loader *widgets.GLoader, currentPkg *assets.Package, item *assets.PackageItem) {
@@ -1107,9 +1308,8 @@ func (f *Factory) setupGears(item *assets.PackageItem, comp *core.GComponent) {
 		if child != nil && length > 0 {
 			if sub, err := item.RawData.SubBuffer(start, length); err == nil {
 				setupObjectGears(child, resolver, sub)
-				setupComponentControllers(child, sub)
 			}
-			setupObjectAfterAdd(child, comp, item.RawData, start)
+			child.SetupAfterAdd(comp, item.RawData, start)
 		}
 		buf.SetPos(nextPos)
 	}
@@ -1136,507 +1336,34 @@ func setupObjectGears(obj *core.GObject, resolver componentControllerResolver, b
 	}
 }
 
-func setupObjectAfterAdd(obj *core.GObject, parent *core.GComponent, buf *utils.ByteBuffer, start int) {
-	if obj == nil || buf == nil || start < 0 {
-		return
-	}
-	saved := buf.Pos()
-	defer buf.SetPos(saved)
-	if buf.Seek(start, 1) {
-		if buf.Remaining() >= 2 {
-			if tip := buf.ReadS(); tip != nil {
-				obj.SetTooltips(*tip)
-			}
-		}
-		if buf.Remaining() >= 2 {
-			groupIndex := int(buf.ReadInt16())
-			if groupIndex >= 0 && parent != nil {
-				if groupObj := parent.ChildAt(groupIndex); groupObj != nil {
-					obj.SetGroup(groupObj)
-				}
-			}
-		}
-	}
-	component := extractComponent(obj)
-	if component == nil && parent != nil && parent.GObject == obj {
-		component = parent
-	}
-	if component != nil {
-		if buf.Seek(start, 4) {
-			if buf.Remaining() >= 2 {
-				_ = buf.ReadInt16() // scroll pane page controller index (not wired yet)
-			}
-			if buf.Remaining() >= 2 {
-				cnt := int(buf.ReadInt16())
-				for i := 0; i < cnt; i++ {
-					if buf.Remaining() < 4 {
-						break
-					}
-					ctrlName := buf.ReadS()
-					pageID := buf.ReadS()
-					if ctrlName == nil || pageID == nil {
-						continue
-					}
-					if ctrl := component.ControllerByName(*ctrlName); ctrl != nil {
-						ctrl.SetSelectedPageID(*pageID)
-					}
-				}
-			}
-			if buf.Version >= 2 {
-				if buf.Remaining() >= 2 {
-					assignments := int(buf.ReadInt16())
-					for i := 0; i < assignments; i++ {
-						if buf.Remaining() < 4 {
-							break
-						}
-						targetPath := buf.ReadS()
-						if buf.Remaining() < 2 {
-							break
-						}
-						propID := buf.ReadInt16()
-						if buf.Remaining() < 2 {
-							break
-						}
-						value := buf.ReadS()
-						if targetPath == nil || value == nil {
-							continue
-						}
-						if target := findChildByPath(component, *targetPath); target != nil {
-							target.SetProp(gears.ObjectPropID(propID), *value)
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-func setupComponentControllers(obj *core.GObject, buf *utils.ByteBuffer) {
-	component := extractComponent(obj)
-	if component == nil || buf == nil {
-		return
-	}
-	saved := buf.Pos()
-	defer buf.SetPos(saved)
-	if !buf.Seek(0, 4) {
-		return
-	}
-	// Page controller index is used when a scroll pane is present; we don't have scroll pane wiring yet.
-	_ = buf.ReadInt16()
-
-	count := int(buf.ReadInt16())
-	for i := 0; i < count; i++ {
-		ctrlName := buf.ReadS()
-		pageID := buf.ReadS()
-		if ctrlName == nil || pageID == nil {
-			continue
-		}
-		if ctrl := component.ControllerByName(*ctrlName); ctrl != nil {
-			ctrl.SetSelectedPageID(*pageID)
-		}
-	}
-
-	if buf.Version >= 2 {
-		assignments := int(buf.ReadInt16())
-		for i := 0; i < assignments; i++ {
-			targetPath := buf.ReadS()
-			propID := buf.ReadInt16()
-			value := buf.ReadS()
-			if targetPath == nil || value == nil {
-				continue
-			}
-			if target := findChildByPath(component, *targetPath); target != nil {
-				target.SetProp(gears.ObjectPropID(propID), *value)
-			}
-		}
-	}
-}
-
-func (f *Factory) applyComponentMaskAndHitTest(comp *core.GComponent, item *assets.PackageItem) {
-	if comp == nil || item == nil || item.RawData == nil {
-		return
-	}
-	buf := item.RawData
-	saved := buf.Pos()
-	defer buf.SetPos(saved)
-	if !buf.Seek(0, 4) {
-		return
-	}
-	if err := buf.Skip(2); err != nil {
-		return
-	}
-	if buf.Remaining() < 1+2+2+4+4 {
-		return
-	}
-	comp.SetOpaque(buf.ReadBool())
-	if buf.Remaining() < 2 {
-		comp.SetMask(nil, false)
-		comp.SetHitTest(core.HitTest{Mode: core.HitTestModeNone})
-		return
-	}
-	maskIndex := int(buf.ReadInt16())
-	if maskIndex != -1 {
-		if buf.Remaining() < 1 {
-			comp.SetMask(nil, false)
-		} else {
-			reversed := buf.ReadBool()
-			if maskChild := comp.ChildAt(maskIndex); maskChild != nil {
-				comp.SetMask(maskChild, reversed)
-			} else {
-				comp.SetMask(nil, reversed)
-			}
-		}
-	} else {
-		comp.SetMask(nil, false)
-	}
-
-	if buf.Remaining() < 2 {
-		comp.SetHitTest(core.HitTest{Mode: core.HitTestModeNone})
-		return
-	}
-	hitTestID := buf.ReadS()
-	if buf.Remaining() < 8 {
-		comp.SetHitTest(core.HitTest{Mode: core.HitTestModeNone})
-		return
-	}
-	offsetX := int(buf.ReadInt32())
-	offsetY := int(buf.ReadInt32())
-	hit := core.HitTest{Mode: core.HitTestModeNone}
-	if hitTestID != nil && *hitTestID != "" {
-		hit.Mode = core.HitTestModePixel
-		hit.ItemID = *hitTestID
-		hit.OffsetX = offsetX
-		hit.OffsetY = offsetY
-	} else if offsetX != 0 && offsetY != -1 {
-		hit.Mode = core.HitTestModeChild
-		hit.OffsetX = offsetX
-		hit.ChildIndex = offsetY
-	}
-	comp.SetHitTest(hit)
-
-	var pixelData *assets.PixelHitTestData
-	if hit.Mode == core.HitTestModePixel && hit.ItemID != "" && item.Owner != nil {
-		if pi := item.Owner.ItemByID(hit.ItemID); pi != nil {
-			pixelData = pi.PixelHitTest
-		}
-	}
-	render.ConfigureComponentHitArea(comp, hit, pixelData)
-}
-
-func (f *Factory) applyComponentTransitions(comp *core.GComponent, item *assets.PackageItem) {
-	if comp == nil || item == nil || item.RawData == nil {
-		return
-	}
-	buf := item.RawData
-	saved := buf.Pos()
-	defer buf.SetPos(saved)
-	if !buf.Seek(0, 5) {
-		return
-	}
-	count := int(buf.ReadInt16())
-	if count <= 0 {
-		return
-	}
-	for i := 0; i < count; i++ {
-		nextPos := int(buf.ReadInt16()) + buf.Pos()
-		if nextPos > buf.Len() {
-			nextPos = buf.Len()
-		}
-		if nextPos <= buf.Pos() {
-			buf.SetPos(nextPos)
-			continue
-		}
-		info := core.TransitionInfo{}
-		remaining := func() int { return nextPos - buf.Pos() }
-		if remaining() >= 2 {
-			if name := buf.ReadS(); name != nil {
-				info.Name = *name
-			}
-		}
-		if remaining() >= 4 {
-			info.Options = int(buf.ReadInt32())
-		}
-		if remaining() >= 1 {
-			info.AutoPlay = buf.ReadBool()
-		}
-		if remaining() >= 4 {
-			info.AutoPlayTimes = int(buf.ReadInt32())
-		}
-		if remaining() >= 4 {
-			info.AutoPlayDelay = float64(buf.ReadFloat32())
-		}
-		itemCount := 0
-		if remaining() >= 2 {
-			itemCount = int(buf.ReadInt16())
-		}
-		info.Items = make([]core.TransitionItem, 0, itemCount)
-		maxDuration := 0.0
-		for j := 0; j < itemCount; j++ {
-			if buf.Pos() >= nextPos || nextPos-buf.Pos() < 2 {
-				break
-			}
-			dataLen := int(buf.ReadInt16())
-			curPos := buf.Pos()
-			if dataLen < 0 || curPos+dataLen > nextPos {
-				buf.SetPos(nextPos)
-				break
-			}
-			if parsed := parseTransitionItem(buf, comp, curPos, dataLen); parsed != nil {
-				end := parsed.Time
-				if parsed.Tween != nil {
-					end += parsed.Tween.Duration
-				}
-				if end > maxDuration {
-					maxDuration = end
-				}
-				info.Items = append(info.Items, *parsed)
-			}
-			buf.SetPos(curPos + dataLen)
-		}
-		info.ItemCount = len(info.Items)
-		info.TotalDuration = maxDuration
-		if info.ItemCount > 0 || info.Name != "" {
-			comp.AddTransition(info)
-		}
-		buf.SetPos(nextPos)
-	}
-}
-
-func parseTransitionItem(buf *utils.ByteBuffer, comp *core.GComponent, start int, length int) *core.TransitionItem {
-	if buf == nil || length <= 0 {
-		return nil
-	}
-	saved := buf.Pos()
-	defer buf.SetPos(saved)
-	limit := start + length
-	if limit > buf.Len() || !buf.Seek(start, 0) {
-		return nil
-	}
-	rem := func() int { return limit - buf.Pos() }
-	if rem() <= 0 {
-		return nil
-	}
-	action := transitionActionFromByte(int(buf.ReadByte()))
-	item := core.TransitionItem{Type: action}
-	if rem() >= 4 {
-		item.Time = float64(buf.ReadFloat32())
-	} else {
-		return nil
-	}
-	if rem() >= 2 {
-		targetIndex := int(buf.ReadInt16())
-		if targetIndex >= 0 {
-			item.TargetID = resolveTransitionTargetID(comp, targetIndex)
-		}
-	}
-	if rem() >= 2 {
-		if label := buf.ReadS(); label != nil {
-			item.Label = *label
-		}
-	}
-	hasTween := false
-	if rem() > 0 {
-		hasTween = buf.ReadBool()
-	}
-	if hasTween {
-		tween := core.TransitionTween{
-			Start: core.TransitionValue{B1: true, B2: true},
-			End:   core.TransitionValue{B1: true, B2: true},
-		}
-		if buf.Seek(start, 1) {
-			if limit-buf.Pos() >= 4 {
-				tween.Duration = float64(buf.ReadFloat32())
-			}
-			if limit-buf.Pos() >= 1 {
-				tween.EaseType = int(buf.ReadByte())
-			}
-			if limit-buf.Pos() >= 4 {
-				tween.Repeat = int(buf.ReadInt32())
-			}
-			if limit-buf.Pos() >= 1 {
-				tween.Yoyo = buf.ReadBool()
-			}
-			if limit-buf.Pos() >= 2 {
-				if endLabel := buf.ReadS(); endLabel != nil {
-					tween.EndLabel = *endLabel
-				}
-			}
-		}
-		if buf.Seek(start, 2) {
-			decodeTransitionValue(buf, limit, action, &tween.Start)
-		}
-		if buf.Seek(start, 3) {
-			decodeTransitionValue(buf, limit, action, &tween.End)
-			if buf.Version >= 2 && limit-buf.Pos() >= 4 {
-				pathLen := int(buf.ReadInt32())
-				if pathLen > 0 {
-					points := make([]core.TransitionPathPoint, 0, pathLen)
-					for p := 0; p < pathLen; p++ {
-						if limit-buf.Pos() < 1 {
-							break
-						}
-						curveType := int(buf.ReadUint8())
-						point := core.TransitionPathPoint{CurveType: curveType}
-						if limit-buf.Pos() < 8 {
-							points = append(points, point)
-							break
-						}
-						point.X = float64(buf.ReadFloat32())
-						point.Y = float64(buf.ReadFloat32())
-						switch curveType {
-						case 1:
-							if limit-buf.Pos() >= 8 {
-								point.CX1 = float64(buf.ReadFloat32())
-								point.CY1 = float64(buf.ReadFloat32())
-							}
-						case 2:
-							if limit-buf.Pos() >= 16 {
-								point.CX1 = float64(buf.ReadFloat32())
-								point.CY1 = float64(buf.ReadFloat32())
-								point.CX2 = float64(buf.ReadFloat32())
-								point.CY2 = float64(buf.ReadFloat32())
-							} else if limit-buf.Pos() >= 8 {
-								point.CX1 = float64(buf.ReadFloat32())
-								point.CY1 = float64(buf.ReadFloat32())
-							}
-						}
-						points = append(points, point)
-					}
-					tween.Path = points
-				}
-			}
-		}
-		item.Tween = &tween
-	} else {
-		if buf.Seek(start, 2) {
-			decodeTransitionValue(buf, limit, action, &item.Value)
-		}
-	}
-	return &item
-}
-
-func transitionActionFromByte(value int) core.TransitionAction {
-	if value < 0 || value > int(core.TransitionActionUnknown) {
-		return core.TransitionActionUnknown
-	}
-	return core.TransitionAction(value)
-}
-
-func resolveTransitionTargetID(comp *core.GComponent, index int) string {
-	if comp == nil {
-		return ""
-	}
-	child := comp.ChildAt(index)
-	if child == nil {
-		return ""
-	}
-	if id := child.ResourceID(); id != "" {
-		return id
-	}
-	if name := child.Name(); name != "" {
-		return name
-	}
-	return child.ID()
-}
-
-func decodeTransitionValue(buf *utils.ByteBuffer, limit int, action core.TransitionAction, out *core.TransitionValue) {
-	if out == nil {
-		return
-	}
-	readBool := func() bool {
-		if limit-buf.Pos() < 1 {
-			return false
-		}
-		return buf.ReadBool()
-	}
-	readFloat := func() float64 {
-		if limit-buf.Pos() < 4 {
-			return 0
-		}
-		return float64(buf.ReadFloat32())
-	}
-	readInt := func() int {
-		if limit-buf.Pos() < 4 {
-			return 0
-		}
-		return int(buf.ReadInt32())
-	}
-	readUint32 := func() uint32 {
-		if limit-buf.Pos() < 4 {
-			return 0
-		}
-		return buf.ReadUint32()
-	}
-	readString := func() string {
-		if limit-buf.Pos() < 2 {
-			return ""
-		}
-		if s := buf.ReadS(); s != nil {
-			return *s
-		}
-		return ""
-	}
-
-	switch action {
-	case core.TransitionActionXY, core.TransitionActionSize, core.TransitionActionPivot, core.TransitionActionSkew:
-		out.B1 = readBool()
-		out.B2 = readBool()
-		out.F1 = readFloat()
-		out.F2 = readFloat()
-		if buf.Version >= 2 && action == core.TransitionActionXY && limit-buf.Pos() >= 1 {
-			out.B3 = buf.ReadBool()
-		}
-	case core.TransitionActionAlpha, core.TransitionActionRotation:
-		out.F1 = readFloat()
-	case core.TransitionActionScale:
-		out.F1 = readFloat()
-		out.F2 = readFloat()
-	case core.TransitionActionColor:
-		out.Color = readUint32()
-	case core.TransitionActionAnimation:
-		out.Playing = readBool()
-		out.Frame = readInt()
-	case core.TransitionActionVisible:
-		out.Visible = readBool()
-	case core.TransitionActionSound:
-		out.Sound = readString()
-		out.Volume = readFloat()
-	case core.TransitionActionTransition:
-		out.TransName = readString()
-		out.PlayTimes = readInt()
-	case core.TransitionActionShake:
-		out.Amplitude = readFloat()
-		out.Duration = readFloat()
-	case core.TransitionActionColorFilter:
-		out.F1 = readFloat()
-		out.F2 = readFloat()
-		out.F3 = readFloat()
-		out.F4 = readFloat()
-	case core.TransitionActionText, core.TransitionActionIcon:
-		out.Text = readString()
-	}
-}
-
-func extractComponent(obj *core.GObject) *core.GComponent {
-	if obj == nil {
-		return nil
-	}
-	switch data := obj.Data().(type) {
-	case *core.GComponent:
-		return data
-	case *widgets.GButton:
-		return data.GComponent
-	case *widgets.GLabel:
-		return data.GComponent
-	case *widgets.GList:
-		return data.GComponent
-	default:
-		return nil
-	}
-}
-
 type componentControllerResolver struct {
 	controllers []gears.Controller
+}
+
+type componentSetupResolver struct {
+	component *core.GComponent
+	item      *assets.PackageItem
+}
+
+func (r componentSetupResolver) MaskChild(index int) *core.GObject {
+	if r.component == nil || index < 0 {
+		return nil
+	}
+	return r.component.ChildAt(index)
+}
+
+func (r componentSetupResolver) PixelData(itemID string) *assets.PixelHitTestData {
+	if itemID == "" || r.item == nil || r.item.Owner == nil {
+		return nil
+	}
+	if pi := r.item.Owner.ItemByID(itemID); pi != nil {
+		return pi.PixelHitTest
+	}
+	return nil
+}
+
+func (r componentSetupResolver) Configure(comp *core.GComponent, hit core.HitTest, data *assets.PixelHitTestData) {
+	render.ConfigureComponentHitArea(comp, hit, data)
 }
 
 func newComponentControllerResolver(comp *core.GComponent) componentControllerResolver {
@@ -1841,31 +1568,4 @@ func uniqueStrings(values []string) []string {
 		out = append(out, v)
 	}
 	return out
-}
-
-func findChildByPath(comp *core.GComponent, path string) *core.GObject {
-	if comp == nil || path == "" {
-		return nil
-	}
-	segments := strings.Split(path, ".")
-	current := comp
-	var obj *core.GObject
-	for idx, segment := range segments {
-		if segment == "" {
-			continue
-		}
-		obj = current.ChildByName(segment)
-		if obj == nil {
-			return nil
-		}
-		if idx == len(segments)-1 {
-			return obj
-		}
-		nested := extractComponent(obj)
-		if nested == nil {
-			return nil
-		}
-		current = nested
-	}
-	return obj
 }

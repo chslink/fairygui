@@ -180,15 +180,34 @@ func (t *Transition) Stop(complete bool) {
 	t.mu.Unlock()
 
 	if complete {
-		for _, item := range info.Items {
+		animDurations, lastIndex := computeAnimationCompletion(info)
+		for idx, item := range info.Items {
 			target := t.resolveTarget(item.TargetID)
 			if target == nil {
 				continue
 			}
+			key := item.TargetID
+			if key == "" {
+				key = "_root"
+			}
 			if item.Tween != nil {
-				t.applyValue(target, item.Type, item.Tween.End)
+				val := item.Tween.End
+				if item.Type == TransitionActionAnimation && idx == lastIndex[key] {
+					if dt, ok := animDurations[key]; ok {
+						val.DeltaTime = dt
+						delete(animDurations, key)
+					}
+				}
+				t.applyValue(target, item.Type, val)
 			} else {
-				t.applyValue(target, item.Type, item.Value)
+				val := item.Value
+				if item.Type == TransitionActionAnimation && idx == lastIndex[key] {
+					if dt, ok := animDurations[key]; ok {
+						val.DeltaTime = dt
+						delete(animDurations, key)
+					}
+				}
+				t.applyValue(target, item.Type, val)
 			}
 		}
 	}
@@ -574,7 +593,11 @@ func (t *Transition) applyValue(target *GObject, action TransitionAction, value 
 		}
 		target.SetProp(gears.ObjectPropIDPlaying, value.Playing)
 		target.SetProp(gears.ObjectPropIDTimeScale, t.TimeScale())
-		target.SetProp(gears.ObjectPropIDDeltaTime, 0.0)
+		if value.DeltaTime != 0 {
+			target.SetProp(gears.ObjectPropIDDeltaTime, value.DeltaTime)
+		} else {
+			target.SetProp(gears.ObjectPropIDDeltaTime, 0.0)
+		}
 	case TransitionActionSound:
 		playTransitionSound(value.Sound, value.Volume)
 	case TransitionActionTransition:
@@ -644,4 +667,64 @@ func argbToHex(color uint32) string {
 	g := (color >> 8) & 0xFF
 	b := color & 0xFF
 	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
+}
+
+type animationCompletionState struct {
+	playing   bool
+	playStart float64
+	duration  float64
+}
+
+func computeAnimationCompletion(info TransitionInfo) (map[string]float64, map[string]int) {
+	durations := make(map[string]float64)
+	lastIndex := make(map[string]int)
+	if len(info.Items) == 0 {
+		return durations, lastIndex
+	}
+	states := make(map[string]*animationCompletionState)
+	for idx, item := range info.Items {
+		if item.Type != TransitionActionAnimation {
+			continue
+		}
+		key := item.TargetID
+		if key == "" {
+			key = "_root"
+		}
+		lastIndex[key] = idx
+		state := states[key]
+		if state == nil {
+			state = &animationCompletionState{playStart: -1}
+			states[key] = state
+		}
+		if item.Tween != nil {
+			continue
+		}
+		if item.Value.Playing {
+			if !state.playing {
+				state.playing = true
+				state.playStart = item.Time
+			}
+		} else {
+			if state.playing {
+				if item.Time > state.playStart {
+					state.duration += item.Time - state.playStart
+				}
+				state.playing = false
+				state.playStart = -1
+			}
+		}
+	}
+	total := info.TotalDuration
+	for key, state := range states {
+		if state.playing {
+			end := total
+			if end < state.playStart {
+				end = state.playStart
+			}
+			state.duration += end - state.playStart
+			state.playing = false
+		}
+		durations[key] = state.duration * 1000
+	}
+	return durations, lastIndex
 }

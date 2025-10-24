@@ -6,6 +6,7 @@ import (
 
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
 
 // ProgressTitleType mirrors FairyGUI 进度文本显示方式。
@@ -42,6 +43,14 @@ type GProgressBar struct {
 	title              ProgressTitleType
 	reverse            bool
 	listenerRegistered bool
+}
+
+// ComponentRoot exposes the embedded component for helpers.
+func (b *GProgressBar) ComponentRoot() *core.GComponent {
+	if b == nil {
+		return nil
+	}
+	return b.GComponent
 }
 
 // NewProgressBar 创建默认进度条。
@@ -343,4 +352,47 @@ func applyTextToObject(obj *core.GObject, text string) {
 	default:
 		obj.SetData(text)
 	}
+}
+
+// SetupAfterAdd mirrors FairyGUI 的 runtime 初始化逻辑，解析当前值与区间。
+func (b *GProgressBar) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
+	if b == nil || buf == nil {
+		return
+	}
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+	if !buf.Seek(0, 6) || buf.Remaining() <= 0 {
+		b.applyValue()
+		return
+	}
+	expected := assets.ObjectTypeProgressBar
+	if ctx != nil {
+		switch {
+		case ctx.ResolvedItem != nil && ctx.ResolvedItem.ObjectType != assets.ObjectTypeComponent:
+			expected = ctx.ResolvedItem.ObjectType
+		case ctx.Child != nil && ctx.Child.Type != 0:
+			expected = ctx.Child.Type
+		}
+	}
+	if assets.ObjectType(buf.ReadByte()) != expected {
+		b.applyValue()
+		return
+	}
+	if buf.Remaining() < 4 {
+		b.applyValue()
+		return
+	}
+	value := float64(buf.ReadInt32())
+	if buf.Remaining() < 4 {
+		b.applyValue()
+		return
+	}
+	max := float64(buf.ReadInt32())
+	min := b.Min()
+	if buf.Version >= 2 && buf.Remaining() >= 4 {
+		min = float64(buf.ReadInt32())
+	}
+	b.SetMin(min)
+	b.SetMax(max)
+	b.SetValue(value)
 }

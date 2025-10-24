@@ -5,6 +5,7 @@ import (
 
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
 
 // GLoader represents a resource loader widget.
@@ -318,6 +319,62 @@ func (l *GLoader) FillAmount() float64 {
 // ContentSize returns the current content width and height after layout.
 func (l *GLoader) ContentSize() (float64, float64) {
 	return l.contentWidth, l.contentHeight
+}
+
+// SetupBeforeAdd reads loader configuration from the component buffer.
+func (l *GLoader) SetupBeforeAdd(_ *SetupContext, buf *utils.ByteBuffer) {
+	if l == nil || buf == nil {
+		return
+	}
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+	if !buf.Seek(0, 5) {
+		return
+	}
+	if url := buf.ReadS(); url != nil && *url != "" {
+		l.SetURL(*url)
+	}
+	mapAlign := func(code int8, horizontal bool) LoaderAlign {
+		switch code {
+		case 1:
+			if horizontal {
+				return LoaderAlignCenter
+			}
+			return LoaderAlignMiddle
+		case 2:
+			if horizontal {
+				return LoaderAlignRight
+			}
+			return LoaderAlignBottom
+		default:
+			if horizontal {
+				return LoaderAlignLeft
+			}
+			return LoaderAlignTop
+		}
+	}
+	l.SetAlign(mapAlign(buf.ReadByte(), true))
+	l.SetVerticalAlign(mapAlign(buf.ReadByte(), false))
+	l.SetFill(LoaderFillType(buf.ReadByte()))
+	l.SetShrinkOnly(buf.ReadBool())
+	l.SetAutoSize(buf.ReadBool())
+	_ = buf.ReadBool() // showErrorSign flag not yet wired
+	l.SetPlaying(buf.ReadBool())
+	l.SetFrame(int(buf.ReadInt32()))
+	if buf.ReadBool() {
+		l.SetColor(buf.ReadColorString(true))
+	}
+	fillMethod := LoaderFillMethod(buf.ReadByte())
+	l.SetFillMethod(int(fillMethod))
+	if fillMethod != LoaderFillMethodNone {
+		l.SetFillOrigin(int(buf.ReadByte()))
+		l.SetFillClockwise(buf.ReadBool())
+		l.SetFillAmount(float64(buf.ReadFloat32()))
+	}
+	if buf.Version >= 7 {
+		l.SetUseResize(buf.ReadBool())
+	}
+	l.RefreshLayout()
 }
 
 // SetScale9Grid applies nine-slice data to the loader.

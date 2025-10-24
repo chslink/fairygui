@@ -25,11 +25,17 @@ const (
 	EventDragMove       EventType = "dragMove"
 	EventDragEnd        EventType = "dragEnd"
 	EventTouchMove      EventType = "touchMove"
+	EventTouchCancel    EventType = "touchCancel"
 	EventXYChanged      EventType = "xyChanged"
 	EventSizeChanged    EventType = "sizeChanged"
 	EventStateChanged   EventType = "stateChanged"
 	EventStageMouseDown EventType = "stageMouseDown"
 	EventStageMouseUp   EventType = "stageMouseUp"
+	EventKeyDown        EventType = "keyDown"
+	EventKeyUp          EventType = "keyUp"
+	EventKeyPress       EventType = "keyPress"
+	EventFocusIn        EventType = "focusIn"
+	EventFocusOut       EventType = "focusOut"
 )
 
 // Event carries the runtime payload for a dispatched event.

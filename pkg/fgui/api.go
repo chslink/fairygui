@@ -12,6 +12,13 @@ type (
 	Stage          = laya.Stage
 	Scheduler      = laya.Scheduler
 	MouseState     = laya.MouseState
+	InputState     = laya.InputState
+	TouchInput     = laya.TouchInput
+	TouchPhase     = laya.TouchPhase
+	MouseButtons   = laya.MouseButtons
+	KeyModifiers   = laya.KeyModifiers
+	KeyCode        = laya.KeyCode
+	KeyboardEvent  = laya.KeyboardEvent
 	PointerEvent   = laya.PointerEvent
 	EventType      = laya.EventType
 	GRoot          = core.GRoot
@@ -69,6 +76,11 @@ func CurrentStage() *Stage {
 // Advance ticks the singleton root and underlying stage scheduler.
 func Advance(delta time.Duration, mouse MouseState) {
 	core.Root().Advance(delta, mouse)
+}
+
+// AdvanceInput ticks the singleton root using a full input state payload.
+func AdvanceInput(delta time.Duration, input InputState) {
+	core.Root().AdvanceInput(delta, input)
 }
 
 // CurrentScheduler exposes the stage scheduler for timer integrations.

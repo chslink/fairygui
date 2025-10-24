@@ -269,7 +269,7 @@ func (d *BasicsDemo) initGrid(component *core.GComponent) {
 			items := list.GComponent.Children()
 			for i := 0; i < len(items) && i < len(names); i++ {
 				if child := items[i]; child != nil {
-					if childComp := extractComponent(child); childComp != nil {
+					if childComp := core.ComponentFrom(child); childComp != nil {
 						updater(childComp, i)
 					}
 				}
@@ -489,7 +489,7 @@ func (d *BasicsDemo) populateWindowA() {
 	if listObj == nil {
 		return
 	}
-	listComp := extractComponent(listObj)
+	listComp := core.ComponentFrom(listObj)
 	if listComp == nil {
 		return
 	}
@@ -1041,22 +1041,6 @@ func childAsComponent(parent *core.GComponent, name string) *core.GComponent {
 		return comp
 	}
 	return nil
-}
-
-func extractComponent(obj *core.GObject) *core.GComponent {
-	if obj == nil {
-		return nil
-	}
-	switch val := obj.Data().(type) {
-	case *core.GComponent:
-		return val
-	case *widgets.GButton:
-		return val.GComponent
-	case *widgets.GLabel:
-		return val.GComponent
-	default:
-		return nil
-	}
 }
 
 func removeAllChildren(comp *core.GComponent) {

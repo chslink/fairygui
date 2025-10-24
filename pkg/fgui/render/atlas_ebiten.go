@@ -20,6 +20,7 @@ type AtlasManager struct {
 	loader      assets.Loader
 	atlasImages map[string]*ebiten.Image
 	spriteCache map[string]*ebiten.Image
+	movieCache  map[string]*ebiten.Image
 }
 
 // NewAtlasManager creates a manager using the provided Loader.
@@ -28,6 +29,7 @@ func NewAtlasManager(loader assets.Loader) *AtlasManager {
 		loader:      loader,
 		atlasImages: make(map[string]*ebiten.Image),
 		spriteCache: make(map[string]*ebiten.Image),
+		movieCache:  make(map[string]*ebiten.Image),
 	}
 }
 
@@ -108,4 +110,46 @@ func spriteKey(item *assets.PackageItem) string {
 		ownerID = item.Owner.ID
 	}
 	return ownerID + ":" + item.ID
+}
+
+// ResolveMovieClipFrame returns an Ebiten image for the supplied movie clip frame.
+func (m *AtlasManager) ResolveMovieClipFrame(item *assets.PackageItem, frame *assets.MovieClipFrame) (*ebiten.Image, error) {
+	if frame == nil || frame.Sprite == nil || frame.Sprite.Atlas == nil {
+		return nil, errors.New("render: movie clip frame missing sprite data")
+	}
+	key := movieClipFrameKey(item, frame)
+	if img, ok := m.movieCache[key]; ok {
+		return img, nil
+	}
+	atlasImg, ok := m.atlasImages[atlasKey(frame.Sprite.Atlas)]
+	if !ok {
+		return nil, errors.New("render: atlas texture not loaded")
+	}
+	rect := image.Rect(
+		frame.Sprite.Rect.X,
+		frame.Sprite.Rect.Y,
+		frame.Sprite.Rect.X+frame.Sprite.Rect.Width,
+		frame.Sprite.Rect.Y+frame.Sprite.Rect.Height,
+	)
+	atlasBounds := atlasImg.Bounds()
+	if !rect.In(atlasBounds) {
+		rect = rect.Intersect(atlasBounds)
+		if rect.Empty() {
+			return nil, fmt.Errorf("render: movie clip frame rect out of bounds %v", atlasBounds)
+		}
+	}
+	sub, ok := atlasImg.SubImage(rect).(*ebiten.Image)
+	if !ok {
+		return nil, errors.New("render: atlas sub-image type mismatch")
+	}
+	m.movieCache[key] = sub
+	return sub, nil
+}
+
+func movieClipFrameKey(item *assets.PackageItem, frame *assets.MovieClipFrame) string {
+	ownerID := ""
+	if item != nil && item.Owner != nil {
+		ownerID = item.Owner.ID
+	}
+	return fmt.Sprintf("mc:%s:%s:%d:%d:%d:%d", ownerID, frame.SpriteID, frame.Sprite.Rect.X, frame.Sprite.Rect.Y, frame.Sprite.Rect.Width, frame.Sprite.Rect.Height)
 }

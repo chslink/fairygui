@@ -55,9 +55,10 @@ type TransitionValue struct {
 
 	Color uint32
 
-	Playing bool
-	Frame   int
-	Visible bool
+	Playing   bool
+	Frame     int
+	Visible   bool
+	DeltaTime float64
 
 	Sound  string
 	Volume float64

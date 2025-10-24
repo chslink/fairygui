@@ -247,6 +247,59 @@ func TestTransitionAnimationAppliesPlayingAndFrame(t *testing.T) {
 	tx.Stop(false)
 }
 
+func TestTransitionAnimationStopCompleteAdvancesDelta(t *testing.T) {
+	comp := NewGComponent()
+	target := NewGObject()
+	target.SetResourceID("anim-stop")
+	stub := &fakeAnimationWidget{}
+	target.SetData(stub)
+	comp.AddChild(target)
+
+	info := TransitionInfo{
+		Name: "anim-stop",
+		Items: []TransitionItem{
+			{
+				Time:     0,
+				TargetID: target.ID(),
+				Type:     TransitionActionAnimation,
+				Value: TransitionValue{
+					Playing: true,
+					Frame:   0,
+				},
+			},
+			{
+				Time:     0.3,
+				TargetID: target.ID(),
+				Type:     TransitionActionAnimation,
+				Value: TransitionValue{
+					Playing: false,
+					Frame:   6,
+				},
+			},
+		},
+		TotalDuration: 0.3,
+	}
+
+	comp.AddTransition(info)
+	tx := comp.Transition("anim-stop")
+	if tx == nil {
+		t.Fatalf("expected transition to exist")
+	}
+
+	tx.Play(1, 0)
+	tx.Stop(true)
+
+	if stub.playing {
+		t.Fatalf("expected stub to be paused after complete stop")
+	}
+	if stub.frame != 6 {
+		t.Fatalf("expected frame 6 after complete stop, got %d", stub.frame)
+	}
+	if math.Abs(stub.delta-300) > 1e-3 {
+		t.Fatalf("expected delta 300ms, got %.3f", stub.delta)
+	}
+}
+
 func TestTransitionXYPathTween(t *testing.T) {
 	comp := NewGComponent()
 	child := NewGObject()
@@ -302,6 +355,7 @@ func TestTransitionXYPathTween(t *testing.T) {
 type fakeAnimationWidget struct {
 	playing bool
 	frame   int
+	delta   float64
 }
 
 func (f *fakeAnimationWidget) Playing() bool { return f.playing }
@@ -311,4 +365,8 @@ func (f *fakeAnimationWidget) SetPlaying(v bool) {
 func (f *fakeAnimationWidget) Frame() int { return f.frame }
 func (f *fakeAnimationWidget) SetFrame(v int) {
 	f.frame = v
+}
+func (f *fakeAnimationWidget) DeltaTime() float64 { return f.delta }
+func (f *fakeAnimationWidget) SetDeltaTime(v float64) {
+	f.delta += v
 }

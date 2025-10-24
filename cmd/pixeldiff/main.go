@@ -16,12 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2"
-
-	"github.com/chslink/fairygui/pkg/fgui"
+	"github.com/chslink/fairygui/cmd/internal/capture"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/builder"
-	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/render"
 )
 
@@ -93,7 +90,14 @@ func main() {
 	width := chooseDimension(*widthOverride, root.Width(), 800)
 	height := chooseDimension(*heightOverride, root.Height(), 600)
 
-	imageRGBA, err := captureComponent(width, height, root, atlas)
+	debugFn := func(format string, args ...any) {
+		debugf(format, args...)
+	}
+	if !debugEnabled {
+		debugFn = nil
+	}
+
+	imageRGBA, err := capture.CaptureComponent(width, height, root, atlas, debugFn)
 	if err != nil {
 		fatalf("render component: %v", err)
 	}
@@ -134,102 +138,6 @@ func findComponent(pkg *assets.Package, name string) *assets.PackageItem {
 		}
 	}
 	return nil
-}
-
-func captureComponent(width, height int, component *core.GComponent, atlas *render.AtlasManager) (*image.RGBA, error) {
-	if width <= 0 || height <= 0 {
-		return nil, fmt.Errorf("invalid capture size %dx%d", width, height)
-	}
-	game := newCaptureGame(width, height, component, atlas)
-
-	ebiten.SetWindowSize(width, height)
-	ebiten.SetWindowResizable(false)
-	ebiten.SetWindowTitle("pixeldiff")
-
-	err := ebiten.RunGame(game)
-	if err != nil && !errors.Is(err, ebiten.Termination) {
-		return nil, err
-	}
-	if game.err != nil {
-		return nil, game.err
-	}
-	if !game.rendered {
-		return nil, errors.New("capture did not complete")
-	}
-	return game.image(), nil
-}
-
-type captureGame struct {
-	width      int
-	height     int
-	component  *core.GComponent
-	atlas      *render.AtlasManager
-	root       *core.GRoot
-	stage      *fgui.Stage
-	rendered   bool
-	pixels     []byte
-	err        error
-	frameCount int
-}
-
-func newCaptureGame(width, height int, component *core.GComponent, atlas *render.AtlasManager) *captureGame {
-	stage := fgui.NewStage(width, height)
-	root := core.NewGRoot()
-	root.AttachStage(stage)
-	root.Resize(width, height)
-	if component != nil {
-		component.SetPosition(0, 0)
-		root.AddChild(component.GObject)
-	}
-	return &captureGame{
-		width:     width,
-		height:    height,
-		component: component,
-		atlas:     atlas,
-		root:      root,
-		stage:     stage,
-	}
-}
-
-func (g *captureGame) Update() error {
-	if g.err != nil {
-		return g.err
-	}
-	if g.rendered {
-		return ebiten.Termination
-	}
-	g.root.Advance(time.Second/60, fgui.MouseState{})
-	g.frameCount++
-	return nil
-}
-
-func (g *captureGame) Draw(screen *ebiten.Image) {
-	if g.err != nil || g.rendered {
-		return
-	}
-	screen.Clear()
-	if err := render.DrawComponent(screen, g.root.GComponent, g.atlas); err != nil {
-		g.err = err
-		return
-	}
-	w, h := screen.Size()
-	debugf("ReadPixels request size: %dx%d", w, h)
-	pixels := make([]byte, 4*w*h)
-	screen.ReadPixels(pixels)
-	g.pixels = pixels
-	g.rendered = true
-}
-
-func (g *captureGame) Layout(_, _ int) (int, int) {
-	return g.width, g.height
-}
-
-func (g *captureGame) image() *image.RGBA {
-	return &image.RGBA{
-		Pix:    g.pixels,
-		Stride: 4 * g.width,
-		Rect:   image.Rect(0, 0, g.width, g.height),
-	}
 }
 
 const maxAutoDimension = 8192

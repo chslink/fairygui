@@ -94,10 +94,16 @@ func (r *GRoot) AttachStage(stage *laya.Stage) {
 
 // Advance ticks the underlying stage scheduler and routes pointer events.
 func (r *GRoot) Advance(delta time.Duration, mouse laya.MouseState) {
+	r.AdvanceInput(delta, laya.InputState{Mouse: mouse})
+}
+
+// AdvanceInput ticks the stage with a full input payload.
+func (r *GRoot) AdvanceInput(delta time.Duration, input laya.InputState) {
 	if r.stage == nil {
 		return
 	}
-	r.stage.Update(delta, mouse)
+	r.stage.UpdateInput(delta, input)
+	tickAll(delta)
 	tween.Advance(delta)
 }
 
@@ -321,7 +327,11 @@ func (r *GRoot) registerStageListeners() {
 	root := r.stage.Root()
 	r.stageMouseDown = func(evt laya.Event) {
 		if pe, ok := evt.Data.(laya.PointerEvent); ok {
-			r.CheckPopups(pe.Target)
+			if pe.Hit != nil {
+				r.CheckPopups(pe.Hit)
+			} else {
+				r.CheckPopups(pe.Target)
+			}
 		} else {
 			r.CheckPopups(nil)
 		}

@@ -152,6 +152,47 @@ func TestParseRealFUI(t *testing.T) {
 	t.Log("warning: Main component children are nested components only")
 }
 
+func TestParseMovieClipFrames(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "demo", "assets", "Basics.fui")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("movie clip asset not available: %v", err)
+	}
+	pkg, err := ParsePackage(data, "demo/assets/Basics")
+	if err != nil {
+		t.Fatalf("ParsePackage failed: %v", err)
+	}
+	var movie *PackageItem
+	for _, item := range pkg.Items {
+		if item.Type == PackageItemTypeMovieClip {
+			movie = item
+			break
+		}
+	}
+	if movie == nil {
+		t.Fatalf("expected Basics package to contain a movie clip item")
+	}
+	if movie.Interval <= 0 {
+		t.Fatalf("expected positive interval, got %d", movie.Interval)
+	}
+	if len(movie.Frames) == 0 {
+		t.Fatalf("expected movie clip frames to be parsed")
+	}
+	foundSprite := false
+	for _, frame := range movie.Frames {
+		if frame == nil {
+			continue
+		}
+		if frame.Sprite != nil && frame.Sprite.Rect.Width > 0 && frame.Sprite.Rect.Height > 0 {
+			foundSprite = true
+			break
+		}
+	}
+	if !foundSprite {
+		t.Fatalf("expected at least one frame to carry sprite metadata")
+	}
+}
+
 func buildPackageFixture(t *testing.T) ([]byte, int) {
 	t.Helper()
 

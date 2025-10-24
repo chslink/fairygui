@@ -2,6 +2,14 @@ package laya
 
 import "math"
 
+// BlendMode enumerates available blending operations.
+type BlendMode int
+
+const (
+	BlendModeNormal BlendMode = iota
+	BlendModeAdd
+)
+
 // Sprite emulates the subset of Laya.Sprite behaviour required by FairyGUI.
 type Sprite struct {
 	dispatcher    *BasicEventDispatcher
@@ -26,6 +34,15 @@ type Sprite struct {
 	skewX         float64
 	skewY         float64
 	hitTester     func(x, y float64) bool
+	graphics      *Graphics
+	hitArea       *HitArea
+	repaintDirty  bool
+	colorFilter   [4]float64
+	filterEnabled bool
+	colorMatrix        [20]float64
+	colorMatrixEnabled bool
+	grayEnabled        bool
+	blendMode          BlendMode
 }
 
 // NewSprite constructs a sprite with sensible defaults.
@@ -37,6 +54,7 @@ func NewSprite() *Sprite {
 		mouseEnabled: true,
 		scaleX:       1,
 		scaleY:       1,
+		colorMatrix:  identityColorMatrix,
 	}
 }
 
@@ -194,6 +212,81 @@ func (s *Sprite) Dispatcher() EventDispatcher {
 // SetHitTester registers a custom hit testing function evaluated in local coordinates.
 func (s *Sprite) SetHitTester(fn func(x, y float64) bool) {
 	s.hitTester = fn
+}
+
+// SetColorFilter stores colour filter coefficients (applied by renderer).
+func (s *Sprite) SetColorFilter(brightness, contrast, saturation, hue float64) {
+	s.colorFilter = [4]float64{brightness, contrast, saturation, hue}
+	matrix, enabled := computeColorMatrix(brightness, contrast, saturation, hue)
+	s.colorMatrix = matrix
+	s.colorMatrixEnabled = enabled
+	s.filterEnabled = enabled
+	if enabled {
+		s.grayEnabled = false
+	}
+}
+
+func (s *Sprite) ClearColorFilter() {
+	s.colorFilter = [4]float64{}
+	s.filterEnabled = false
+	s.colorMatrix = identityColorMatrix
+	s.colorMatrixEnabled = false
+	s.grayEnabled = false
+}
+
+// ColorFilter returns current colour filter and enabled flag.
+func (s *Sprite) ColorFilter() (enabled bool, values [4]float64) {
+	return s.filterEnabled, s.colorFilter
+}
+
+// ColorEffects reports grayscale usage and the current colour matrix.
+func (s *Sprite) ColorEffects() (gray bool, enabled bool, matrix [20]float64) {
+	return s.grayEnabled, s.colorMatrixEnabled, s.colorMatrix
+}
+
+// SetGray toggles grayscale rendering for the sprite.
+func (s *Sprite) SetGray(enabled bool) {
+	s.grayEnabled = enabled
+}
+
+// SetBlendMode updates the blending mode.
+func (s *Sprite) SetBlendMode(mode BlendMode) {
+	s.blendMode = mode
+}
+
+// BlendMode reports the current blending mode.
+func (s *Sprite) BlendMode() BlendMode {
+	return s.blendMode
+}
+
+// Graphics returns the sprite's drawing command collection.
+func (s *Sprite) Graphics() *Graphics {
+	if s.graphics == nil {
+		s.graphics = NewGraphics()
+	}
+	return s.graphics
+}
+
+// HitArea returns the sprite's hit area.
+func (s *Sprite) HitArea() *HitArea {
+	return s.hitArea
+}
+
+// SetHitArea assigns a hit area used during hit tests.
+func (s *Sprite) SetHitArea(area *HitArea) {
+	s.hitArea = area
+}
+
+// Repaint marks the sprite as needing redraw.
+func (s *Sprite) Repaint() {
+	s.repaintDirty = true
+}
+
+// ConsumeRepaint resets the repaint flag and reports the previous state.
+func (s *Sprite) ConsumeRepaint() bool {
+	dirty := s.repaintDirty
+	s.repaintDirty = false
+	return dirty
 }
 
 // Emit dispatches an event without bubbling.
@@ -466,6 +559,9 @@ func (s *Sprite) HitTest(global Point) *Sprite {
 		}
 	}
 	if s.hitTester != nil && !s.hitTester(local.X, local.Y) {
+		return nil
+	}
+	if s.hitArea != nil && !s.hitArea.Contains(local.X, local.Y) {
 		return nil
 	}
 	if !s.mouseEnabled {

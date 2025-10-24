@@ -2,6 +2,7 @@ package core
 
 import (
 	"github.com/chslink/fairygui/internal/compat/laya"
+	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
 
@@ -52,6 +53,11 @@ func NewGComponent() *GComponent {
 	}
 	base.SetData(comp)
 	return comp
+}
+
+// ComponentRoot satisfies core.ComponentAccessor.
+func (c *GComponent) ComponentRoot() *GComponent {
+	return c
 }
 
 func (c *GComponent) childContainer() *laya.Sprite {
@@ -436,4 +442,72 @@ func (c *GComponent) HitTest() HitTest {
 		return HitTest{Mode: HitTestModeNone}
 	}
 	return c.hitTest
+}
+
+// SetupBeforeAdd parses component-level scroll/mask/overflow metadata.
+func (c *GComponent) SetupBeforeAdd(buf *utils.ByteBuffer, start int, resolver MaskResolver) {
+	if c == nil || buf == nil || start < 0 {
+		return
+	}
+	saved := buf.Pos()
+	defer buf.SetPos(saved)
+	if !buf.Seek(start, 4) {
+		return
+	}
+	if err := buf.Skip(2); err != nil || buf.Remaining() < 1+2+2+4+4 {
+		return
+	}
+	c.SetOpaque(buf.ReadBool())
+	maskIndex := int(buf.ReadInt16())
+	reversed := false
+	var mask *GObject
+	if maskIndex >= 0 {
+		if buf.Remaining() > 0 {
+			reversed = buf.ReadBool()
+		}
+		if resolver != nil {
+			mask = resolver.MaskChild(maskIndex)
+		}
+	}
+	c.SetMask(mask, reversed)
+	hitMode := HitTest{Mode: HitTestModeNone}
+	hitID := buf.ReadS()
+	offsetX := int(buf.ReadInt32())
+	offsetY := int(buf.ReadInt32())
+	if hitID != nil && *hitID != "" {
+		hitMode = HitTest{Mode: HitTestModePixel, ItemID: *hitID, OffsetX: offsetX, OffsetY: offsetY}
+	} else if offsetX != 0 && offsetY != -1 {
+		hitMode = HitTest{Mode: HitTestModeChild, OffsetX: offsetX, ChildIndex: offsetY}
+	}
+	c.SetHitTest(hitMode)
+}
+
+// SetupAfterAdd applies scroll/mask hit-test data and transitions.
+func (c *GComponent) SetupAfterAdd(buf *utils.ByteBuffer, start int, resolver MaskResolver, pixelResolver PixelHitResolver) {
+	if c == nil || buf == nil || start < 0 {
+		return
+	}
+	saved := buf.Pos()
+	defer buf.SetPos(saved)
+	c.SetupBeforeAdd(buf, start, resolver)
+	hit := c.HitTest()
+	if pixelResolver != nil {
+		var data *assets.PixelHitTestData
+		if hit.Mode == HitTestModePixel && hit.ItemID != "" {
+			data = pixelResolver.PixelData(hit.ItemID)
+		}
+		pixelResolver.Configure(c, hit, data)
+	}
+	c.setupTransitions(buf, start)
+}
+
+// MaskResolver resolves mask children by index.
+type MaskResolver interface {
+	MaskChild(index int) *GObject
+}
+
+// PixelHitResolver resolves pixel hit data and configures the render system.
+type PixelHitResolver interface {
+	PixelData(itemID string) *assets.PixelHitTestData
+	Configure(comp *GComponent, hit HitTest, data *assets.PixelHitTestData)
 }

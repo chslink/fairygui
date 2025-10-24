@@ -121,11 +121,15 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 
 	switch data := obj.Data().(type) {
 	case *assets.PackageItem:
-		if err := drawPackageItem(target, data, combined, atlas, alpha); err != nil {
+		if err := drawPackageItem(target, data, combined, atlas, alpha, sprite); err != nil {
 			return err
 		}
 	case *widgets.GImage:
-		if err := renderImageWidget(target, data, atlas, combined, alpha); err != nil {
+		if err := renderImageWidget(target, data, atlas, combined, alpha, sprite); err != nil {
+			return err
+		}
+	case *widgets.GMovieClip:
+		if err := renderMovieClipWidget(target, data, atlas, combined, alpha, sprite); err != nil {
 			return err
 		}
 	case *core.GComponent:
@@ -134,13 +138,19 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		}
 	case string:
 		if data != "" {
-			if err := drawTextImage(target, combined, nil, data, alpha, obj.Width(), obj.Height(), atlas); err != nil {
+			if err := drawTextImage(target, combined, nil, data, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
+				return err
+			}
+		}
+	case *widgets.GTextInput:
+		if textValue := data.Text(); textValue != "" {
+			if err := drawTextImage(target, combined, data.GTextField, textValue, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
 				return err
 			}
 		}
 	case *widgets.GTextField:
 		if textValue := data.Text(); textValue != "" {
-			if err := drawTextImage(target, combined, data, textValue, alpha, obj.Width(), obj.Height(), atlas); err != nil {
+			if err := drawTextImage(target, combined, data, textValue, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
 				return err
 			}
 		}
@@ -149,7 +159,7 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		textMatrix := combined
 		if iconItem != nil {
 			iconGeo := combined
-			if err := drawPackageItem(target, iconItem, iconGeo, atlas, alpha); err != nil {
+			if err := drawPackageItem(target, iconItem, iconGeo, atlas, alpha, sprite); err != nil {
 				return err
 			}
 			if iconItem.Sprite != nil {
@@ -160,7 +170,7 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			}
 		}
 		if textValue := data.Title(); textValue != "" {
-			if err := drawTextImage(target, textMatrix, nil, textValue, alpha, obj.Width(), obj.Height(), atlas); err != nil {
+			if err := drawTextImage(target, textMatrix, nil, textValue, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
 				return err
 			}
 		}
@@ -180,17 +190,28 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			return err
 		}
 	case *widgets.GGraph:
-		if err := renderGraph(target, data, combined, alpha); err != nil {
+		if err := renderGraph(target, data, combined, alpha, sprite); err != nil {
 			return err
 		}
+	case *widgets.GComboBox:
+		if root := data.ComponentRoot(); root != nil {
+			if err := drawComponent(target, root, atlas, combined, alpha); err != nil {
+				return err
+			}
+		}
 	default:
+		if sprite != nil {
+			if renderGraphicsSprite(target, sprite, combined, alpha) {
+				return nil
+			}
+		}
 		// Unsupported payloads are ignored for now.
 	}
 
 	return nil
 }
 
-func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *AtlasManager, parentGeo ebiten.GeoM, alpha float64) error {
+func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *AtlasManager, parentGeo ebiten.GeoM, alpha float64, sprite *laya.Sprite) error {
 	if widget == nil {
 		return nil
 	}
@@ -206,6 +227,8 @@ func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *Atla
 	if !ok || img == nil {
 		return errors.New("render: atlas returned unexpected sprite type for image")
 	}
+
+	tint := parseColor(widget.Color())
 
 	bounds := img.Bounds()
 	srcW := float64(bounds.Dx())
@@ -247,7 +270,25 @@ func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *Atla
 				lastNineSliceLog.Store(item.ID, logKey)
 			}
 		}
-		drawNineSlice(target, geo, img, slice, dstW, dstH, alpha, scaleByTile, tileGrid, debugLabel)
+		if flip := widget.Flip(); flip != widgets.FlipTypeNone {
+			var flipGeo ebiten.GeoM
+			scaleX := 1.0
+			scaleY := 1.0
+			tx := 0.0
+			ty := 0.0
+			if flip == widgets.FlipTypeHorizontal || flip == widgets.FlipTypeBoth {
+				scaleX = -1
+				tx = dstW
+			}
+			if flip == widgets.FlipTypeVertical || flip == widgets.FlipTypeBoth {
+				scaleY = -1
+				ty = dstH
+			}
+			flipGeo.Scale(scaleX, scaleY)
+			flipGeo.Translate(tx, ty)
+			geo.Concat(flipGeo)
+		}
+		drawNineSlice(target, geo, img, slice, dstW, dstH, alpha, tint, scaleByTile, tileGrid, sprite, debugLabel)
 		if debugNineSliceOverlayEnabled {
 			drawNineSliceOverlay(target, geo, slice, dstW, dstH)
 		}
@@ -274,8 +315,21 @@ func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *Atla
 		sy = dstH / srcH
 	}
 	scaleGeo := geo
+	tx := 0.0
+	ty := 0.0
+	if flip := widget.Flip(); flip != widgets.FlipTypeNone {
+		if flip == widgets.FlipTypeHorizontal || flip == widgets.FlipTypeBoth {
+			sx = -sx
+			tx = dstW
+		}
+		if flip == widgets.FlipTypeVertical || flip == widgets.FlipTypeBoth {
+			sy = -sy
+			ty = dstH
+		}
+	}
 	scaleGeo.Scale(sx, sy)
-	renderImageWithGeo(target, img, scaleGeo, alpha)
+	scaleGeo.Translate(tx, ty)
+	renderImageWithGeo(target, img, scaleGeo, alpha, tint, sprite)
 	if debugNineSlice {
 		logKey := fmt.Sprintf("simple:%s:%.1fx%.1f:%.2f:%.2f", item.ID, dstW, dstH, sx, sy)
 		if prev, ok := lastNineSliceLog.Load(item.ID); !ok || prev != logKey {
@@ -296,7 +350,129 @@ func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *Atla
 	return nil
 }
 
-func renderGraph(target *ebiten.Image, graph *widgets.GGraph, parentGeo ebiten.GeoM, alpha float64) error {
+func renderMovieClipWidget(target *ebiten.Image, widget *widgets.GMovieClip, atlas *AtlasManager, parentGeo ebiten.GeoM, alpha float64, sprite *laya.Sprite) error {
+	if widget == nil {
+		return nil
+	}
+	frame := widget.CurrentFrame()
+	if frame == nil {
+		return nil
+	}
+	img, err := atlas.ResolveMovieClipFrame(widget.PackageItem(), frame)
+	if err != nil {
+		return err
+	}
+	if img == nil {
+		return nil
+	}
+	tint := parseColor(widget.Color())
+	sourceWidth := float64(frame.Width)
+	sourceHeight := float64(frame.Height)
+	if sourceWidth <= 0 && frame.Sprite != nil {
+		sourceWidth = float64(frame.Sprite.OriginalSize.X)
+	}
+	if sourceWidth <= 0 {
+		sourceWidth = float64(img.Bounds().Dx())
+	}
+	if sourceHeight <= 0 && frame.Sprite != nil {
+		sourceHeight = float64(frame.Sprite.OriginalSize.Y)
+	}
+	if sourceHeight <= 0 {
+		sourceHeight = float64(img.Bounds().Dy())
+	}
+	dstW := widget.Width()
+	dstH := widget.Height()
+	if dstW <= 0 {
+		dstW = sourceWidth
+	}
+	if dstH <= 0 {
+		dstH = sourceHeight
+	}
+	sx := 1.0
+	sy := 1.0
+	if sourceWidth > 0 {
+		sx = dstW / sourceWidth
+	}
+	if sourceHeight > 0 {
+		sy = dstH / sourceHeight
+	}
+	local := ebiten.GeoM{}
+	local.Scale(sx, sy)
+	switch widget.Flip() {
+	case widgets.FlipTypeHorizontal:
+		local.Scale(-1, 1)
+		local.Translate(dstW, 0)
+	case widgets.FlipTypeVertical:
+		local.Scale(1, -1)
+		local.Translate(0, dstH)
+	case widgets.FlipTypeBoth:
+		local.Scale(-1, -1)
+		local.Translate(dstW, dstH)
+	}
+	offsetX := float64(frame.OffsetX) * sx
+	offsetY := float64(frame.OffsetY) * sy
+	local.Translate(offsetX, offsetY)
+	geo := parentGeo
+	if frame.Sprite != nil {
+		off := frame.Sprite.Offset
+		if off.X != 0 || off.Y != 0 {
+			geo.Translate(float64(off.X)*sx, float64(off.Y)*sy)
+		}
+	}
+	geo.Concat(local)
+	method, origin, clockwise, amount := widget.Fill()
+	if method != 0 && amount > 0 && amount < 0.9999 {
+		points := computeFillPoints(dstW, dstH, method, origin, clockwise, amount)
+		if len(points) >= 6 {
+			srcBounds := img.Bounds()
+			srcW := float64(srcBounds.Dx())
+			srcH := float64(srcBounds.Dy())
+			var scaleSrcX, scaleSrcY float64
+			if dstW > 0 {
+				scaleSrcX = srcW / dstW
+			}
+			if dstH > 0 {
+				scaleSrcY = srcH / dstH
+			}
+			var colorR, colorG, colorB, colorA float32 = 1, 1, 1, float32(alpha)
+			if tint != nil {
+				colorR = float32(tint.R) / 255
+				colorG = float32(tint.G) / 255
+				colorB = float32(tint.B) / 255
+				colorA *= float32(tint.A) / 255
+			}
+			vertices := make([]ebiten.Vertex, len(points)/2)
+			for i := 0; i < len(points); i += 2 {
+				px := points[i]
+				py := points[i+1]
+				x, y := geo.Apply(px, py)
+				srcX := px * scaleSrcX
+				srcY := py * scaleSrcY
+				vertices[i/2] = ebiten.Vertex{
+					DstX:   float32(x),
+					DstY:   float32(y),
+					SrcX:   float32(srcX),
+					SrcY:   float32(srcY),
+					ColorR: colorR,
+					ColorG: colorG,
+					ColorB: colorB,
+					ColorA: colorA,
+				}
+			}
+			indices := make([]uint16, 0, (len(vertices)-2)*3)
+			for i := 1; i < len(vertices)-1; i++ {
+				indices = append(indices, 0, uint16(i), uint16(i+1))
+			}
+			options := &ebiten.DrawTrianglesOptions{}
+			target.DrawTriangles(vertices, indices, img, options)
+			return nil
+		}
+	}
+	renderImageWithGeo(target, img, geo, alpha, tint, sprite)
+	return nil
+}
+
+func renderGraph(target *ebiten.Image, graph *widgets.GGraph, parentGeo ebiten.GeoM, alpha float64, displaySprite *laya.Sprite) error {
 	if target == nil || graph == nil {
 		return nil
 	}
@@ -314,10 +490,10 @@ func renderGraph(target *ebiten.Image, graph *widgets.GGraph, parentGeo ebiten.G
 		offset := laya.Point{}
 		displayPos := laya.Point{}
 		localMatrix := laya.Matrix{}
-		if sprite := obj.DisplayObject(); sprite != nil {
-			displayPos = sprite.Position()
-			offset = sprite.PivotOffset()
-			localMatrix = sprite.LocalMatrix()
+		if s := obj.DisplayObject(); s != nil {
+			displayPos = s.Position()
+			offset = s.PivotOffset()
+			localMatrix = s.LocalMatrix()
 		}
 		log.Printf("[graph debug] name=%s xy=(%.2f,%.2f) display=(%.2f,%.2f) offset=(%.2f,%.2f) size=(%.2f,%.2f) pivot=(%.3f,%.3f) anchor=%t scale=(%.3f,%.3f) rotation=%.3f skew=(%.3f,%.3f) localMatrix=[%.3f %.3f %.3f %.3f %.3f %.3f]",
 			obj.Name(), x, y, displayPos.X, displayPos.Y, offset.X, offset.Y, obj.Width(), obj.Height(), px, py, obj.PivotAsAnchor(), scaleX, scaleY, obj.Rotation(), skewX, skewY,
@@ -400,6 +576,7 @@ func renderGraph(target *ebiten.Image, graph *widgets.GGraph, parentGeo ebiten.G
 		geo = applyLocalOffset(geo, -strokePad, -strokePad)
 	}
 	opts := &ebiten.DrawImageOptions{GeoM: geo}
+	applyColorEffects(opts, displaySprite)
 	target.DrawImage(tmp, opts)
 	return nil
 }
@@ -446,148 +623,6 @@ func drawGraphPath(dst *ebiten.Image, path *vector.Path, fillColor, lineColor *c
 	return drew
 }
 
-func buildRoundedRectPath(path *vector.Path, width, height float64, radii []float64, offsetX, offsetY float64) bool {
-	if path == nil || width <= 0 || height <= 0 {
-		return false
-	}
-	corners := normalizeCornerRadii(width, height, radii)
-	w := float32(width)
-	h := float32(height)
-	ox := float32(offsetX)
-	oy := float32(offsetY)
-	tl, tr, br, bl := corners[0], corners[1], corners[2], corners[3]
-
-	path.MoveTo(ox+tl, oy)
-	path.LineTo(ox+w-tr, oy)
-	if tr > 0 {
-		path.Arc(ox+w-tr, oy+tr, tr, -math.Pi/2, 0, vector.Clockwise)
-	} else {
-		path.LineTo(ox+w, oy)
-	}
-	path.LineTo(ox+w, oy+h-br)
-	if br > 0 {
-		path.Arc(ox+w-br, oy+h-br, br, 0, math.Pi/2, vector.Clockwise)
-	} else {
-		path.LineTo(ox+w, oy+h)
-	}
-	path.LineTo(ox+bl, oy+h)
-	if bl > 0 {
-		path.Arc(ox+bl, oy+h-bl, bl, math.Pi/2, math.Pi, vector.Clockwise)
-	} else {
-		path.LineTo(ox, oy+h)
-	}
-	path.LineTo(ox, oy+tl)
-	if tl > 0 {
-		path.Arc(ox+tl, oy+tl, tl, math.Pi, 3*math.Pi/2, vector.Clockwise)
-	} else {
-		path.LineTo(ox, oy)
-	}
-	path.Close()
-	return true
-}
-
-func normalizeCornerRadii(width, height float64, raw []float64) [4]float32 {
-	var vals [4]float32
-	tmp := [4]float64{}
-	for i := 0; i < 4; i++ {
-		if i < len(raw) {
-			tmp[i] = math.Max(0, raw[i])
-		} else {
-			tmp[i] = 0
-		}
-	}
-	tmp[0], tmp[1] = clampRadiusPair(width, tmp[0], tmp[1])
-	tmp[3], tmp[2] = clampRadiusPair(width, tmp[3], tmp[2])
-	tmp[0], tmp[3] = clampRadiusPair(height, tmp[0], tmp[3])
-	tmp[1], tmp[2] = clampRadiusPair(height, tmp[1], tmp[2])
-
-	for i := 0; i < 4; i++ {
-		vals[i] = float32(tmp[i])
-	}
-	return vals
-}
-
-func clampRadiusPair(limit, a, b float64) (float64, float64) {
-	if limit <= 0 {
-		return 0, 0
-	}
-	sum := a + b
-	if sum > limit && sum > 0 {
-		scale := limit / sum
-		a *= scale
-		b *= scale
-	}
-	return a, b
-}
-
-func buildEllipsePath(path *vector.Path, width, height float64, offsetX, offsetY float64) bool {
-	if path == nil || width <= 0 || height <= 0 {
-		return false
-	}
-	cx := float32(offsetX + width/2)
-	cy := float32(offsetY + height/2)
-	rx := float32(width / 2)
-	ry := float32(height / 2)
-	if rx <= 0 || ry <= 0 {
-		return false
-	}
-	const kappa = 0.5522847498307936
-	cxk := float32(kappa * width / 2)
-	cyk := float32(kappa * height / 2)
-
-	path.MoveTo(cx+rx, cy)
-	path.CubicTo(cx+rx, cy+cyk, cx+cxk, cy+ry, cx, cy+ry)
-	path.CubicTo(cx-cxk, cy+ry, cx-rx, cy+cyk, cx-rx, cy)
-	path.CubicTo(cx-rx, cy-cyk, cx-cxk, cy-ry, cx, cy-ry)
-	path.CubicTo(cx+cxk, cy-ry, cx+rx, cy-cyk, cx+rx, cy)
-	path.Close()
-	return true
-}
-
-func buildPolygonPath(path *vector.Path, points []float64, offsetX, offsetY float64) bool {
-	if path == nil || len(points) < 6 || len(points)%2 != 0 {
-		return false
-	}
-	ox := float32(offsetX)
-	oy := float32(offsetY)
-	path.MoveTo(float32(points[0])+ox, float32(points[1])+oy)
-	for i := 2; i < len(points); i += 2 {
-		path.LineTo(float32(points[i])+ox, float32(points[i+1])+oy)
-	}
-	path.Close()
-	return true
-}
-
-func buildRegularPolygonPath(path *vector.Path, width, height float64, sides int, startAngle float64, distances []float64, offsetX, offsetY float64) bool {
-	if path == nil || sides < 3 || width <= 0 || height <= 0 {
-		return false
-	}
-	radius := math.Min(width, height) / 2
-	if radius <= 0 {
-		return false
-	}
-	centerX := float32(offsetX + width/2)
-	centerY := float32(offsetY + height/2)
-	angle := startAngle * math.Pi / 180
-	step := 2 * math.Pi / float64(sides)
-	for i := 0; i < sides; i++ {
-		dist := 1.0
-		if i < len(distances) && !math.IsNaN(distances[i]) && distances[i] > 0 {
-			dist = distances[i]
-		}
-		x := centerX + float32(radius*dist*math.Cos(angle))
-		y := centerY + float32(radius*dist*math.Sin(angle))
-		if i == 0 {
-			path.MoveTo(x, y)
-		} else {
-			path.LineTo(x, y)
-		}
-		angle += step
-	}
-	path.Close()
-	return true
-}
-
 func localGeoMForObject(obj *core.GObject) ebiten.GeoM {
 	var geo ebiten.GeoM
 	geo.Reset()
@@ -606,44 +641,6 @@ func localGeoMForObject(obj *core.GObject) ebiten.GeoM {
 		geo.Translate(obj.X(), obj.Y())
 	}
 	return geo
-}
-
-func computeStrokePadding(lineColor *color.NRGBA, lineSize float64) float64 {
-	if lineColor == nil || lineColor.A == 0 || lineSize <= 0 {
-		return 0
-	}
-	return math.Ceil(lineSize/2 + 1)
-}
-
-func ensureGraphCanvasSize(width, height float64, pad float64) (int, int) {
-	w := int(math.Ceil(width + 2*pad))
-	h := int(math.Ceil(height + 2*pad))
-	if w <= 0 {
-		w = 1
-	}
-	if h <= 0 {
-		h = 1
-	}
-	return w, h
-}
-
-func applyLocalOffset(src ebiten.GeoM, dx, dy float64) ebiten.GeoM {
-	if dx == 0 && dy == 0 {
-		return src
-	}
-	a := src.Element(0, 0)
-	b := src.Element(0, 1)
-	c := src.Element(1, 0)
-	d := src.Element(1, 1)
-	tx := src.Element(0, 2)
-	ty := src.Element(1, 2)
-
-	tx = a*dx + b*dy + tx
-	ty = c*dx + d*dy + ty
-
-	src.SetElement(0, 2, tx)
-	src.SetElement(1, 2, ty)
-	return src
 }
 
 func selectFontFace(field *widgets.GTextField) font.Face {
@@ -668,6 +665,30 @@ func parseColor(value string) *color.NRGBA {
 		return nil
 	}
 	raw := strings.TrimSpace(value)
+	lowered := strings.ToLower(raw)
+	if strings.HasPrefix(lowered, "0x") {
+		hex := raw[2:]
+		switch len(hex) {
+		case 6:
+			if v, err := strconv.ParseUint(hex, 16, 32); err == nil {
+				return &color.NRGBA{
+					R: uint8(v >> 16),
+					G: uint8(v >> 8),
+					B: uint8(v),
+					A: 0xff,
+				}
+			}
+		case 8:
+			if v, err := strconv.ParseUint(hex, 16, 32); err == nil {
+				return &color.NRGBA{
+					A: uint8(v >> 24),
+					R: uint8(v >> 16),
+					G: uint8(v >> 8),
+					B: uint8(v),
+				}
+			}
+		}
+	}
 	if strings.HasPrefix(raw, "#") {
 		raw = strings.TrimPrefix(raw, "#")
 		switch len(raw) {
@@ -744,7 +765,7 @@ func fontFaceCacheLookup(size int) font.Face {
 	return face
 }
 
-func drawPackageItem(target *ebiten.Image, item *assets.PackageItem, geo ebiten.GeoM, atlas *AtlasManager, alpha float64) error {
+func drawPackageItem(target *ebiten.Image, item *assets.PackageItem, geo ebiten.GeoM, atlas *AtlasManager, alpha float64, sprite *laya.Sprite) error {
 	if item == nil {
 		return nil
 	}
@@ -757,18 +778,16 @@ func drawPackageItem(target *ebiten.Image, item *assets.PackageItem, geo ebiten.
 		return errors.New("render: atlas returned unexpected sprite type")
 	}
 
-	if sprite := item.Sprite; sprite != nil {
-		if sprite.Offset.X != 0 || sprite.Offset.Y != 0 {
-			geo.Translate(float64(sprite.Offset.X), float64(sprite.Offset.Y))
+	if spriteInfo := item.Sprite; spriteInfo != nil {
+		if spriteInfo.Offset.X != 0 || spriteInfo.Offset.Y != 0 {
+			geo.Translate(float64(spriteInfo.Offset.X), float64(spriteInfo.Offset.Y))
 		}
 	}
 
 	opts := &ebiten.DrawImageOptions{
 		GeoM: geo,
 	}
-	if alpha < 1 {
-		opts.ColorM.Scale(1, 1, 1, alpha)
-	}
+	applyTintColor(opts, nil, alpha, sprite)
 	target.DrawImage(img, opts)
 	return nil
 }
@@ -870,8 +889,4 @@ func legacyDrawLoaderPackageItem(target *ebiten.Image, loader *widgets.GLoader, 
 		target.DrawTriangles(vertices, indices, img, opts)
 		return nil
 	*/
-}
-
-func legacyDrawImageWithGeo(target *ebiten.Image, img *ebiten.Image, geo ebiten.GeoM, alpha float64) {
-	renderImageWithGeo(target, img, geo, alpha)
 }
