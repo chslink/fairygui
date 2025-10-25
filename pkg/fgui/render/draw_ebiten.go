@@ -39,6 +39,10 @@ var (
 	lastNineSliceLog             sync.Map
 	textureRectLog               sync.Map
 	fontCacheSize                        = 20 // 限制字体缓存大小，避免内存过度使用
+
+	// graphRenderCache 缓存 GGraph 渲染结果，避免每帧重建
+	graphRenderCache   = make(map[string]*ebiten.Image)
+	graphRenderCacheMu sync.RWMutex
 )
 
 // SetTextFont overrides the default font used when drawing text-based widgets.
@@ -157,6 +161,10 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			if err := drawTextImage(target, combined, data.GTextField, textValue, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
 				return err
 			}
+		}
+		// 绘制光标和选择区域
+		if err := drawTextInputCursor(target, combined, data, alpha); err != nil {
+			return err
 		}
 	case *widgets.GRichTextField:
 		// 富文本控件：继承自 GTextField，需要特殊处理
@@ -516,24 +524,6 @@ func renderGraph(target *ebiten.Image, graph *widgets.GGraph, parentGeo ebiten.G
 	if w <= 0 || h <= 0 {
 		return nil
 	}
-	//if obj := graph.GObject; obj != nil {
-	//x := obj.X()
-	//y := obj.Y()
-	//px, py := obj.Pivot()
-	//skewX, skewY := obj.Skew()
-	//scaleX, scaleY := obj.Scale()
-	//offset := laya.Point{}
-	//displayPos := laya.Point{}
-	//localMatrix := laya.Matrix{}
-	//if s := obj.DisplayObject(); s != nil {
-	//	displayPos = s.Position()
-	//	offset = s.PivotOffset()
-	//	localMatrix = s.LocalMatrix()
-	//}
-	//log.Printf("[graph debug] name=%s xy=(%.2f,%.2f) display=(%.2f,%.2f) offset=(%.2f,%.2f) size=(%.2f,%.2f) pivot=(%.3f,%.3f) anchor=%t scale=(%.3f,%.3f) rotation=%.3f skew=(%.3f,%.3f) localMatrix=[%.3f %.3f %.3f %.3f %.3f %.3f]",
-	//	obj.Name(), x, y, displayPos.X, displayPos.Y, offset.X, offset.Y, obj.Width(), obj.Height(), px, py, obj.PivotAsAnchor(), scaleX, scaleY, obj.Rotation(), skewX, skewY,
-	//	localMatrix.A, localMatrix.C, localMatrix.Tx, localMatrix.B, localMatrix.D, localMatrix.Ty)
-	//}
 	fillColor := parseColor(graph.FillColor())
 	lineColor := parseColor(graph.LineColor())
 	lineSize := graph.LineSize()
@@ -545,22 +535,66 @@ func renderGraph(target *ebiten.Image, graph *widgets.GGraph, parentGeo ebiten.G
 	if imgWidth <= 0 || imgHeight <= 0 {
 		return nil
 	}
-	tmp := ebiten.NewImage(imgWidth, imgHeight)
-	offsetX := strokePad
-	offsetY := strokePad
-	var drew bool
-	switch graph.Type() {
-	case widgets.GraphTypeEmpty:
-		// TypeScript 实现中为空图形不会绘制任何内容。
-		return nil
-	case widgets.GraphTypeRect:
-		if radii := graph.CornerRadius(); len(radii) > 0 {
+
+	// 生成缓存键：基于 graph 对象指针、尺寸、类型和颜色
+	graphType := graph.Type()
+	cacheKey := fmt.Sprintf("graph_%p_%dx%d_%d_%s_%s_%.1f",
+		graph, imgWidth, imgHeight, graphType, graph.FillColor(), graph.LineColor(), lineSize)
+
+	// 尝试从缓存获取
+	graphRenderCacheMu.RLock()
+	tmp, cached := graphRenderCache[cacheKey]
+	graphRenderCacheMu.RUnlock()
+
+	if !cached {
+		// 缓存未命中，创建新图像并渲染
+		tmp = ebiten.NewImage(imgWidth, imgHeight)
+		offsetX := strokePad
+		offsetY := strokePad
+		var drew bool
+		switch graphType {
+		case widgets.GraphTypeEmpty:
+			// TypeScript 实现中为空图形不会绘制任何内容。
+			return nil
+		case widgets.GraphTypeRect:
+			if radii := graph.CornerRadius(); len(radii) > 0 {
+				var path vector.Path
+				if buildRoundedRectPath(&path, w, h, radii, offsetX, offsetY) {
+					drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
+				}
+			}
+			if !drew {
+				if fillColor != nil {
+					tint := applyAlpha(fillColor, alpha)
+					vector.FillRect(tmp, float32(offsetX), float32(offsetY), float32(w), float32(h), tint, true)
+					drew = true
+				}
+				if lineColor != nil && lineSize > 0 {
+					tint := applyAlpha(lineColor, alpha)
+					vector.StrokeRect(tmp, float32(offsetX), float32(offsetY), float32(w), float32(h), float32(lineSize), tint, true)
+					drew = true
+				}
+			}
+		case widgets.GraphTypeEllipse:
 			var path vector.Path
-			if buildRoundedRectPath(&path, w, h, radii, offsetX, offsetY) {
+			if buildEllipsePath(&path, w, h, offsetX, offsetY) {
 				drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
 			}
-		}
-		if !drew {
+		case widgets.GraphTypePolygon:
+			points := graph.PolygonPoints()
+			if len(points) >= 6 {
+				var path vector.Path
+				if buildPolygonPath(&path, points, offsetX, offsetY) {
+					drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
+				}
+			}
+		case widgets.GraphTypeRegularPolygon:
+			var path vector.Path
+			sides, startAngle, distances := graph.RegularPolygon()
+			if buildRegularPolygonPath(&path, w, h, sides, startAngle, distances, offsetX, offsetY) {
+				drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
+			}
+		default:
 			if fillColor != nil {
 				tint := applyAlpha(fillColor, alpha)
 				vector.FillRect(tmp, float32(offsetX), float32(offsetY), float32(w), float32(h), tint, true)
@@ -572,40 +606,17 @@ func renderGraph(target *ebiten.Image, graph *widgets.GGraph, parentGeo ebiten.G
 				drew = true
 			}
 		}
-	case widgets.GraphTypeEllipse:
-		var path vector.Path
-		if buildEllipsePath(&path, w, h, offsetX, offsetY) {
-			drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
+		if !drew {
+			return nil
 		}
-	case widgets.GraphTypePolygon:
-		points := graph.PolygonPoints()
-		if len(points) >= 6 {
-			var path vector.Path
-			if buildPolygonPath(&path, points, offsetX, offsetY) {
-				drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
-			}
-		}
-	case widgets.GraphTypeRegularPolygon:
-		var path vector.Path
-		sides, startAngle, distances := graph.RegularPolygon()
-		if buildRegularPolygonPath(&path, w, h, sides, startAngle, distances, offsetX, offsetY) {
-			drew = drawGraphPath(tmp, &path, fillColor, lineColor, lineSize, alpha)
-		}
-	default:
-		if fillColor != nil {
-			tint := applyAlpha(fillColor, alpha)
-			vector.FillRect(tmp, float32(offsetX), float32(offsetY), float32(w), float32(h), tint, true)
-			drew = true
-		}
-		if lineColor != nil && lineSize > 0 {
-			tint := applyAlpha(lineColor, alpha)
-			vector.StrokeRect(tmp, float32(offsetX), float32(offsetY), float32(w), float32(h), float32(lineSize), tint, true)
-			drew = true
-		}
+
+		// 存入缓存
+		graphRenderCacheMu.Lock()
+		graphRenderCache[cacheKey] = tmp
+		graphRenderCacheMu.Unlock()
 	}
-	if !drew {
-		return nil
-	}
+
+	// 使用缓存的 tmp 进行绘制
 	geo := parentGeo
 	if strokePad > 0 {
 		geo = applyLocalOffset(geo, -strokePad, -strokePad)
@@ -1058,4 +1069,88 @@ func legacyDrawLoaderPackageItem(target *ebiten.Image, loader *widgets.GLoader, 
 		target.DrawTriangles(vertices, indices, img, opts)
 		return nil
 	*/
+}
+
+// drawTextInputCursor 绘制文本输入框的光标和选择区域。
+func drawTextInputCursor(target *ebiten.Image, geo ebiten.GeoM, input *widgets.GTextInput, alpha float64) error {
+	if input == nil {
+		return nil
+	}
+
+	// 只在获得焦点时绘制光标和选择
+	if !input.IsFocused() {
+		return nil
+	}
+
+	text := input.Text()
+	runes := []rune(text)
+	cursorPos := input.CursorPosition()
+	selStart, selEnd := input.GetSelection()
+	hasSelection := input.HasSelection()
+
+	// 计算文本度量信息
+	fontSize := float64(input.FontSize())
+	if fontSize <= 0 {
+		fontSize = 12
+	}
+	letterSpacing := float64(input.LetterSpacing())
+	avgCharWidth := fontSize * 0.6
+
+	// 计算光标或选择区域的 X 坐标
+	calculateX := func(pos int) float64 {
+		if pos < 0 {
+			pos = 0
+		}
+		if pos > len(runes) {
+			pos = len(runes)
+		}
+
+		x := 0.0
+		for i := 0; i < pos; i++ {
+			charWidth := avgCharWidth
+			if i < len(runes) && runes[i] == ' ' {
+				charWidth = fontSize * 0.3
+			}
+			x += charWidth
+			if i < pos-1 {
+				x += letterSpacing
+			}
+		}
+		return x
+	}
+
+	// 绘制选择区域(如果有) - 使用 vector 绘制,避免创建临时图像
+	if hasSelection && selStart != selEnd {
+		selectionStartX := calculateX(selStart)
+		selectionEndX := calculateX(selEnd)
+		selectionWidth := selectionEndX - selectionStartX
+		selectionHeight := fontSize * 1.2
+
+		// 选择区域颜色(半透明蓝色)
+		selectionColor := color.NRGBA{R: 51, G: 153, B: 255, A: uint8(100 * alpha)}
+
+		// 应用变换
+		x, y := geo.Apply(selectionStartX, 0)
+
+		// 使用 vector 直接绘制矩形,不创建临时图像
+		vector.DrawFilledRect(target, float32(x), float32(y), float32(selectionWidth), float32(selectionHeight), selectionColor, false)
+	}
+
+	// 绘制光标(如果可见) - 使用 vector 绘制,避免创建临时图像
+	if input.IsCursorVisible() {
+		cursorX := calculateX(cursorPos)
+		cursorWidth := 1.0
+		cursorHeight := fontSize * 1.2
+
+		// 光标颜色(黑色)
+		cursorColor := color.NRGBA{R: 0, G: 0, B: 0, A: uint8(255 * alpha)}
+
+		// 应用变换
+		x, y := geo.Apply(cursorX, 0)
+
+		// 使用 vector 直接绘制矩形,不创建临时图像
+		vector.DrawFilledRect(target, float32(x), float32(y), float32(cursorWidth), float32(cursorHeight), cursorColor, false)
+	}
+
+	return nil
 }

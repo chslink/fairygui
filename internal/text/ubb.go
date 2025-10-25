@@ -17,15 +17,17 @@ type Style struct {
 
 // Segment binds a text span with its resolved style.
 type Segment struct {
-	Text  string
-	Style Style
-	Link  string
+	Text     string
+	Style    Style
+	Link     string
+	ImageURL string // 图片 URL (用于 [img] 标签)
 }
 
 type stackEntry struct {
-	tag   string
-	style Style
-	link  string
+	tag      string
+	style    Style
+	link     string
+	imageURL string
 }
 
 // ParseUBB converts a UBB formatted string into a slice of styled segments.
@@ -46,9 +48,10 @@ func ParseUBB(input string, base Style) []Segment {
 		current := builder.String()
 		top := stack[len(stack)-1]
 		segments = append(segments, Segment{
-			Text:  current,
-			Style: top.style,
-			Link:  top.link,
+			Text:     current,
+			Style:    top.style,
+			Link:     top.link,
+			ImageURL: top.imageURL,
 		})
 		builder.Reset()
 	}
@@ -82,9 +85,10 @@ func ParseUBB(input string, base Style) []Segment {
 			flush()
 			top := stack[len(stack)-1]
 			segments = append(segments, Segment{
-				Text:  "\n",
-				Style: top.style,
-				Link:  top.link,
+				Text:     "\n",
+				Style:    top.style,
+				Link:     top.link,
+				ImageURL: top.imageURL,
 			})
 			continue
 		}
@@ -107,7 +111,24 @@ func ParseUBB(input string, base Style) []Segment {
 					continue
 				}
 			}
-			flush()
+
+			// 特殊处理 img 闭合标签
+			if name == "img" && builder.Len() > 0 {
+				// [img]url[/img] 格式,builder 中是图片 URL
+				imageURL := builder.String()
+				builder.Reset()
+
+				// 创建图片 segment
+				segments = append(segments, Segment{
+					Text:     "\uFFFD", // 使用 Unicode 替换字符作为图片占位符
+					Style:    stack[len(stack)-1].style,
+					Link:     stack[len(stack)-1].link,
+					ImageURL: imageURL,
+				})
+			} else {
+				flush()
+			}
+
 			// Pop until matching tag found.
 			for len(stack) > 1 {
 				entry := stack[len(stack)-1]
@@ -173,6 +194,24 @@ func ParseUBB(input string, base Style) []Segment {
 				style.Underline = true
 			}
 			stack = append(stack, stackEntry{tag: name, style: style, link: attr})
+		case "img":
+			// [img]url[/img] 标签用于在文本中内嵌图片
+			// 图片内容在闭合标签前的文本中
+			if attr == "" {
+				// 没有属性,需要等待闭合标签来获取图片 URL
+				flush()
+				stack = append(stack, stackEntry{tag: name, style: stack[len(stack)-1].style, link: stack[len(stack)-1].link})
+			} else {
+				// 有属性直接使用: [img=url] 或 [img src=url]
+				flush()
+				// 创建特殊的图片 segment,使用特殊标记
+				segments = append(segments, Segment{
+					Text:     "\uFFFD", // 使用 Unicode 替换字符作为图片占位符
+					Style:    stack[len(stack)-1].style,
+					Link:     stack[len(stack)-1].link,
+					ImageURL: attr,
+				})
+			}
 		default:
 			// Unsupported tag: emit literally.
 			writeLiteral("[" + token + "]")

@@ -2,6 +2,7 @@ package assets
 
 import (
 	"fmt"
+	"log"
 	"math"
 )
 
@@ -26,6 +27,11 @@ type BitmapGlyph struct {
 	Width   float64
 	Height  float64
 	Advance float64
+	// Atlas 纹理模式字段 (用于 BMFont .fnt 格式)
+	AtlasX      int32 // 在 atlas 纹理中的 x 坐标 (相对于 font sprite rect)
+	AtlasY      int32 // 在 atlas 纹理中的 y 坐标 (相对于 font sprite rect)
+	SpriteRectX int   // font item 的 sprite rect 偏移 X
+	SpriteRectY int   // font item 的 sprite rect 偏移 Y
 }
 
 // SpaceAdvance returns the advance used when rendering spaces.
@@ -80,6 +86,8 @@ func parseBitmapFont(item *PackageItem) (*BitmapFont, error) {
 	font.AutoScale = buf.ReadBool()
 	_ = buf.ReadBool() // has channel
 
+	log.Printf("📖 解析位图字体 %s: TTF=%v, Tint=%v, AutoScale=%v", item.Name, font.TTF, font.Tint, font.AutoScale)
+
 	fontSizeRaw := int32(buf.ReadInt32())
 	headerAdvanceRaw := int32(buf.ReadInt32())
 	lineHeightRaw := int32(buf.ReadInt32())
@@ -99,17 +107,13 @@ func parseBitmapFont(item *PackageItem) (*BitmapFont, error) {
 	count := int(buf.ReadInt32())
 	maxGlyphHeight := 0.0
 
-	if font.TTF {
-		return nil, fmt.Errorf("assets: TTF fonts not supported yet (%s)", item.Name)
-	}
-
 	for i := 0; i < count; i++ {
 		nextPos := int(buf.ReadInt16()) + buf.Pos()
 
 		r := rune(buf.ReadUint16())
 		imgID := stringValue(buf.ReadS())
-		_ = buf.ReadInt32() // bx
-		_ = buf.ReadInt32() // by
+		bx := buf.ReadInt32()
+		by := buf.ReadInt32()
 		offsetX := fixedToFloat(buf.ReadInt32())
 		offsetY := fixedToFloat(buf.ReadInt32())
 		width := int(buf.ReadInt32())
@@ -117,19 +121,95 @@ func parseBitmapFont(item *PackageItem) (*BitmapFont, error) {
 		advance := int(buf.ReadInt32())
 		_ = buf.ReadByte() // channel
 
-		if !font.TTF {
-			if imgID == "" {
-				buf.SetPos(nextPos)
-				continue
-			}
-			glyphItem := item.Owner.ItemByID(imgID)
-			if glyphItem == nil {
+		log.Printf("  字符 U+%04X: imgID=%q, bx=%d, by=%d, offset=(%.1f,%.1f), size=(%d,%d), advance=%d",
+			r, imgID, bx, by, offsetX, offsetY, width, height, advance)
+
+		// 参考 LayaAir UIPackage.ts:783-804 的逻辑
+		// 根据是否使用 atlas 纹理决定如何处理字形
+		useAtlas := font.TTF || (imgID == "" && (bx != 0 || by != 0))
+
+		var glyphItem *PackageItem
+		var glyphWidth, glyphHeight float64
+
+		if useAtlas {
+			// Atlas 模式：使用 atlas 纹理和 bx, by 坐标
+			// 参考 LayaAir UIPackage.ts:756-759, 783-786
+			// mainSprite = this._sprites[item.id]
+			// mainTexture = this.getItemAsset(mainSprite.atlas)
+			// bg.texture = Laya.Texture.create(mainTexture,
+			//     bx + mainSprite.rect.x, by + mainSprite.rect.y, bg.width, bg.height)
+
+			if item.Sprite == nil || item.Sprite.Atlas == nil {
+				log.Printf("⚠️ 位图字体 %s: 字符 U+%04X 缺少 sprite 或 atlas 引用", item.Name, r)
 				buf.SetPos(nextPos)
 				continue
 			}
 
-			glyphWidth := float64(width)
-			glyphHeight := float64(height)
+			// 字形图片就是 font item 的 Sprite.Atlas (即 texture 属性指向的图片)
+			glyphItem = item.Sprite.Atlas
+
+			glyphWidth = float64(width)
+			glyphHeight = float64(height)
+			if glyphWidth <= 0 || glyphHeight <= 0 {
+				log.Printf("⚠️ 位图字体 %s: 字符 U+%04X 的尺寸无效 (%d x %d)", item.Name, r, width, height)
+				buf.SetPos(nextPos)
+				continue
+			}
+
+			// 创建字形,记录 atlas 坐标和 sprite rect 偏移
+			adv := float64(advance)
+			if adv == 0 {
+				if headerAdvance > 0 {
+					adv = headerAdvance
+				} else {
+					adv = glyphWidth + offsetX
+				}
+			}
+			if adv == 0 {
+				adv = glyphWidth
+			}
+
+			// 存储 sprite rect 偏移 (用于渲染时计算正确的 atlas 坐标)
+			spriteRectX := 0
+			spriteRectY := 0
+			if item.Sprite != nil {
+				spriteRectX = item.Sprite.Rect.X
+				spriteRectY = item.Sprite.Rect.Y
+			}
+
+			font.Glyphs[r] = &BitmapGlyph{
+				Item:        glyphItem,
+				OffsetX:     offsetX,
+				OffsetY:     offsetY,
+				Width:       glyphWidth,
+				Height:      glyphHeight,
+				Advance:     adv,
+				AtlasX:      bx,
+				AtlasY:      by,
+				SpriteRectX: spriteRectX,
+				SpriteRectY: spriteRectY,
+			}
+
+			if glyphHeight > maxGlyphHeight {
+				maxGlyphHeight = glyphHeight
+			}
+		} else {
+			// 独立图片模式：每个字形有独立的 PackageItem
+			if imgID == "" {
+				log.Printf("⚠️ 位图字体 %s: 字符 U+%04X 缺少图片ID且无 atlas 坐标", item.Name, r)
+				buf.SetPos(nextPos)
+				continue
+			}
+
+			glyphItem = item.Owner.ItemByID(imgID)
+			if glyphItem == nil {
+				log.Printf("⚠️ 位图字体 %s: 字符 U+%04X 的图片 %s 未找到", item.Name, r, imgID)
+				buf.SetPos(nextPos)
+				continue
+			}
+
+			glyphWidth = float64(width)
+			glyphHeight = float64(height)
 			if glyphWidth == 0 {
 				glyphWidth = float64(glyphItem.Width)
 			}
@@ -159,6 +239,7 @@ func parseBitmapFont(item *PackageItem) (*BitmapFont, error) {
 				Width:   glyphWidth,
 				Height:  glyphHeight,
 				Advance: adv,
+				// 独立图片模式不需要 AtlasX, AtlasY
 			}
 		}
 

@@ -52,6 +52,7 @@ type game struct {
 	width      int
 	height     int
 	lastUpdate time.Time
+	keysDown   map[ebiten.Key]bool // 跟踪按键状态,避免重复触发
 }
 
 func newGame(ctx context.Context) (*game, error) {
@@ -81,11 +82,12 @@ func newGame(ctx context.Context) (*game, error) {
 	root.AddChild(stageRoot.GObject)
 
 	return &game{
-		root:    root,
-		manager: manager,
-		atlas:   atlas,
-		width:   manager.Width(),
-		height:  manager.Height(),
+		root:     root,
+		manager:  manager,
+		atlas:    atlas,
+		width:    manager.Width(),
+		height:   manager.Height(),
+		keysDown: make(map[ebiten.Key]bool),
 	}, nil
 }
 
@@ -99,8 +101,13 @@ func (g *game) Update() error {
 	g.lastUpdate = now
 
 	g.syncStageSize()
-	mouse := g.mouseState()
-	g.root.Advance(delta, mouse)
+
+	// 收集完整的输入状态(鼠标 + 键盘)
+	input := laya.InputState{
+		Mouse: g.mouseState(),
+		Keys:  g.keyboardEvents(),
+	}
+	g.root.AdvanceInput(delta, input)
 	return nil
 }
 
@@ -172,6 +179,78 @@ func (g *game) mouseState() fgui.MouseState {
 		}
 	}
 	return state
+}
+
+// keyboardEvents 收集当前帧的键盘事件
+func (g *game) keyboardEvents() []laya.KeyboardEvent {
+	var events []laya.KeyboardEvent
+
+	// 获取修饰键状态
+	modifiers := laya.KeyModifiers{
+		Shift: ebiten.IsKeyPressed(ebiten.KeyShiftLeft) || ebiten.IsKeyPressed(ebiten.KeyShiftRight),
+		Ctrl:  ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight),
+		Alt:   ebiten.IsKeyPressed(ebiten.KeyAltLeft) || ebiten.IsKeyPressed(ebiten.KeyAltRight),
+		Meta:  ebiten.IsKeyPressed(ebiten.KeyMetaLeft) || ebiten.IsKeyPressed(ebiten.KeyMetaRight),
+	}
+
+	// 收集字符输入
+	runes := ebiten.AppendInputChars(nil)
+	for _, r := range runes {
+		events = append(events, laya.KeyboardEvent{
+			Rune:      r,
+			Down:      true,
+			Modifiers: modifiers,
+		})
+	}
+
+	// 检查特殊按键(只在刚按下时触发)
+	specialKeys := map[ebiten.Key]laya.KeyCode{
+		ebiten.KeyBackspace: laya.KeyCodeBackspace,
+		ebiten.KeyTab:       laya.KeyCodeTab,
+		ebiten.KeyEnter:     laya.KeyCodeEnter,
+		ebiten.KeyEscape:    laya.KeyCodeEscape,
+		ebiten.KeySpace:     laya.KeyCodeSpace,
+		ebiten.KeyLeft:      laya.KeyCodeLeft,
+		ebiten.KeyUp:        laya.KeyCodeUp,
+		ebiten.KeyRight:     laya.KeyCodeRight,
+		ebiten.KeyDown:      laya.KeyCodeDown,
+		ebiten.KeyDelete:    laya.KeyCodeDelete,
+		ebiten.KeyHome:      laya.KeyCodeHome,
+		ebiten.KeyEnd:       laya.KeyCodeEnd,
+		ebiten.KeyA:         laya.KeyCodeA,
+		ebiten.KeyC:         laya.KeyCodeC,
+		ebiten.KeyV:         laya.KeyCodeV,
+		ebiten.KeyX:         laya.KeyCodeX,
+		ebiten.KeyZ:         laya.KeyCodeZ,
+	}
+
+	// 遍历所有按键,检测状态变化
+	for ebitenKey, layaCode := range specialKeys {
+		isPressed := ebiten.IsKeyPressed(ebitenKey)
+		wasPressed := g.keysDown[ebitenKey]
+
+		// 按键刚按下(按下事件)
+		if isPressed && !wasPressed {
+			events = append(events, laya.KeyboardEvent{
+				Code:      layaCode,
+				Down:      true,
+				Modifiers: modifiers,
+			})
+			g.keysDown[ebitenKey] = true
+		}
+
+		// 按键刚松开(抬起事件)
+		if !isPressed && wasPressed {
+			events = append(events, laya.KeyboardEvent{
+				Code:      layaCode,
+				Down:      false,
+				Modifiers: modifiers,
+			})
+			g.keysDown[ebitenKey] = false
+		}
+	}
+
+	return events
 }
 
 func frameDelta(previous time.Time, now time.Time) time.Duration {

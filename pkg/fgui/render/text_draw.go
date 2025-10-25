@@ -1,10 +1,13 @@
 package render
 
 import (
+	"fmt"
 	"image"
 	"image/color"
+	"log"
 	"math"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
@@ -21,23 +24,31 @@ import (
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
+// textImageCache 缓存渲染后的文本图像，避免每帧重建
+var (
+	textImageCache   = make(map[string]*ebiten.Image)
+	textImageCacheMu sync.RWMutex
+)
+
 type renderedTextRun struct {
-	text     string
-	runes    []rune
-	style    textutil.Style
-	color    color.NRGBA
-	link     string
-	advances []float64
-	width    float64
-	ascent   float64
-	descent  float64
-	face     font.Face
-	bitmap   *assets.BitmapFont
-	fontSize int
+	text      string
+	runes     []rune
+	style     textutil.Style
+	color     color.NRGBA
+	link      string
+	imageURL  string                // 图片 URL (用于 [img] 标签)
+	imageItem *assets.PackageItem   // 解析后的图片资源
+	advances  []float64
+	width     float64
+	ascent    float64
+	descent   float64
+	face      font.Face
+	bitmap    *assets.BitmapFont
+	fontSize  int
 }
 
 func (r *renderedTextRun) hasGlyphs() bool {
-	return len(r.runes) > 0 && (r.bitmap != nil || r.face != nil)
+	return (len(r.runes) > 0 && (r.bitmap != nil || r.face != nil)) || r.imageItem != nil
 }
 
 type renderedTextLine struct {
@@ -254,111 +265,149 @@ func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextFi
 	if field != nil {
 		field.UpdateLayoutMetrics(finalWidth, finalHeight, contentWidth, contentHeight)
 	}
-	textImg := ebiten.NewImage(imgW, imgH)
 
-	var strokeColor *color.NRGBA
-	strokeSize := 0.0
+	// 生成缓存键：基于文本内容、样式和尺寸
+	var strokeColorStr, shadowColorStr string
+	var strokeSizeVal, shadowOffXVal, shadowOffYVal float64
 	if field != nil {
-		if c := parseColor(field.StrokeColor()); c != nil {
-			cc := *c
-			strokeColor = &cc
+		strokeColorStr = field.StrokeColor()
+		strokeSizeVal = field.StrokeSize()
+		shadowColorStr = field.ShadowColor()
+		shadowOffXVal, shadowOffYVal = field.ShadowOffset()
+	}
+	cacheKey := fmt.Sprintf("text_%s_%s_%s_%.0fx%.0f_%.1f_%.1f_%d_%d_%.1f_%s_%.1f_%s_%.1f_%.1f",
+		value, baseStyle.Font, baseStyle.Color,
+		finalWidth, finalHeight, letterSpacing, leading,
+		align, valign,
+		strokeSizeVal, strokeColorStr,
+		shadowOffXVal+shadowOffYVal, shadowColorStr,
+		paddingLeft+paddingRight, paddingTop+paddingBottom)
+
+	// 尝试从缓存获取
+	textImageCacheMu.RLock()
+	textImg, cached := textImageCache[cacheKey]
+	textImageCacheMu.RUnlock()
+
+	if !cached {
+		// 缓存未命中，创建新图像
+		textImg = ebiten.NewImage(imgW, imgH)
+
+		var strokeColor *color.NRGBA
+		strokeSize := 0.0
+		if field != nil {
+			if c := parseColor(field.StrokeColor()); c != nil {
+				cc := *c
+				strokeColor = &cc
+			}
+			strokeSize = field.StrokeSize()
 		}
-		strokeSize = field.StrokeSize()
-	}
 
-	var shadowColor *color.NRGBA
-	shadowOffsetX := 0.0
-	shadowOffsetY := 0.0
-	if field != nil {
-		if c := parseColor(field.ShadowColor()); c != nil {
-			cc := *c
-			shadowColor = &cc
-			shadowOffsetX, shadowOffsetY = field.ShadowOffset()
+		var shadowColor *color.NRGBA
+		shadowOffsetX := 0.0
+		shadowOffsetY := 0.0
+		if field != nil {
+			if c := parseColor(field.ShadowColor()); c != nil {
+				cc := *c
+				shadowColor = &cc
+				shadowOffsetX, shadowOffsetY = field.ShadowOffset()
+			}
 		}
-	}
 
-	availableWidth := finalWidth - paddingLeft - paddingRight
-	if availableWidth < 0 {
-		availableWidth = 0
-	}
-	availableHeight := finalHeight - paddingTop - paddingBottom
-	if availableHeight < 0 {
-		availableHeight = 0
-	}
+		availableWidth := finalWidth - paddingLeft - paddingRight
+		if availableWidth < 0 {
+			availableWidth = 0
+		}
+		availableHeight := finalHeight - paddingTop - paddingBottom
+		if availableHeight < 0 {
+			availableHeight = 0
+		}
 
-	contentOffsetY := 0.0
-	switch valign {
-	case widgets.TextVerticalAlignMiddle:
-		contentOffsetY = (availableHeight - contentHeight) * 0.5
-	case widgets.TextVerticalAlignBottom:
-		contentOffsetY = availableHeight - contentHeight
-	default:
-		contentOffsetY = 0
-	}
-	if contentOffsetY < 0 {
-		contentOffsetY = 0
-	}
-	cursorY := paddingTop + contentOffsetY
-
-	for lineIndex, line := range renderedLines {
-		lineStartX := paddingLeft
-		switch align {
-		case widgets.TextAlignCenter:
-			lineStartX = paddingLeft + (availableWidth-line.width)*0.5
-		case widgets.TextAlignRight:
-			lineStartX = paddingLeft + (availableWidth - line.width)
+		contentOffsetY := 0.0
+		switch valign {
+		case widgets.TextVerticalAlignMiddle:
+			contentOffsetY = (availableHeight - contentHeight) * 0.5
+		case widgets.TextVerticalAlignBottom:
+			contentOffsetY = availableHeight - contentHeight
 		default:
-			lineStartX = paddingLeft
+			contentOffsetY = 0
 		}
-		if lineStartX < 0 {
-			lineStartX = 0
+		if contentOffsetY < 0 {
+			contentOffsetY = 0
 		}
+		cursorY := paddingTop + contentOffsetY
 
-		lineTop := cursorY
-		lineBaseline := lineTop + line.ascent
-		cursorX := lineStartX
-		prevHadGlyph := false
-
-		for _, run := range line.runs {
-			if run == nil {
-				continue
+		for lineIndex, line := range renderedLines {
+			lineStartX := paddingLeft
+			switch align {
+			case widgets.TextAlignCenter:
+				lineStartX = paddingLeft + (availableWidth-line.width)*0.5
+			case widgets.TextAlignRight:
+				lineStartX = paddingLeft + (availableWidth - line.width)
+			default:
+				lineStartX = paddingLeft
 			}
-			runStartX := cursorX
-			if run.hasGlyphs() {
-				if prevHadGlyph && letterSpacing != 0 {
-					cursorX += letterSpacing
-					runStartX = cursorX
+			if lineStartX < 0 {
+				lineStartX = 0
+			}
+
+			lineTop := cursorY
+			lineBaseline := lineTop + line.ascent
+			cursorX := lineStartX
+			prevHadGlyph := false
+
+			for _, run := range line.runs {
+				if run == nil {
+					continue
 				}
-				if run.bitmap != nil {
-					if err := drawBitmapRun(textImg, run, cursorX, lineTop, letterSpacing, atlas); err != nil {
-						return err
+				runStartX := cursorX
+				if run.hasGlyphs() {
+					if prevHadGlyph && letterSpacing != 0 {
+						cursorX += letterSpacing
+						runStartX = cursorX
 					}
-				} else if run.face != nil {
-					renderSystemRun(textImg, run, cursorX, lineBaseline, letterSpacing, strokeColor, strokeSize, shadowColor, shadowOffsetX, shadowOffsetY)
+					if run.imageItem != nil {
+						// 绘制图片
+						local := ebiten.GeoM{}
+						local.Translate(cursorX, lineTop)
+						if err := drawPackageItem(textImg, run.imageItem, local, atlas, 1, nil); err != nil {
+							log.Printf("⚠️ 绘制图片失败 %s: %v", run.imageURL, err)
+						}
+					} else if run.bitmap != nil {
+						if err := drawBitmapRun(textImg, run, cursorX, lineTop, letterSpacing, atlas); err != nil {
+							return err
+						}
+					} else if run.face != nil {
+						renderSystemRun(textImg, run, cursorX, lineBaseline, letterSpacing, strokeColor, strokeSize, shadowColor, shadowOffsetX, shadowOffsetY)
+					}
+					cursorX += run.width
+					prevHadGlyph = true
 				}
-				cursorX += run.width
-				prevHadGlyph = true
+				if run.style.Underline && run.width > 0 {
+					drawUnderline(textImg, cursorX-run.width, lineBaseline, run.width, run.fontSize, run.color)
+				}
+				if run.link != "" && run.width > 0 {
+					linkRegions = append(linkRegions, widgets.TextLinkRegion{
+						Target: run.link,
+						Bounds: laya.Rect{
+							X: runStartX,
+							Y: lineTop,
+							W: run.width,
+							H: line.height,
+						},
+					})
+				}
 			}
-			if run.style.Underline && run.width > 0 {
-				drawUnderline(textImg, cursorX-run.width, lineBaseline, run.width, run.fontSize, run.color)
-			}
-			if run.link != "" && run.width > 0 {
-				linkRegions = append(linkRegions, widgets.TextLinkRegion{
-					Target: run.link,
-					Bounds: laya.Rect{
-						X: runStartX,
-						Y: lineTop,
-						W: run.width,
-						H: line.height,
-					},
-				})
+
+			cursorY += line.height
+			if lineIndex != len(renderedLines)-1 {
+				cursorY += leading
 			}
 		}
 
-		cursorY += line.height
-		if lineIndex != len(renderedLines)-1 {
-			cursorY += leading
-		}
+		// 存入缓存
+		textImageCacheMu.Lock()
+		textImageCache[cacheKey] = textImg
+		textImageCacheMu.Unlock()
 	}
 
 	opts := &ebiten.DrawImageOptions{GeoM: geo}
@@ -510,12 +559,32 @@ func buildRenderedLine(segments []textutil.Segment, field *widgets.GTextField, b
 
 func buildRenderedRun(seg textutil.Segment, field *widgets.GTextField, baseColor color.NRGBA, base baseMetrics, letterSpacing float64) *renderedTextRun {
 	run := &renderedTextRun{
-		text:  seg.Text,
-		runes: []rune(seg.Text),
-		style: seg.Style,
-		color: baseColor,
-		link:  seg.Link,
+		text:     seg.Text,
+		runes:    []rune(seg.Text),
+		style:    seg.Style,
+		color:    baseColor,
+		link:     seg.Link,
+		imageURL: seg.ImageURL,
 	}
+
+	// 处理图片标签
+	if seg.ImageURL != "" {
+		// 解析图片 URL 获取 PackageItem
+		// URL 格式: ui://package_id/item_id 或 ui://package_name/item_name
+		item := assets.GetItemByURL(seg.ImageURL)
+		if item != nil {
+			run.imageItem = item
+			// 使用图片的尺寸
+			run.width = float64(item.Width)
+			run.ascent = float64(item.Height) * 0.8  // 图片的基线位置
+			run.descent = float64(item.Height) * 0.2
+			run.fontSize = item.Height
+			return run
+		}
+		// 如果图片未找到,仍然返回占位符文本
+		log.Printf("⚠️ 图片未找到: %s", seg.ImageURL)
+	}
+
 	if seg.Style.Color != "" {
 		if c := parseColor(seg.Style.Color); c != nil {
 			run.color = *c
@@ -535,28 +604,30 @@ func buildRenderedRun(seg textutil.Segment, field *widgets.GTextField, baseColor
 	if fontRef == "" && field != nil {
 		fontRef = field.Font()
 	}
-	if font := lookupBitmapFont(fontRef); font != nil {
-		run.bitmap = font
-		run.advances = make([]float64, len(run.runes))
-		width := 0.0
-		for idx, r := range run.runes {
-			advance := font.SpaceAdvance()
-			if glyph := font.Glyphs[r]; glyph != nil {
-				advance = glyph.Advance
+	if fontRef != "" {
+		if font := lookupBitmapFont(fontRef); font != nil {
+			run.bitmap = font
+			run.advances = make([]float64, len(run.runes))
+			width := 0.0
+			for idx, r := range run.runes {
+				advance := font.SpaceAdvance()
+				if glyph := font.Glyphs[r]; glyph != nil {
+					advance = glyph.Advance
+				}
+				run.advances[idx] = advance
+				width += advance
+				if idx != len(run.runes)-1 {
+					width += letterSpacing
+				}
 			}
-			run.advances[idx] = advance
-			width += advance
-			if idx != len(run.runes)-1 {
-				width += letterSpacing
+			run.width = width
+			run.ascent = font.LineHeight
+			if run.ascent <= 0 {
+				run.ascent = float64(run.fontSize)
 			}
+			run.descent = 0
+			return run
 		}
-		run.width = width
-		run.ascent = font.LineHeight
-		if run.ascent <= 0 {
-			run.ascent = float64(run.fontSize)
-		}
-		run.descent = 0
-		return run
 	}
 
 	face := fontFaceForSize(size)
@@ -664,7 +735,7 @@ func buildTextParts(segments []textutil.Segment, field *widgets.GTextField, base
 		}
 		for idx, chunk := range chunks {
 			if chunk != "" {
-				run := buildRenderedRun(textutil.Segment{Text: chunk, Style: seg.Style, Link: seg.Link}, field, baseColor, base, letterSpacing)
+				run := buildRenderedRun(textutil.Segment{Text: chunk, Style: seg.Style, Link: seg.Link, ImageURL: seg.ImageURL}, field, baseColor, base, letterSpacing)
 				if run != nil && len(run.runes) > 0 {
 					parts = append(parts, textPart{run: run})
 				}
@@ -700,6 +771,16 @@ func wrapRenderedRuns(parts []textPart, wrapWidth float64, letterSpacing float64
 		if run == nil || len(run.runes) == 0 {
 			continue
 		}
+
+		// 图片 run 作为整体处理,不切分
+		if run.imageItem != nil {
+			if allowWrap && wrapWidth > 0 && currentWidth+run.width > wrapWidth && len(current) > 0 {
+				flush()
+			}
+			current, currentWidth = appendRun(current, currentWidth, run, letterSpacing)
+			continue
+		}
+
 		if !allowWrap || wrapWidth <= 0 {
 			current, currentWidth = appendRun(current, currentWidth, run, letterSpacing)
 			continue
@@ -744,10 +825,14 @@ func wrapRenderedRuns(parts []textPart, wrapWidth float64, letterSpacing float64
 }
 
 func appendRun(line []*renderedTextRun, currentWidth float64, run *renderedTextRun, letterSpacing float64) ([]*renderedTextRun, float64) {
-	if run == nil || len(run.runes) == 0 {
+	if run == nil {
 		return line, currentWidth
 	}
-	if len(line) > 0 && letterSpacing != 0 {
+	// 图片 run 可以没有 runes,但必须有 imageItem
+	if len(run.runes) == 0 && run.imageItem == nil {
+		return line, currentWidth
+	}
+	if len(line) > 0 && letterSpacing != 0 && run.hasGlyphs() {
 		currentWidth += letterSpacing
 	}
 	line = append(line, run)
@@ -817,6 +902,9 @@ func drawBitmapRun(dst *ebiten.Image, run *renderedTextRun, startX float64, line
 	}
 	font := run.bitmap
 	cursor := startX
+	renderedCount := 0
+	missingGlyphs := []rune{}
+
 	for idx, r := range run.runes {
 		glyph := font.Glyphs[r]
 		advance := font.SpaceAdvance()
@@ -828,9 +916,50 @@ func drawBitmapRun(dst *ebiten.Image, run *renderedTextRun, startX float64, line
 		if glyph != nil && glyph.Item != nil {
 			local := ebiten.GeoM{}
 			local.Translate(cursor+glyph.OffsetX, lineTop+glyph.OffsetY)
-			if err := drawPackageItem(dst, glyph.Item, local, atlas, 1, nil); err != nil {
-				return err
+
+			// 检查是否使用 atlas 纹理模式 (BMFont .fnt 格式)
+			if glyph.AtlasX != 0 || glyph.AtlasY != 0 {
+				// Atlas 模式：从 atlas 纹理中提取子区域
+				atlasImage, err := atlas.GetAtlasImage(glyph.Item)
+				if err != nil {
+					log.Printf("⚠️ 无法加载 atlas 纹理 %s: %v", glyph.Item.ID, err)
+					missingGlyphs = append(missingGlyphs, r)
+				} else if atlasImage != nil {
+					// 创建子图像 (从 atlas 中截取字形区域)
+					bounds := atlasImage.Bounds()
+
+					// 参考 LayaAir UIPackage.ts:783-786
+					// bg.texture = Laya.Texture.create(mainTexture,
+					//     bx + mainSprite.rect.x, by + mainSprite.rect.y, bg.width, bg.height);
+					// bx, by 是相对于 font sprite rect 的坐标，需要加上 rect 偏移
+					x0 := int(glyph.AtlasX) + glyph.SpriteRectX
+					y0 := int(glyph.AtlasY) + glyph.SpriteRectY
+					x1 := x0 + int(glyph.Width)
+					y1 := y0 + int(glyph.Height)
+
+					// 边界检查
+					if x0 >= 0 && y0 >= 0 && x1 <= bounds.Dx() && y1 <= bounds.Dy() {
+						subImg := atlasImage.SubImage(image.Rect(x0, y0, x1, y1)).(*ebiten.Image)
+						opts := &ebiten.DrawImageOptions{GeoM: local}
+						// 应用文本颜色
+						opts.ColorScale.ScaleWithColor(run.color)
+						dst.DrawImage(subImg, opts)
+						renderedCount++
+					} else {
+						log.Printf("⚠️ 字形 U+%04X 的 atlas 坐标越界: (%d,%d)-(%d,%d), atlas 尺寸: %dx%d",
+							r, x0, y0, x1, y1, bounds.Dx(), bounds.Dy())
+						missingGlyphs = append(missingGlyphs, r)
+					}
+				}
+			} else {
+				// 独立图片模式：直接绘制 PackageItem
+				if err := drawPackageItem(dst, glyph.Item, local, atlas, 1, nil); err != nil {
+					return err
+				}
+				renderedCount++
 			}
+		} else {
+			missingGlyphs = append(missingGlyphs, r)
 		}
 		if idx != len(run.runes)-1 {
 			cursor += advance + letterSpacing
@@ -838,6 +967,11 @@ func drawBitmapRun(dst *ebiten.Image, run *renderedTextRun, startX float64, line
 			cursor += advance
 		}
 	}
+
+	if len(missingGlyphs) > 0 {
+		log.Printf("⚠️ 位图字体缺失字形: %v (已渲染: %d/%d)", missingGlyphs, renderedCount, len(run.runes))
+	}
+
 	return nil
 }
 

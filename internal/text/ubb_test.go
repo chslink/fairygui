@@ -69,6 +69,29 @@ func TestParseUBB(t *testing.T) {
 				{Text: "text", Style: Style{Color: "#ffffff", Bold: true, Italic: false, Underline: false, Font: "", FontSize: 16}},
 			},
 		},
+		{
+			name:  "img_tag_with_content",
+			input: "[img]ui://9leh0eyfrpmb6[/img]",
+			expected: []Segment{
+				{Text: "\uFFFD", Style: base, ImageURL: "ui://9leh0eyfrpmb6"},
+			},
+		},
+		{
+			name:  "img_tag_with_attr",
+			input: "[img=ui://test/image]",
+			expected: []Segment{
+				{Text: "\uFFFD", Style: base, ImageURL: "ui://test/image"},
+			},
+		},
+		{
+			name:  "text_with_img",
+			input: "Hello [img]ui://test/icon[/img] World",
+			expected: []Segment{
+				{Text: "Hello ", Style: base},
+				{Text: "\uFFFD", Style: base, ImageURL: "ui://test/icon"},
+				{Text: " World", Style: base},
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -101,6 +124,9 @@ func TestParseUBB(t *testing.T) {
 				}
 				if got[i].Link != tc.expected[i].Link {
 					t.Fatalf("segment %d link mismatch: got %q expected %q", i, got[i].Link, tc.expected[i].Link)
+				}
+				if got[i].ImageURL != tc.expected[i].ImageURL {
+					t.Fatalf("segment %d imageURL mismatch: got %q expected %q", i, got[i].ImageURL, tc.expected[i].ImageURL)
 				}
 			}
 		})

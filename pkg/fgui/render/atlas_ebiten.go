@@ -110,6 +110,20 @@ func spriteKey(item *assets.PackageItem) string {
 	return ownerID + ":" + item.ID
 }
 
+// GetAtlasImage returns the loaded atlas texture for the given PackageItem.
+// This is used for BMFont atlas mode where glyphs are extracted from a single atlas texture.
+func (m *AtlasManager) GetAtlasImage(item *assets.PackageItem) (*ebiten.Image, error) {
+	if item == nil {
+		return nil, errors.New("render: nil package item")
+	}
+	key := atlasKey(item)
+	img, ok := m.atlasImages[key]
+	if !ok {
+		return nil, fmt.Errorf("render: atlas texture not loaded for %s", key)
+	}
+	return img, nil
+}
+
 // ResolveMovieClipFrame returns an Ebiten image for the supplied movie clip frame.
 func (m *AtlasManager) ResolveMovieClipFrame(item *assets.PackageItem, frame *assets.MovieClipFrame) (*ebiten.Image, error) {
 	if frame == nil || frame.Sprite == nil || frame.Sprite.Atlas == nil {

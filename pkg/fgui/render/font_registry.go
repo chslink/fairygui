@@ -24,7 +24,8 @@ func RegisterBitmapFonts(pkg *assets.Package) {
 		if err != nil || font == nil {
 			continue
 		}
-		for _, alias := range fontAliases(pkg, item) {
+		aliases := fontAliases(pkg, item)
+		for _, alias := range aliases {
 			if alias == "" {
 				continue
 			}

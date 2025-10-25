@@ -1,13 +1,21 @@
 package render
 
 import (
+	"fmt"
 	"image/color"
 	"math"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
+)
+
+// graphicsCache 缓存渲染后的 Graphics 结果，避免每帧重建
+var (
+	graphicsCache   = make(map[string]*ebiten.Image)
+	graphicsCacheMu sync.RWMutex
 )
 
 func renderGraphicsSprite(target *ebiten.Image, sprite *laya.Sprite, parentGeo ebiten.GeoM, alpha float64) bool {
@@ -37,29 +45,49 @@ func renderGraphicsSprite(target *ebiten.Image, sprite *laya.Sprite, parentGeo e
 	if canvasW <= 0 || canvasH <= 0 {
 		return false
 	}
-	canvas := ebiten.NewImage(canvasW, canvasH)
-	offsetX := bounds.X - pad
-	offsetY := bounds.Y - pad
 
-	for _, cmd := range commands {
-		switch cmd.Type {
-		case laya.GraphicsCommandRect:
-			drawRectCommand(canvas, &cmd, offsetX, offsetY, alpha)
-		case laya.GraphicsCommandEllipse:
-			drawEllipseCommand(canvas, &cmd, offsetX, offsetY, alpha)
-		case laya.GraphicsCommandPolygon:
-			drawPolygonCommand(canvas, &cmd, offsetX, offsetY, alpha)
-		case laya.GraphicsCommandPath:
-			drawPathCommand(canvas, &cmd, offsetX, offsetY, alpha)
-		case laya.GraphicsCommandLine:
-			drawLineCommand(canvas, cmd.Line, offsetX, offsetY, alpha)
-		case laya.GraphicsCommandPie:
-			drawPieCommand(canvas, cmd.Pie, offsetX, offsetY, alpha)
-		default:
-			// Texture and other commands are handled elsewhere; ignore for now.
+	// 生成缓存键：基于 sprite 的唯一标识和命令序列
+	cacheKey := fmt.Sprintf("gfx_%p_%d_%dx%d", sprite, len(commands), canvasW, canvasH)
+
+	// 尝试从缓存获取
+	graphicsCacheMu.RLock()
+	canvas, cached := graphicsCache[cacheKey]
+	graphicsCacheMu.RUnlock()
+
+	if !cached {
+		// 缓存未命中，创建新图像
+		canvas = ebiten.NewImage(canvasW, canvasH)
+		offsetX := bounds.X - pad
+		offsetY := bounds.Y - pad
+
+		for _, cmd := range commands {
+			switch cmd.Type {
+			case laya.GraphicsCommandRect:
+				drawRectCommand(canvas, &cmd, offsetX, offsetY, alpha)
+			case laya.GraphicsCommandEllipse:
+				drawEllipseCommand(canvas, &cmd, offsetX, offsetY, alpha)
+			case laya.GraphicsCommandPolygon:
+				drawPolygonCommand(canvas, &cmd, offsetX, offsetY, alpha)
+			case laya.GraphicsCommandPath:
+				drawPathCommand(canvas, &cmd, offsetX, offsetY, alpha)
+			case laya.GraphicsCommandLine:
+				drawLineCommand(canvas, cmd.Line, offsetX, offsetY, alpha)
+			case laya.GraphicsCommandPie:
+				drawPieCommand(canvas, cmd.Pie, offsetX, offsetY, alpha)
+			default:
+				// Texture and other commands are handled elsewhere; ignore for now.
+			}
 		}
+
+		// 存入缓存
+		graphicsCacheMu.Lock()
+		graphicsCache[cacheKey] = canvas
+		graphicsCacheMu.Unlock()
 	}
 
+	// 使用缓存的 canvas 进行绘制
+	offsetX := bounds.X - pad
+	offsetY := bounds.Y - pad
 	geo := applyLocalOffset(parentGeo, offsetX, offsetY)
 	opts := &ebiten.DrawImageOptions{GeoM: geo}
 	applyColorEffects(opts, sprite)

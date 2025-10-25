@@ -214,6 +214,8 @@ func (d *BasicsDemo) initializeDemo(kind string, info *demoInfo) {
 		d.initPopup(info.component)
 	case "Drag&Drop":
 		d.initDragDrop(info.component)
+	case "Loader":
+		d.initLoader(info.component)
 	default:
 		log.Printf("[basics] demo %s has no explicit init", kind)
 	}
@@ -271,6 +273,22 @@ func (d *BasicsDemo) initText(component *core.GComponent) {
 				writer.SetText(content)
 			}
 		})
+	}
+
+	// 为输入框添加焦点处理
+	if inputBox := component.ChildByName("n22"); inputBox != nil {
+		if sprite := inputBox.DisplayObject(); sprite != nil {
+			// 点击时请求焦点以显示光标
+			sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+				if input, ok := inputBox.Data().(*widgets.GTextInput); ok && input != nil {
+					input.RequestFocus()
+				}
+			})
+		}
+		// 启动时自动请求焦点，直接显示光标
+		if input, ok := inputBox.Data().(*widgets.GTextInput); ok && input != nil {
+			input.RequestFocus()
+		}
 	}
 }
 
@@ -1127,4 +1145,18 @@ func getProgressBar(obj *core.GObject) *widgets.GProgressBar {
 		}
 	}
 	return nil
+}
+
+func (d *BasicsDemo) initLoader(component *core.GComponent) {
+	if component == nil {
+		return
+	}
+	// Loader 场景主要展示不同配置的资源加载能力:
+	// n1: 基础静态图片 (r3.png)
+	// n2: 缩放模式图片 (r3.png, fill="scale")
+	// n3: 2倍缩放居中对齐图片 (r4.png)
+	// n4: MovieClip 动画 (nlge1k.jta)
+	// n5: 居中对齐的 MovieClip (pet.jta)
+	// 所有资源都通过 ui:// URL 自动加载,无需额外初始化
+	log.Printf("[basics] Loader demo initialized with 5 loader instances")
 }

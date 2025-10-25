@@ -105,6 +105,36 @@ func (r *GRoot) AdvanceInput(delta time.Duration, input laya.InputState) {
 	r.stage.UpdateInput(delta, input)
 	tickAll(delta)
 	tween.Advance(delta)
+
+	// 更新所有 GTextInput 的光标闪烁状态
+	r.updateTextInputCursors(delta.Seconds())
+}
+
+// updateTextInputCursors 递归遍历组件树,更新所有 GTextInput 的光标
+func (r *GRoot) updateTextInputCursors(deltaTime float64) {
+	r.visitTextInputs(r.GComponent, deltaTime)
+}
+
+// visitTextInputs 递归访问组件树中的所有 GTextInput
+func (r *GRoot) visitTextInputs(comp *GComponent, deltaTime float64) {
+	if comp == nil {
+		return
+	}
+	for _, child := range comp.Children() {
+		// 检查是否是 GTextInput
+		if data := child.Data(); data != nil {
+			// 使用类型断言检查是否实现了 UpdateCursor 方法
+			if updater, ok := data.(interface{ UpdateCursor(float64) }); ok {
+				updater.UpdateCursor(deltaTime)
+			}
+		}
+		// 如果子对象也是组件,递归访问
+		if childData := child.Data(); childData != nil {
+			if childComp, ok := childData.(*GComponent); ok {
+				r.visitTextInputs(childComp, deltaTime)
+			}
+		}
+	}
 }
 
 // Scheduler returns the stage scheduler, if a stage has been attached.

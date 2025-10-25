@@ -18,6 +18,27 @@ type KeyModifiers struct {
 // KeyCode represents a platform-agnostic key identifier.
 type KeyCode int
 
+// 常用键码常量 (映射到 Ebiten 的键码)
+const (
+	KeyCodeBackspace KeyCode = 8
+	KeyCodeTab       KeyCode = 9
+	KeyCodeEnter     KeyCode = 13
+	KeyCodeEscape    KeyCode = 27
+	KeyCodeSpace     KeyCode = 32
+	KeyCodeLeft      KeyCode = 37
+	KeyCodeUp        KeyCode = 38
+	KeyCodeRight     KeyCode = 39
+	KeyCodeDown      KeyCode = 40
+	KeyCodeDelete    KeyCode = 46
+	KeyCodeHome      KeyCode = 36
+	KeyCodeEnd       KeyCode = 35
+	KeyCodeA         KeyCode = 65
+	KeyCodeC         KeyCode = 67
+	KeyCodeV         KeyCode = 86
+	KeyCodeX         KeyCode = 88
+	KeyCodeZ         KeyCode = 90
+)
+
 // KeyboardEvent carries keyboard input details dispatched by the stage.
 type KeyboardEvent struct {
 	Code      KeyCode

@@ -78,6 +78,9 @@ func (f *Factory) RegisterPackage(pkg *assets.Package) {
 	dir := filepath.Dir(pkg.ResKey)
 	f.registerPackageDir(pkg.ID, dir)
 	f.registerPackageDir(pkg.Name, dir)
+
+	// 同时注册到全局注册表,以支持 GetItemByURL
+	assets.RegisterPackage(pkg)
 }
 
 // BuildComponent instantiates a component hierarchy for the given package item.
@@ -94,6 +97,9 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 		}
 	}
 	f.RegisterPackage(pkg)
+
+	// 注册位图字体
+	render.RegisterBitmapFonts(pkg)
 
 	root := core.NewGComponent()
 	root.SetResourceID(item.ID)

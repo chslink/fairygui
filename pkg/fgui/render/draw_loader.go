@@ -50,6 +50,12 @@ func renderLoaderPackageItem(target *ebiten.Image, loader *widgets.GLoader, item
 	if loader == nil || item == nil {
 		return nil
 	}
+
+	// Handle MovieClip items separately - they use frame-based rendering
+	if item.Type == assets.PackageItemTypeMovieClip {
+		return renderLoaderMovieClip(target, loader, item, parentGeo, atlas, alpha)
+	}
+
 	resolved, err := atlas.ResolveSprite(item)
 	if err != nil {
 		return err
@@ -409,4 +415,129 @@ func oppositeOrigin(origin int) int {
 	default:
 		return origin
 	}
+}
+
+// renderLoaderMovieClip renders MovieClip items loaded by GLoader.
+// MovieClips use frame-based rendering where the current frame is displayed based on playback state.
+func renderLoaderMovieClip(target *ebiten.Image, loader *widgets.GLoader, item *assets.PackageItem, parentGeo ebiten.GeoM, atlas *AtlasManager, alpha float64) error {
+	if item == nil || len(item.Frames) == 0 {
+		return nil
+	}
+
+	// Get current frame from internal MovieClip if available (for animation)
+	var frame *assets.MovieClipFrame
+	if mc := loader.MovieClip(); mc != nil {
+		frame = mc.CurrentFrame()
+	}
+	// Fallback to first frame if MovieClip not available or frame is nil
+	if frame == nil && len(item.Frames) > 0 {
+		frame = item.Frames[0]
+	}
+	if frame == nil {
+		return nil
+	}
+
+	// Resolve frame image from atlas
+	img, err := atlas.ResolveMovieClipFrame(item, frame)
+	if err != nil {
+		return err
+	}
+	if img == nil {
+		return nil
+	}
+
+	// Get dimensions
+	var sprite *laya.Sprite
+	if loader != nil && loader.GObject != nil {
+		sprite = loader.GObject.DisplayObject()
+	}
+
+	sourceWidth := float64(frame.Width)
+	sourceHeight := float64(frame.Height)
+	if sourceWidth <= 0 && frame.Sprite != nil {
+		sourceWidth = float64(frame.Sprite.OriginalSize.X)
+	}
+	if sourceWidth <= 0 {
+		sourceWidth = float64(img.Bounds().Dx())
+	}
+	if sourceHeight <= 0 && frame.Sprite != nil {
+		sourceHeight = float64(frame.Sprite.OriginalSize.Y)
+	}
+	if sourceHeight <= 0 {
+		sourceHeight = float64(img.Bounds().Dy())
+	}
+
+	// Get content size from loader
+	dstW, dstH := loader.ContentSize()
+	if dstW <= 0 {
+		dstW = sourceWidth
+	}
+	if dstH <= 0 {
+		dstH = sourceHeight
+	}
+
+	// Calculate scale
+	sx := 1.0
+	sy := 1.0
+	if sourceWidth > 0 {
+		sx = dstW / sourceWidth
+	}
+	if sourceHeight > 0 {
+		sy = dstH / sourceHeight
+	}
+
+	// Apply content scale
+	contentScaleX, contentScaleY := loader.ContentScale()
+	if contentScaleX != 0 {
+		sx *= contentScaleX
+	}
+	if contentScaleY != 0 {
+		sy *= contentScaleY
+	}
+
+	// Build geometry
+	geo := parentGeo
+	if contentScaleX != 0 || contentScaleY != 0 {
+		if contentScaleX == 0 {
+			contentScaleX = 1
+		}
+		if contentScaleY == 0 {
+			contentScaleY = 1
+		}
+		geo.Scale(contentScaleX, contentScaleY)
+	}
+
+	// Apply content offset
+	if ox, oy := loader.ContentOffset(); ox != 0 || oy != 0 {
+		geo.Translate(ox, oy)
+	}
+
+	// Apply frame offset
+	local := ebiten.GeoM{}
+	local.Scale(sx, sy)
+	offsetX := float64(frame.OffsetX) * sx
+	offsetY := float64(frame.OffsetY) * sy
+	local.Translate(offsetX, offsetY)
+
+	// Apply sprite offset if available
+	if frame.Sprite != nil {
+		off := frame.Sprite.Offset
+		if off.X != 0 || off.Y != 0 {
+			geo.Translate(float64(off.X)*sx, float64(off.Y)*sy)
+		}
+	}
+
+	geo.Concat(local)
+
+	// Handle fill method if specified
+	method := int(loader.FillMethod())
+	amount := loader.FillAmount()
+	if method != loaderFillMethodNone && amount > 0 && amount < 0.9999 {
+		// TODO: Implement fill rendering for MovieClip in Loader
+		// For now, fall through to simple rendering
+	}
+
+	// Simple rendering
+	renderImageWithGeo(target, img, geo, alpha, nil, sprite)
+	return nil
 }

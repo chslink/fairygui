@@ -13,6 +13,7 @@ type GLoader struct {
 	*core.GObject
 	packageItem *assets.PackageItem
 	component   *core.GComponent
+	movieClip   *GMovieClip // Internal MovieClip for animated content
 	url         string
 	autoSize    bool
 	useResize   bool
@@ -94,9 +95,24 @@ const (
 
 // SetPackageItem assigns the loader's package item source.
 func (l *GLoader) SetPackageItem(item *assets.PackageItem) {
+	// 清理旧的 MovieClip（如果存在）
+	if l.movieClip != nil {
+		// 停止播放以清理 ticker
+		l.movieClip.SetPlaying(false)
+		l.movieClip = nil
+	}
+
 	l.packageItem = item
 	if item != nil {
 		l.url = item.ID
+
+		// 为 MovieClip 类型创建内部 MovieClip 实例
+		if item.Type == assets.PackageItemTypeMovieClip {
+			l.movieClip = NewMovieClip()
+			l.movieClip.SetPackageItem(item)
+			l.movieClip.SetPlaying(l.playing)
+			l.movieClip.SetFrame(l.frame)
+		}
 	}
 	l.updateAutoSize()
 }
@@ -128,6 +144,11 @@ func (l *GLoader) Component() *core.GComponent {
 	return l.component
 }
 
+// MovieClip returns the internal MovieClip instance, if any.
+func (l *GLoader) MovieClip() *GMovieClip {
+	return l.movieClip
+}
+
 // SetURL stores the loader url (ui:// or external). External URLs are not yet handled.
 func (l *GLoader) SetURL(url string) {
 	l.url = url
@@ -141,6 +162,10 @@ func (l *GLoader) URL() string {
 // SetPlaying toggles playback for content with frames.
 func (l *GLoader) SetPlaying(playing bool) {
 	l.playing = playing
+	// 同步到内部 MovieClip
+	if l.movieClip != nil {
+		l.movieClip.SetPlaying(playing)
+	}
 }
 
 // Playing reports whether playback is active.
@@ -151,6 +176,10 @@ func (l *GLoader) Playing() bool {
 // SetFrame configures the frame for frame-based content.
 func (l *GLoader) SetFrame(frame int) {
 	l.frame = frame
+	// 同步到内部 MovieClip
+	if l.movieClip != nil {
+		l.movieClip.SetFrame(frame)
+	}
 }
 
 // Frame returns the current frame index.
