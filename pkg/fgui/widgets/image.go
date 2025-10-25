@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/utils"
@@ -113,10 +114,99 @@ func (i *GImage) updateGraphics() {
 	if i == nil || i.GObject == nil {
 		return
 	}
-	if sprite := i.GObject.DisplayObject(); sprite != nil {
-		sprite.SetMouseEnabled(i.GObject.Touchable())
-		sprite.Repaint()
+	sprite := i.GObject.DisplayObject()
+	if sprite == nil {
+		return
 	}
+
+	sprite.SetMouseEnabled(i.GObject.Touchable())
+
+	// 获取或创建 Graphics
+	gfx := sprite.Graphics()
+	gfx.Clear()
+
+	// 如果没有纹理，不生成命令
+	if i.packageItem == nil {
+		sprite.Repaint()
+		return
+	}
+
+	// 确定渲染模式
+	mode := i.determineMode()
+
+	// 构建纹理命令
+	cmd := laya.TextureCommand{
+		Texture: i.packageItem,
+		Mode:    mode,
+		Dest: laya.Rect{
+			W: i.GObject.Width(),
+			H: i.GObject.Height(),
+		},
+		Color:          i.color,
+		ScaleX:         i.flipScaleX(),
+		ScaleY:         i.flipScaleY(),
+		OffsetX:        i.flipOffsetX(),
+		OffsetY:        i.flipOffsetY(),
+		ScaleByTile:    i.scaleByTile,
+		TileGridIndice: i.tileGridIndice,
+	}
+
+	// 设置 Scale9Grid（如果存在）
+	if i.packageItem.Scale9Grid != nil {
+		cmd.Scale9Grid = &laya.Rect{
+			X: float64(i.packageItem.Scale9Grid.X),
+			Y: float64(i.packageItem.Scale9Grid.Y),
+			W: float64(i.packageItem.Scale9Grid.Width),
+			H: float64(i.packageItem.Scale9Grid.Height),
+		}
+	}
+
+	// 记录命令
+	gfx.DrawTexture(cmd)
+	sprite.Repaint()
+}
+
+// determineMode 根据配置确定渲染模式
+func (i *GImage) determineMode() laya.TextureCommandMode {
+	if i.packageItem.Scale9Grid != nil {
+		return laya.TextureModeScale9
+	}
+	if i.scaleByTile {
+		return laya.TextureModeTile
+	}
+	return laya.TextureModeSimple
+}
+
+// flipScaleX 返回水平翻转的缩放系数
+func (i *GImage) flipScaleX() float64 {
+	if i.flip == FlipTypeHorizontal || i.flip == FlipTypeBoth {
+		return -1.0
+	}
+	return 1.0
+}
+
+// flipScaleY 返回垂直翻转的缩放系数
+func (i *GImage) flipScaleY() float64 {
+	if i.flip == FlipTypeVertical || i.flip == FlipTypeBoth {
+		return -1.0
+	}
+	return 1.0
+}
+
+// flipOffsetX 返回水平翻转的偏移
+func (i *GImage) flipOffsetX() float64 {
+	if i.flip == FlipTypeHorizontal || i.flip == FlipTypeBoth {
+		return i.GObject.Width()
+	}
+	return 0
+}
+
+// flipOffsetY 返回垂直翻转的偏移
+func (i *GImage) flipOffsetY() float64 {
+	if i.flip == FlipTypeVertical || i.flip == FlipTypeBoth {
+		return i.GObject.Height()
+	}
+	return 0
 }
 
 // SetupBeforeAdd parses image-specific metadata from the component buffer.

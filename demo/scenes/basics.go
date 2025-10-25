@@ -208,6 +208,8 @@ func (d *BasicsDemo) initializeDemo(kind string, info *demoInfo) {
 		d.initGrid(info.component)
 	case "ProgressBar":
 		d.initProgress(info.component)
+	case "List":
+		d.initList(info.component)
 	case "Window":
 		d.initWindow(info.component)
 	case "Popup":
@@ -337,6 +339,79 @@ func (d *BasicsDemo) initGrid(component *core.GComponent) {
 		setComponentText(item, "t1", names[idx])
 		setComponentText(item, "t3", strconv.Itoa(rand.Intn(10000)))
 	})
+}
+
+func (d *BasicsDemo) initList(component *core.GComponent) {
+	if component == nil {
+		return
+	}
+	entries := []listEntry{
+		{title: "100", icon: "ui://9leh0eyfkpev64"},
+		{title: "1", icon: "ui://9leh0eyfkpev64"},
+		{title: "2", icon: "ui://9leh0eyfkpev64"},
+		{title: "99", icon: "ui://9leh0eyfkpev64"},
+		{title: "4", icon: "ui://9leh0eyfkpev64"},
+		{title: "5", icon: "ui://9leh0eyfkpev64"},
+	}
+
+	status := widgets.NewText()
+	status.SetFontSize(20)
+	status.SetColor("#333333")
+	status.SetText("选择任意条目以查看选中结果")
+	status.GObject.SetPivot(0, 0)
+	status.GObject.SetSize(420, 32)
+	status.GObject.SetPosition(34, component.Height()-48)
+	component.AddChild(status.GObject)
+
+	type listConfig struct {
+		name          string
+		label         string
+		mode          widgets.ListSelectionMode
+		scrollToView  bool
+		defaultSelect int
+	}
+	configs := []listConfig{
+		{name: "n0", label: "n2", mode: widgets.ListSelectionModeSingle, scrollToView: false, defaultSelect: 0},
+		{name: "n4", label: "n5", mode: widgets.ListSelectionModeSingle, scrollToView: true, defaultSelect: 1},
+		{name: "n7", label: "n8", mode: widgets.ListSelectionModeMultipleSingleClick, scrollToView: true, defaultSelect: -1},
+		{name: "n9", label: "n10", mode: widgets.ListSelectionModeSingle, scrollToView: true, defaultSelect: 2},
+	}
+
+	for _, cfg := range configs {
+		list := childAsList(component, cfg.name)
+		if list == nil {
+			continue
+		}
+		list.SetSelectionMode(cfg.mode)
+		list.SetScrollItemToViewOnClick(cfg.scrollToView)
+		applyListEntries(list, entries)
+		if cfg.defaultSelect >= 0 {
+			list.SetSelectedIndex(cfg.defaultSelect)
+		}
+
+		var baseLabel string
+		var labelField *widgets.GTextField
+		if labelObj := component.ChildByName(cfg.label); labelObj != nil {
+			if txt, ok := labelObj.Data().(*widgets.GTextField); ok {
+				labelField = txt
+				baseLabel = txt.Text()
+			}
+		}
+
+		updateLabel := func() {
+			text := formatListLabel(baseLabel, list)
+			if labelField != nil {
+				labelField.SetText(text)
+			} else {
+				status.SetText(text)
+			}
+		}
+		updateLabel()
+
+		list.GComponent.GObject.On(laya.EventStateChanged, func(laya.Event) {
+			updateLabel()
+		})
+	}
 }
 
 func (d *BasicsDemo) initProgress(component *core.GComponent) {
@@ -1145,6 +1220,137 @@ func getProgressBar(obj *core.GObject) *widgets.GProgressBar {
 		}
 	}
 	return nil
+}
+
+func childAsList(parent *core.GComponent, name string) *widgets.GList {
+	if parent == nil {
+		return nil
+	}
+	child := parent.ChildByName(name)
+	if child == nil {
+		return nil
+	}
+	if list, ok := child.Data().(*widgets.GList); ok {
+		return list
+	}
+	return nil
+}
+
+type listEntry struct {
+	title string
+	icon  string
+}
+
+func applyListEntries(list *widgets.GList, entries []listEntry) {
+	if list == nil || len(entries) == 0 {
+		return
+	}
+	shuffled := append([]listEntry(nil), entries...)
+	rand.Shuffle(len(shuffled), func(i, j int) {
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	})
+	apply := func(obj *core.GObject, idx int) {
+		if obj == nil {
+			return
+		}
+		entry := shuffled[idx%len(shuffled)]
+		switch data := obj.Data().(type) {
+		case *widgets.GButton:
+			data.SetTitle(entry.title)
+			data.SetIcon(entry.icon)
+		case *widgets.GLabel:
+			data.SetTitle(entry.title)
+		case *core.GComponent:
+			setComponentText(data, "title", entry.title)
+			if iconChild := data.ChildByName("icon"); iconChild != nil {
+				switch iconData := iconChild.Data().(type) {
+				case *widgets.GLoader:
+					iconData.SetURL(entry.icon)
+				case *widgets.GButton:
+					iconData.SetIcon(entry.icon)
+				}
+			}
+		default:
+			// no-op
+		}
+	}
+
+	items := list.Items()
+	if len(items) > 0 {
+		for i, obj := range items {
+			apply(obj, i)
+		}
+		return
+	}
+	children := list.GComponent.Children()
+	for i, child := range children {
+		apply(child, i)
+	}
+}
+
+func formatListLabel(base string, list *widgets.GList) string {
+	if list == nil {
+		return base
+	}
+	idx := list.SelectedIndex()
+	if idx < 0 {
+		if base == "" {
+			return "当前未选中条目"
+		}
+		return base
+	}
+	title := listItemTitle(list, idx)
+	if base == "" {
+		return fmt.Sprintf("选中：%s", title)
+	}
+	return fmt.Sprintf("%s（当前：%s）", base, title)
+}
+
+func listItemTitle(list *widgets.GList, index int) string {
+	if list == nil || index < 0 {
+		return ""
+	}
+	items := list.Items()
+	var item *core.GObject
+	if index < len(items) {
+		item = items[index]
+	} else {
+		children := list.GComponent.Children()
+		if index < len(children) {
+			item = children[index]
+		}
+	}
+	if item == nil {
+		return fmt.Sprintf("#%d", index+1)
+	}
+	switch data := item.Data().(type) {
+	case *widgets.GButton:
+		if text := data.Title(); text != "" {
+			return text
+		}
+	case *widgets.GLabel:
+		if text := data.Title(); text != "" {
+			return text
+		}
+	case *core.GComponent:
+		if titleChild := data.ChildByName("title"); titleChild != nil {
+			switch titleData := titleChild.Data().(type) {
+			case *widgets.GTextField:
+				if text := titleData.Text(); text != "" {
+					return text
+				}
+			case *widgets.GLabel:
+				if text := titleData.Title(); text != "" {
+					return text
+				}
+			case *widgets.GButton:
+				if text := titleData.Title(); text != "" {
+					return text
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("#%d", index+1)
 }
 
 func (d *BasicsDemo) initLoader(component *core.GComponent) {

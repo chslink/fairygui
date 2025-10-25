@@ -456,6 +456,11 @@ func (m *GMovieClip) advance(deltaMS float64) {
 }
 
 func (m *GMovieClip) drawFrame() {
+	// IMPORTANT: In Laya, MovieClip inherits from Image, and Image automatically
+	// resizes when texture changes. But in our Go implementation, we maintain
+	// the MovieClip's overall size and use frame offsets for alignment.
+	// This matches the FairyGUI design where MovieClip has a fixed size
+	// and frames are positioned within that area using offsets.
 	m.updateGraphics()
 }
 

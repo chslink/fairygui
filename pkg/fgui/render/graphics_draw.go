@@ -67,9 +67,14 @@ func renderGraphicsSprite(target *ebiten.Image, sprite *laya.Sprite, parentGeo e
 			case laya.GraphicsCommandEllipse:
 				drawEllipseCommand(canvas, &cmd, offsetX, offsetY, alpha)
 			case laya.GraphicsCommandPolygon:
-				drawPolygonCommand(canvas, &cmd, offsetX, offsetY, alpha)
+				// Polygon 使用加法（points[i]+offset），需要取反偏移
+				// offset = bounds.X - pad，所以 -offset = -bounds.X + pad
+				// 这样 points[i] + (-offset) = points[i] - bounds.X + pad
+				// 对于最小点 minX：minX - bounds.X + pad = minX - minX + pad = pad
+				drawPolygonCommand(canvas, &cmd, -offsetX, -offsetY, alpha)
 			case laya.GraphicsCommandPath:
-				drawPathCommand(canvas, &cmd, offsetX, offsetY, alpha)
+				// Path 也使用加法，需要取反偏移
+				drawPathCommand(canvas, &cmd, -offsetX, -offsetY, alpha)
 			case laya.GraphicsCommandLine:
 				drawLineCommand(canvas, cmd.Line, offsetX, offsetY, alpha)
 			case laya.GraphicsCommandPie:

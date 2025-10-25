@@ -441,6 +441,9 @@ func (l *GList) handleItemClick(index int) {
 	if l == nil {
 		return
 	}
+	if l.scrollToView {
+		l.scrollItemToView(index)
+	}
 	switch l.selectionMode {
 	case ListSelectionModeNone:
 		return
@@ -479,6 +482,37 @@ func (l *GList) clearSelection(notify bool) {
 		return
 	}
 	l.updateSelection(nil, -1, notify)
+}
+
+func (l *GList) scrollItemToView(index int) {
+	if l == nil || index < 0 || index >= len(l.items) {
+		return
+	}
+	item := l.items[index]
+	if item == nil {
+		return
+	}
+	pane := l.GComponent.ScrollPane()
+	if pane == nil {
+		return
+	}
+	width := item.Width()
+	height := item.Height()
+	if comp, ok := item.Data().(*core.GComponent); ok && comp != nil {
+		if width <= 0 {
+			width = comp.Width()
+		}
+		if height <= 0 {
+			height = comp.Height()
+		}
+	}
+	if width <= 0 {
+		width = l.GComponent.Width()
+	}
+	if height <= 0 {
+		height = l.GComponent.Height()
+	}
+	pane.ScrollToRect(item.X(), item.Y(), width, height, true)
 }
 
 func (l *GList) copySelectionSet() map[int]struct{} {
@@ -677,6 +711,14 @@ func (l *GList) Overflow() assets.OverflowType {
 // ScrollItemToViewOnClick 指示点击条目时是否滚动至可视区域。
 func (l *GList) ScrollItemToViewOnClick() bool {
 	return l.scrollToView
+}
+
+// SetScrollItemToViewOnClick toggles automatic scrolling to selected item.
+func (l *GList) SetScrollItemToViewOnClick(value bool) {
+	if l == nil {
+		return
+	}
+	l.scrollToView = value
 }
 
 // FoldInvisibleItems 指示是否折叠不可见元素。

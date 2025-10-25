@@ -437,10 +437,38 @@ func renderLoaderMovieClip(target *ebiten.Image, loader *widgets.GLoader, item *
 		return nil
 	}
 
-	// Resolve frame image from atlas
-	img, err := atlas.ResolveMovieClipFrame(item, frame)
+	alignWidth := item.Width
+	alignHeight := item.Height
+	if alignWidth <= 0 {
+		if frame.Width > 0 {
+			alignWidth = frame.Width
+		} else if frame.Sprite != nil {
+			if frame.Sprite.OriginalSize.X > 0 {
+				alignWidth = int(frame.Sprite.OriginalSize.X)
+			} else if frame.Sprite.Rect.Width > 0 {
+				alignWidth = frame.Sprite.Rect.Width
+			}
+		}
+	}
+	if alignHeight <= 0 {
+		if frame.Height > 0 {
+			alignHeight = frame.Height
+		} else if frame.Sprite != nil {
+			if frame.Sprite.OriginalSize.Y > 0 {
+				alignHeight = int(frame.Sprite.OriginalSize.Y)
+			} else if frame.Sprite.Rect.Height > 0 {
+				alignHeight = frame.Sprite.Rect.Height
+			}
+		}
+	}
+	img, err := atlas.ResolveMovieClipFrameAligned(item, frame, alignWidth, alignHeight)
+	useAligned := true
 	if err != nil {
-		return err
+		useAligned = false
+		img, err = atlas.ResolveMovieClipFrame(item, frame)
+		if err != nil {
+			return err
+		}
 	}
 	if img == nil {
 		return nil
@@ -451,17 +479,36 @@ func renderLoaderMovieClip(target *ebiten.Image, loader *widgets.GLoader, item *
 	if loader != nil && loader.GObject != nil {
 		sprite = loader.GObject.DisplayObject()
 	}
-
-	sourceWidth := float64(frame.Width)
-	sourceHeight := float64(frame.Height)
-	if sourceWidth <= 0 && frame.Sprite != nil {
-		sourceWidth = float64(frame.Sprite.OriginalSize.X)
+	sourceWidth, sourceHeight := loader.SourceSize()
+	if sourceWidth <= 0 && item != nil && item.Width > 0 {
+		sourceWidth = float64(item.Width)
+	}
+	if sourceHeight <= 0 && item != nil && item.Height > 0 {
+		sourceHeight = float64(item.Height)
+	}
+	if useAligned {
+		if sourceWidth <= 0 && alignWidth > 0 {
+			sourceWidth = float64(alignWidth)
+		}
+		if sourceHeight <= 0 && alignHeight > 0 {
+			sourceHeight = float64(alignHeight)
+		}
+	} else {
+		if sourceWidth <= 0 && frame.Sprite != nil && frame.Sprite.OriginalSize.X > 0 {
+			sourceWidth = float64(frame.Sprite.OriginalSize.X)
+		}
+		if sourceHeight <= 0 && frame.Sprite != nil && frame.Sprite.OriginalSize.Y > 0 {
+			sourceHeight = float64(frame.Sprite.OriginalSize.Y)
+		}
+		if sourceWidth <= 0 && frame.Width > 0 {
+			sourceWidth = float64(frame.Width)
+		}
+		if sourceHeight <= 0 && frame.Height > 0 {
+			sourceHeight = float64(frame.Height)
+		}
 	}
 	if sourceWidth <= 0 {
 		sourceWidth = float64(img.Bounds().Dx())
-	}
-	if sourceHeight <= 0 && frame.Sprite != nil {
-		sourceHeight = float64(frame.Sprite.OriginalSize.Y)
 	}
 	if sourceHeight <= 0 {
 		sourceHeight = float64(img.Bounds().Dy())
@@ -512,21 +559,23 @@ func renderLoaderMovieClip(target *ebiten.Image, loader *widgets.GLoader, item *
 		geo.Translate(ox, oy)
 	}
 
-	// Apply frame offset
+	// Apply scaling to transform the frame to MovieClip dimensions
+	// Note: Frame offset is already handled in the aligned image creation
+	// The ResolveMovieClipFrameAligned method creates an image where the frame
+	// is positioned correctly within the MovieClip bounds
 	local := ebiten.GeoM{}
 	local.Scale(sx, sy)
-	offsetX := float64(frame.OffsetX) * sx
-	offsetY := float64(frame.OffsetY) * sy
-	local.Translate(offsetX, offsetY)
-
-	// Apply sprite offset if available
-	if frame.Sprite != nil {
-		off := frame.Sprite.Offset
-		if off.X != 0 || off.Y != 0 {
-			geo.Translate(float64(off.X)*sx, float64(off.Y)*sy)
+	if !useAligned {
+		offsetX := float64(frame.OffsetX) * sx
+		offsetY := float64(frame.OffsetY) * sy
+		local.Translate(offsetX, offsetY)
+		if frame.Sprite != nil {
+			off := frame.Sprite.Offset
+			if off.X != 0 || off.Y != 0 {
+				geo.Translate(float64(off.X)*sx, float64(off.Y)*sy)
+			}
 		}
 	}
-
 	geo.Concat(local)
 
 	// Handle fill method if specified

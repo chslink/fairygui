@@ -36,8 +36,8 @@ type renderedTextRun struct {
 	style     textutil.Style
 	color     color.NRGBA
 	link      string
-	imageURL  string                // 图片 URL (用于 [img] 标签)
-	imageItem *assets.PackageItem   // 解析后的图片资源
+	imageURL  string              // 图片 URL (用于 [img] 标签)
+	imageItem *assets.PackageItem // 解析后的图片资源
 	advances  []float64
 	width     float64
 	ascent    float64
@@ -275,7 +275,7 @@ func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextFi
 		shadowColorStr = field.ShadowColor()
 		shadowOffXVal, shadowOffYVal = field.ShadowOffset()
 	}
-	cacheKey := fmt.Sprintf("text_%s_%s_%s_%.0fx%.0f_%.1f_%.1f_%d_%d_%.1f_%s_%.1f_%s_%.1f_%.1f",
+	cacheKey := fmt.Sprintf("text_%s_%s_%s_%.0fx%.0f_%.1f_%.1f_%v_%v_%.1f_%s_%.1f_%s_%.1f_%.1f",
 		value, baseStyle.Font, baseStyle.Color,
 		finalWidth, finalHeight, letterSpacing, leading,
 		align, valign,
@@ -576,7 +576,7 @@ func buildRenderedRun(seg textutil.Segment, field *widgets.GTextField, baseColor
 			run.imageItem = item
 			// 使用图片的尺寸
 			run.width = float64(item.Width)
-			run.ascent = float64(item.Height) * 0.8  // 图片的基线位置
+			run.ascent = float64(item.Height) * 0.8 // 图片的基线位置
 			run.descent = float64(item.Height) * 0.2
 			run.fontSize = item.Height
 			return run
@@ -666,6 +666,7 @@ func buildRenderedRun(seg textutil.Segment, field *widgets.GTextField, baseColor
 			if ok {
 				advance = float64(bounds.Max.X-bounds.Min.X) / 64.0
 			} else {
+
 				advance = float64(ebitenText.BoundString(face, string(r)).Dx())
 			}
 		}

@@ -38,7 +38,7 @@ var (
 	debugNineSliceOverlayEnabled           = os.Getenv("FGUI_DEBUG_NINESLICE_OVERLAY") != ""
 	lastNineSliceLog             sync.Map
 	textureRectLog               sync.Map
-	fontCacheSize                        = 20 // 限制字体缓存大小，避免内存过度使用
+	fontCacheSize                = 20 // 限制字体缓存大小，避免内存过度使用
 
 	// graphRenderCache 缓存 GGraph 渲染结果，避免每帧重建
 	graphRenderCache   = make(map[string]*ebiten.Image)
@@ -88,6 +88,48 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		return nil
 	}
 
+	sprite := obj.DisplayObject()
+	localMatrix := sprite.LocalMatrix()
+	combined := ebiten.GeoM{}
+	combined.SetElement(0, 0, localMatrix.A)
+	combined.SetElement(0, 1, localMatrix.C)
+	combined.SetElement(0, 2, localMatrix.Tx)
+	combined.SetElement(1, 0, localMatrix.B)
+	combined.SetElement(1, 1, localMatrix.D)
+	combined.SetElement(1, 2, localMatrix.Ty)
+	combined.Concat(parentGeo)
+
+	// ✅ 优先处理 Graphics 命令（统一渲染路径）
+	gfx := sprite.Graphics()
+	if gfx != nil && !gfx.IsEmpty() {
+		// 遍历命令并使用专门的渲染器
+		commands := gfx.Commands()
+		for _, cmd := range commands {
+			switch cmd.Type {
+			case laya.GraphicsCommandTexture:
+				// 使用 TextureRenderer 渲染纹理
+				texRenderer := NewTextureRenderer(atlas)
+				if err := texRenderer.Render(target, cmd.Texture, combined, alpha, sprite); err != nil {
+					return err
+				}
+			case laya.GraphicsCommandRect, laya.GraphicsCommandEllipse,
+				laya.GraphicsCommandPolygon, laya.GraphicsCommandPath,
+				laya.GraphicsCommandLine, laya.GraphicsCommandPie:
+				// 矢量命令：使用 renderGraphicsSprite（已有实现）
+				if !renderGraphicsSprite(target, sprite, combined, alpha) {
+					return fmt.Errorf("failed to render graphics command type %d", cmd.Type)
+				}
+				return nil // renderGraphicsSprite 已处理所有矢量命令
+			}
+		}
+		// 命令处理完成，检查是否还需要递归渲染子对象
+		if comp, ok := obj.Data().(*core.GComponent); ok {
+			return drawComponent(target, comp, atlas, combined, alpha)
+		}
+		return nil
+	}
+
+	// ⚠️ 以下是旧的类型分发逻辑（兼容尚未迁移的 Widget）
 	w := obj.Width()
 	h := obj.Height()
 	if w <= 0 {
@@ -115,32 +157,18 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		}
 	}
 
-	sprite := obj.DisplayObject()
-	localMatrix := sprite.LocalMatrix()
-	combined := ebiten.GeoM{}
-	combined.SetElement(0, 0, localMatrix.A)
-	combined.SetElement(0, 1, localMatrix.C)
-	combined.SetElement(0, 2, localMatrix.Tx)
-	combined.SetElement(1, 0, localMatrix.B)
-	combined.SetElement(1, 1, localMatrix.D)
-	combined.SetElement(1, 2, localMatrix.Ty)
-	combined.Concat(parentGeo)
-	//combinedA := combined.Element(0, 0)
-	//combinedB := combined.Element(0, 1)
-	//combinedTx := combined.Element(0, 2)
-	//combinedC := combined.Element(1, 0)
-	//combinedD := combined.Element(1, 1)
-	//combinedTy := combined.Element(1, 2)
-	//log.Printf("[graph matrix] name=%s local=[[%.3f %.3f %.3f] [%.3f %.3f %.3f]] geo=[[%.3f %.3f %.3f] [%.3f %.3f %.3f]]", obj.Name(), localMatrix.A, localMatrix.C, localMatrix.Tx, localMatrix.B, localMatrix.D, localMatrix.Ty, combinedA, combinedB, combinedTx, combinedC, combinedD, combinedTy)
-
 	switch data := obj.Data().(type) {
 	case *assets.PackageItem:
 		if err := drawPackageItem(target, data, combined, atlas, alpha, sprite); err != nil {
 			return err
 		}
 	case *widgets.GImage:
-		if err := renderImageWidget(target, data, atlas, combined, alpha, sprite); err != nil {
-			return err
+		// ⚠️ GImage 已迁移到命令模式，这里是兼容路径
+		if gfx == nil || gfx.IsEmpty() {
+			// 如果没有命令，使用旧渲染路径
+			if err := renderImageWidget(target, data, atlas, combined, alpha, sprite); err != nil {
+				return err
+			}
 		}
 	case *widgets.GMovieClip:
 		if err := renderMovieClipWidget(target, data, atlas, combined, alpha, sprite); err != nil {
@@ -215,8 +243,13 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			sprite.SetMouseEnabled(true)
 		}
 	case *widgets.GLoader:
-		if err := renderLoader(target, data, atlas, combined, alpha); err != nil {
-			return err
+		// ⚠️ GLoader 已部分迁移到命令模式，这里是兼容路径
+		// MovieClip、Component 和 FillMethod 仍使用旧渲染路径
+		if gfx == nil || gfx.IsEmpty() {
+			// 如果没有命令，使用旧渲染路径
+			if err := renderLoader(target, data, atlas, combined, alpha); err != nil {
+				return err
+			}
 		}
 	case *widgets.GGraph:
 		if err := renderGraph(target, data, combined, alpha, sprite); err != nil {
@@ -401,46 +434,119 @@ func renderMovieClipWidget(target *ebiten.Image, widget *widgets.GMovieClip, atl
 	if frame == nil {
 		return nil
 	}
-	img, err := atlas.ResolveMovieClipFrame(widget.PackageItem(), frame)
+	item := widget.PackageItem()
+
+	alignWidth := 0
+	alignHeight := 0
+	if item != nil {
+		if item.Width > 0 {
+			alignWidth = item.Width
+		}
+		if item.Height > 0 {
+			alignHeight = item.Height
+		}
+	}
+	if alignWidth <= 0 {
+		if frame.Width > 0 {
+			alignWidth = frame.Width
+		} else if frame.Sprite != nil {
+			if frame.Sprite.OriginalSize.X > 0 {
+				alignWidth = int(frame.Sprite.OriginalSize.X)
+			} else if frame.Sprite.Rect.Width > 0 {
+				alignWidth = frame.Sprite.Rect.Width
+			}
+		}
+	}
+	if alignHeight <= 0 {
+		if frame.Height > 0 {
+			alignHeight = frame.Height
+		} else if frame.Sprite != nil {
+			if frame.Sprite.OriginalSize.Y > 0 {
+				alignHeight = int(frame.Sprite.OriginalSize.Y)
+			} else if frame.Sprite.Rect.Height > 0 {
+				alignHeight = frame.Sprite.Rect.Height
+			}
+		}
+	}
+	img, err := atlas.ResolveMovieClipFrameAligned(item, frame, alignWidth, alignHeight)
+	useAligned := true
 	if err != nil {
-		return err
+		useAligned = false
+		img, err = atlas.ResolveMovieClipFrame(item, frame)
+		if err != nil {
+			return err
+		}
 	}
 	if img == nil {
 		return nil
 	}
+
 	tint := parseColor(widget.Color())
-	sourceWidth := float64(frame.Width)
-	sourceHeight := float64(frame.Height)
-	if sourceWidth <= 0 && frame.Sprite != nil {
-		sourceWidth = float64(frame.Sprite.OriginalSize.X)
+
+	baseWidth := 0.0
+	baseHeight := 0.0
+	if useAligned {
+		if alignWidth > 0 {
+			baseWidth = float64(alignWidth)
+		}
+		if alignHeight > 0 {
+			baseHeight = float64(alignHeight)
+		}
+	} else {
+		if item != nil {
+			if item.Width > 0 {
+				baseWidth = float64(item.Width)
+			}
+			if item.Height > 0 {
+				baseHeight = float64(item.Height)
+			}
+		}
+		if baseWidth <= 0 && frame.Sprite != nil && frame.Sprite.OriginalSize.X > 0 {
+			baseWidth = float64(frame.Sprite.OriginalSize.X)
+		}
+		if baseHeight <= 0 && frame.Sprite != nil && frame.Sprite.OriginalSize.Y > 0 {
+			baseHeight = float64(frame.Sprite.OriginalSize.Y)
+		}
+		if baseWidth <= 0 && frame.Width > 0 {
+			baseWidth = float64(frame.Width)
+		}
+		if baseHeight <= 0 && frame.Height > 0 {
+			baseHeight = float64(frame.Height)
+		}
 	}
-	if sourceWidth <= 0 {
-		sourceWidth = float64(img.Bounds().Dx())
+	if baseWidth <= 0 {
+		baseWidth = float64(img.Bounds().Dx())
 	}
-	if sourceHeight <= 0 && frame.Sprite != nil {
-		sourceHeight = float64(frame.Sprite.OriginalSize.Y)
+	if baseHeight <= 0 {
+		baseHeight = float64(img.Bounds().Dy())
 	}
-	if sourceHeight <= 0 {
-		sourceHeight = float64(img.Bounds().Dy())
-	}
+
 	dstW := widget.Width()
 	dstH := widget.Height()
 	if dstW <= 0 {
-		dstW = sourceWidth
+		dstW = baseWidth
 	}
 	if dstH <= 0 {
-		dstH = sourceHeight
+		dstH = baseHeight
 	}
+
 	sx := 1.0
 	sy := 1.0
-	if sourceWidth > 0 {
-		sx = dstW / sourceWidth
+	if baseWidth > 0 {
+		sx = dstW / baseWidth
 	}
-	if sourceHeight > 0 {
-		sy = dstH / sourceHeight
+	if baseHeight > 0 {
+		sy = dstH / baseHeight
 	}
+
+	// 构建本地变换矩阵
+	// 正确顺序：缩放 → 翻转 → frame offset → sprite offset → 父变换
 	local := ebiten.GeoM{}
+
+	// 1. 缩放到目标尺寸
 	local.Scale(sx, sy)
+
+	// 2. 翻转（在本地坐标系）
 	switch widget.Flip() {
 	case widgets.FlipTypeHorizontal:
 		local.Scale(-1, 1)
@@ -452,17 +558,28 @@ func renderMovieClipWidget(target *ebiten.Image, widget *widgets.GMovieClip, atl
 		local.Scale(-1, -1)
 		local.Translate(dstW, dstH)
 	}
-	offsetX := float64(frame.OffsetX) * sx
-	offsetY := float64(frame.OffsetY) * sy
-	local.Translate(offsetX, offsetY)
-	geo := parentGeo
-	if frame.Sprite != nil {
+
+	// 3. frame offset（在翻转之后，避免被镜像）
+	if !useAligned {
+		offsetX := float64(frame.OffsetX) * sx
+		offsetY := float64(frame.OffsetY) * sy
+		local.Translate(offsetX, offsetY)
+	}
+
+	// 4. sprite offset（在翻转之后，不参与缩放 - 使用原始值）
+	if !useAligned && frame.Sprite != nil {
 		off := frame.Sprite.Offset
 		if off.X != 0 || off.Y != 0 {
-			geo.Translate(float64(off.X)*sx, float64(off.Y)*sy)
+			local.Translate(float64(off.X), float64(off.Y))
 		}
 	}
-	geo.Concat(local)
+
+	// 5. 应用父变换
+	// ✅ 正确顺序：先 local 变换，再 parent 变换
+	// 这样 sprite.rotation/scale 会作用于已缩放好的 MovieClip
+	local.Concat(parentGeo)
+	geo := local
+
 	method, origin, clockwise, amount := widget.Fill()
 	if method != 0 && amount > 0 && amount < 0.9999 {
 		points := computeFillPoints(dstW, dstH, method, origin, clockwise, amount)

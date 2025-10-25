@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	_ "image/png"
+	"log"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
@@ -110,6 +111,19 @@ func spriteKey(item *assets.PackageItem) string {
 	return ownerID + ":" + item.ID
 }
 
+// AddAtlasImage manually adds an atlas image to the manager.
+func (m *AtlasManager) AddAtlasImage(item *assets.PackageItem, img *ebiten.Image) error {
+	if item == nil {
+		return errors.New("render: nil package item")
+	}
+	if img == nil {
+		return errors.New("render: nil image")
+	}
+	key := atlasKey(item)
+	m.atlasImages[key] = img
+	return nil
+}
+
 // GetAtlasImage returns the loaded atlas texture for the given PackageItem.
 // This is used for BMFont atlas mode where glyphs are extracted from a single atlas texture.
 func (m *AtlasManager) GetAtlasImage(item *assets.PackageItem) (*ebiten.Image, error) {
@@ -156,6 +170,113 @@ func (m *AtlasManager) ResolveMovieClipFrame(item *assets.PackageItem, frame *as
 	}
 	m.movieCache[key] = sub
 	return sub, nil
+}
+
+// ResolveMovieClipFrameAligned returns an Ebiten image for the movie clip frame with alignment correction.
+// This creates a corrected image where the frame is positioned according to its offset within the MovieClip bounds.
+// The targetWidth and targetHeight parameters allow for scaled rendering while maintaining alignment.
+func (m *AtlasManager) ResolveMovieClipFrameAligned(item *assets.PackageItem, frame *assets.MovieClipFrame, movieClipWidth, movieClipHeight int) (*ebiten.Image, error) {
+	if frame == nil || frame.Sprite == nil || frame.Sprite.Atlas == nil {
+		return nil, errors.New("render: movie clip frame missing sprite data")
+	}
+
+	// Create a unique key that includes the MovieClip dimensions for alignment
+	key := fmt.Sprintf("%s:aligned:%dx%d", movieClipFrameKey(item, frame), movieClipWidth, movieClipHeight)
+	if img, ok := m.movieCache[key]; ok {
+		return img, nil
+	}
+
+	// Get the base frame image
+	baseImg, err := m.ResolveMovieClipFrame(item, frame)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a new image with MovieClip dimensions
+	alignedImg := ebiten.NewImage(movieClipWidth, movieClipHeight)
+
+	// Calculate the position to draw the frame within the MovieClip bounds
+	// The offset defines how the frame is positioned relative to the MovieClip origin
+	drawX := frame.OffsetX
+	drawY := frame.OffsetY
+
+	// Apply sprite offset if available (additional fine-tuning)
+	if frame.Sprite != nil {
+		off := frame.Sprite.Offset
+		drawX += int(off.X)
+		drawY += int(off.Y)
+	}
+
+	// Draw the frame at the calculated position
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Translate(float64(drawX), float64(drawY))
+
+	alignedImg.DrawImage(baseImg, opts)
+
+	m.movieCache[key] = alignedImg
+	return alignedImg, nil
+}
+
+// ResolveMovieClipFrameScaled returns an Ebiten image for the movie clip frame with scaling support.
+// This handles cases where the MovieClip is displayed at a different size than its original dimensions.
+func (m *AtlasManager) ResolveMovieClipFrameScaled(item *assets.PackageItem, frame *assets.MovieClipFrame, displayWidth, displayHeight int) (*ebiten.Image, error) {
+	if frame == nil || frame.Sprite == nil || frame.Sprite.Atlas == nil {
+		return nil, errors.New("render: movie clip frame missing sprite data")
+	}
+
+	// Create a unique key that includes the display dimensions for scaling
+	key := fmt.Sprintf("%s:scaled:%dx%d", movieClipFrameKey(item, frame), displayWidth, displayHeight)
+	if img, ok := m.movieCache[key]; ok {
+		return img, nil
+	}
+
+	// Get the base frame image
+	baseImg, err := m.ResolveMovieClipFrame(item, frame)
+	if err != nil {
+		return nil, err
+	}
+	if baseImg == nil {
+		return nil, errors.New("render: base frame image is nil")
+	}
+
+	// Create a new image with the display dimensions
+	scaledImg := ebiten.NewImage(displayWidth, displayHeight)
+	if scaledImg == nil {
+		return nil, errors.New("render: failed to create scaled image")
+	}
+
+	// Calculate scale factors
+	scaleX := float64(displayWidth) / float64(item.Width)
+	scaleY := float64(displayHeight) / float64(item.Height)
+
+	// Calculate the scaled position for the frame within the display bounds
+	// The offset is scaled along with the frame positioning
+	scaledOffsetX := float64(frame.OffsetX) * scaleX
+	scaledOffsetY := float64(frame.OffsetY) * scaleY
+
+	// Apply sprite offset if available (additional fine-tuning)
+	if frame.Sprite != nil {
+		off := frame.Sprite.Offset
+		scaledOffsetX += float64(off.X) * scaleX
+		scaledOffsetY += float64(off.Y) * scaleY
+	}
+
+	// Debug info for n15
+	if item != nil && item.ID == "hixt1v" {
+		log.Printf("[n15-scaled] Creating scaled frame: display=%dx%d original=%dx%d scale=%.2fx%.2f offset=%.1f,%.1f baseBounds=%v",
+			displayWidth, displayHeight, item.Width, item.Height, scaleX, scaleY,
+			scaledOffsetX, scaledOffsetY, baseImg.Bounds())
+	}
+
+	// Draw the frame at the calculated scaled position with scaling applied
+	opts := &ebiten.DrawImageOptions{}
+	opts.GeoM.Scale(scaleX, scaleY)
+	opts.GeoM.Translate(scaledOffsetX, scaledOffsetY)
+
+	scaledImg.DrawImage(baseImg, opts)
+
+	m.movieCache[key] = scaledImg
+	return scaledImg, nil
 }
 
 func movieClipFrameKey(item *assets.PackageItem, frame *assets.MovieClipFrame) string {

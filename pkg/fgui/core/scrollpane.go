@@ -311,6 +311,51 @@ func (p *ScrollPane) SetPercY(value float64, _ bool) {
 	p.setPos(p.xPos, value*p.overlapSize.Y)
 }
 
+// ScrollToRect scrolls the viewport so the specified rectangle becomes visible.
+// The rectangle is expressed in the owner's local coordinates.
+func (p *ScrollPane) ScrollToRect(x, y, width, height float64, _ bool) {
+	if p == nil {
+		return
+	}
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	targetX := p.xPos
+	targetY := p.yPos
+	viewW := p.viewSize.X
+	viewH := p.viewSize.Y
+	if viewW > 0 {
+		visibleRight := p.xPos + viewW
+		rectRight := x + width
+		if width >= viewW {
+			targetX = x
+		} else {
+			if x < p.xPos {
+				targetX = x
+			} else if rectRight > visibleRight {
+				targetX = rectRight - viewW
+			}
+		}
+	}
+	if viewH > 0 {
+		visibleBottom := p.yPos + viewH
+		rectBottom := y + height
+		if height >= viewH {
+			targetY = y
+		} else {
+			if y < p.yPos {
+				targetY = y
+			} else if rectBottom > visibleBottom {
+				targetY = rectBottom - viewH
+			}
+		}
+	}
+	p.SetPos(targetX, targetY, false)
+}
+
 // OnOwnerSizeChanged updates viewport when宿主尺寸发生变化。
 func (p *ScrollPane) OnOwnerSizeChanged() {
 	if p == nil || p.owner == nil {

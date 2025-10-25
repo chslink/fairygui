@@ -3,6 +3,7 @@ package widgets
 import (
 	"math"
 
+	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/utils"
@@ -115,6 +116,7 @@ func (l *GLoader) SetPackageItem(item *assets.PackageItem) {
 		}
 	}
 	l.updateAutoSize()
+	l.updateLayout() // 确保 updateGraphics 被调用
 }
 
 // PackageItem returns the resolved package item.
@@ -192,7 +194,11 @@ func (l *GLoader) SetColor(value string) {
 	if value == "" {
 		value = "#ffffff"
 	}
+	if l.color == value {
+		return
+	}
 	l.color = value
+	l.updateGraphics()
 }
 
 // Color returns the tint colour string.
@@ -633,4 +639,101 @@ func (l *GLoader) updateLayout() {
 			l.component.SetScale(sx, sy)
 		}
 	}
+
+	// 更新 Graphics 命令（仅用于简单图像和 Scale9）
+	l.updateGraphics()
+}
+
+// updateGraphics 生成 Graphics 命令用于渲染
+// 注意：仅处理简单图像和 Scale9 模式，MovieClip 和 FillMethod 仍使用旧渲染路径
+func (l *GLoader) updateGraphics() {
+	if l == nil || l.GObject == nil {
+		return
+	}
+
+	sprite := l.GObject.DisplayObject()
+	if sprite == nil {
+		return
+	}
+
+	sprite.SetMouseEnabled(l.GObject.Touchable())
+
+	// 获取或创建 Graphics
+	gfx := sprite.Graphics()
+	gfx.Clear()
+
+	// Component、MovieClip 和 FillMethod 不使用命令模式
+	if l.component != nil || l.movieClip != nil || l.fillMethod != LoaderFillMethodNone {
+		sprite.Repaint()
+		return
+	}
+
+	// 没有纹理，不生成命令
+	if l.packageItem == nil {
+		sprite.Repaint()
+		return
+	}
+
+	// MovieClip 类型使用旧渲染路径
+	if l.packageItem.Type == assets.PackageItemTypeMovieClip {
+		sprite.Repaint()
+		return
+	}
+
+	// 确定渲染模式
+	mode := l.determineMode()
+
+	// 获取内容尺寸和偏移
+	dstW, dstH := l.ContentSize()
+	offsetX, offsetY := l.ContentOffset()
+
+	// 构建纹理命令
+	cmd := laya.TextureCommand{
+		Texture: l.packageItem,
+		Mode:    mode,
+		Dest: laya.Rect{
+			W: dstW,
+			H: dstH,
+		},
+		Color:          l.color,
+		ScaleX:         1.0, // GLoader 的翻转通过 DisplayObject 处理
+		ScaleY:         1.0,
+		OffsetX:        offsetX,
+		OffsetY:        offsetY,
+		ScaleByTile:    l.scaleByTile,
+		TileGridIndice: l.tileGridIndice,
+	}
+
+	// 设置 Scale9Grid（如果存在）
+	if grid := l.Scale9Grid(); grid != nil {
+		cmd.Scale9Grid = &laya.Rect{
+			X: float64(grid.X),
+			Y: float64(grid.Y),
+			W: float64(grid.Width),
+			H: float64(grid.Height),
+		}
+	} else if l.packageItem.Scale9Grid != nil {
+		// 使用 PackageItem 的 Scale9Grid
+		cmd.Scale9Grid = &laya.Rect{
+			X: float64(l.packageItem.Scale9Grid.X),
+			Y: float64(l.packageItem.Scale9Grid.Y),
+			W: float64(l.packageItem.Scale9Grid.Width),
+			H: float64(l.packageItem.Scale9Grid.Height),
+		}
+	}
+
+	// 记录命令
+	gfx.DrawTexture(cmd)
+	sprite.Repaint()
+}
+
+// determineMode 根据配置确定渲染模式
+func (l *GLoader) determineMode() laya.TextureCommandMode {
+	if l.Scale9Grid() != nil || l.packageItem.Scale9Grid != nil {
+		return laya.TextureModeScale9
+	}
+	if l.scaleByTile {
+		return laya.TextureModeTile
+	}
+	return laya.TextureModeSimple
 }

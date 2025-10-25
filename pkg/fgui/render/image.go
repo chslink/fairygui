@@ -412,23 +412,28 @@ func tileImagePatchWithFlip(target *ebiten.Image, posGeo, flipGeo ebiten.GeoM, i
 		return
 	}
 
-	// 检查是否需要翻转
-	needFlip := false
+	// 检查是否需要翻转或颜色效果
 	flipScaleX := flipGeo.Element(0, 0)
 	flipScaleY := flipGeo.Element(1, 1)
-	if flipScaleX < 0 || flipScaleY < 0 {
-		needFlip = true
-	}
+	needFlip := flipScaleX < 0 || flipScaleY < 0
+	needColorEffect := tint != nil || alpha != 1.0 || sprite != nil
 
-	// 如果需要翻转，先创建翻转后的源图像
+	// 如果需要任何效果，先创建处理后的单个元素图像
 	var processedImg *ebiten.Image
-	if needFlip {
+	if needFlip || needColorEffect {
 		processedImg = ebiten.NewImage(int(sw), int(sh))
 		opts := &ebiten.DrawImageOptions{}
+
 		// 构建围绕中心点的翻转变换
-		opts.GeoM.Translate(-sw/2, -sh/2)
-		opts.GeoM.Scale(flipScaleX, flipScaleY)
-		opts.GeoM.Translate(sw/2, sh/2)
+		if needFlip {
+			opts.GeoM.Translate(-sw/2, -sh/2)
+			opts.GeoM.Scale(flipScaleX, flipScaleY)
+			opts.GeoM.Translate(sw/2, sh/2)
+		}
+
+		// 应用颜色效果（翻转和颜色同时应用到单个元素）
+		applyTintColor(opts, tint, alpha, sprite)
+
 		processedImg.DrawImage(sourceImg, opts)
 	} else {
 		processedImg = sourceImg
@@ -502,9 +507,7 @@ func tileImagePatchWithFlip(target *ebiten.Image, posGeo, flipGeo ebiten.GeoM, i
 
 			opts := &ebiten.DrawImageOptions{}
 			opts.GeoM = local
-			// 翻转已在预处理阶段应用，这里只应用颜色效果
-			applyTintColor(opts, tint, alpha, sprite)
-
+			// 所有效果（翻转、颜色）已在 processedImg 中应用，这里直接绘制
 			target.DrawImage(croppedTile, opts)
 		}
 	}
