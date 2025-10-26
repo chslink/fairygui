@@ -1,6 +1,8 @@
 package laya
 
-import "math"
+import (
+	"math"
+)
 
 // BlendMode enumerates available blending operations.
 type BlendMode int
@@ -20,6 +22,7 @@ type Sprite struct {
 	alpha         float64
 	name          string
 	mouseEnabled  bool
+	mouseThrough  bool // 允许鼠标事件穿透到子对象
 	position      Point
 	rawPosition   Point
 	scaleX        float64
@@ -183,6 +186,18 @@ func (s *Sprite) MouseEnabled() bool {
 // SetMouseEnabled toggles participation in hit testing for this sprite.
 func (s *Sprite) SetMouseEnabled(enabled bool) {
 	s.mouseEnabled = enabled
+}
+
+// MouseThrough returns whether mouse events pass through to children.
+// When true, this sprite won't intercept mouse events, allowing children to receive them.
+func (s *Sprite) MouseThrough() bool {
+	return s.mouseThrough
+}
+
+// SetMouseThrough sets whether mouse events pass through to children.
+// When true, this sprite won't intercept mouse events, allowing children to receive them.
+func (s *Sprite) SetMouseThrough(through bool) {
+	s.mouseThrough = through
 }
 
 // SetScrollRect defines the clipping rectangle applied to this sprite.
@@ -584,6 +599,10 @@ func (s *Sprite) HitTest(global Point) *Sprite {
 		return nil
 	}
 	if !s.mouseEnabled {
+		return nil
+	}
+	// 如果设置了 mouseThrough，则不拦截事件，允许穿透
+	if s.mouseThrough {
 		return nil
 	}
 	return s

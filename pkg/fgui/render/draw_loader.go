@@ -37,6 +37,7 @@ func renderLoader(target *ebiten.Image, loader *widgets.GLoader, atlas *AtlasMan
 	if loader == nil {
 		return nil
 	}
+
 	if comp := loader.Component(); comp != nil {
 		return drawComponent(target, comp, atlas, parentGeo, alpha)
 	}
@@ -426,7 +427,9 @@ func renderLoaderMovieClip(target *ebiten.Image, loader *widgets.GLoader, item *
 
 	// Get current frame from internal MovieClip if available (for animation)
 	var frame *assets.MovieClipFrame
-	if mc := loader.MovieClip(); mc != nil {
+	mc := loader.MovieClip()
+
+	if mc != nil {
 		frame = mc.CurrentFrame()
 	}
 	// Fallback to first frame if MovieClip not available or frame is nil
@@ -523,7 +526,7 @@ func renderLoaderMovieClip(target *ebiten.Image, loader *widgets.GLoader, item *
 		dstH = sourceHeight
 	}
 
-	// Calculate scale
+	// Calculate scale (frame to destination size, without contentScale)
 	sx := 1.0
 	sy := 1.0
 	if sourceWidth > 0 {
@@ -533,38 +536,15 @@ func renderLoaderMovieClip(target *ebiten.Image, loader *widgets.GLoader, item *
 		sy = dstH / sourceHeight
 	}
 
-	// Apply content scale
-	contentScaleX, contentScaleY := loader.ContentScale()
-	if contentScaleX != 0 {
-		sx *= contentScaleX
-	}
-	if contentScaleY != 0 {
-		sy *= contentScaleY
-	}
-
-	// Build geometry
-	geo := parentGeo
-	if contentScaleX != 0 || contentScaleY != 0 {
-		if contentScaleX == 0 {
-			contentScaleX = 1
-		}
-		if contentScaleY == 0 {
-			contentScaleY = 1
-		}
-		geo.Scale(contentScaleX, contentScaleY)
-	}
-
-	// Apply content offset
-	if ox, oy := loader.ContentOffset(); ox != 0 || oy != 0 {
-		geo.Translate(ox, oy)
-	}
-
-	// Apply scaling to transform the frame to MovieClip dimensions
-	// Note: Frame offset is already handled in the aligned image creation
-	// The ResolveMovieClipFrameAligned method creates an image where the frame
-	// is positioned correctly within the MovieClip bounds
+	// Build geometry - construct local transform first, then apply parent
+	// Note: ContentSize() already includes scaling, so we don't apply ContentScale() again
+	// Correct order: frame scale → frame offset → content offset → parent transform
 	local := ebiten.GeoM{}
+
+	// 1. Scale frame to destination size
 	local.Scale(sx, sy)
+
+	// 2. Frame offset (only for non-aligned mode)
 	if !useAligned {
 		offsetX := float64(frame.OffsetX) * sx
 		offsetY := float64(frame.OffsetY) * sy
@@ -572,11 +552,19 @@ func renderLoaderMovieClip(target *ebiten.Image, loader *widgets.GLoader, item *
 		if frame.Sprite != nil {
 			off := frame.Sprite.Offset
 			if off.X != 0 || off.Y != 0 {
-				geo.Translate(float64(off.X)*sx, float64(off.Y)*sy)
+				local.Translate(float64(off.X), float64(off.Y))
 			}
 		}
 	}
-	geo.Concat(local)
+
+	// 3. Content offset
+	if ox, oy := loader.ContentOffset(); ox != 0 || oy != 0 {
+		local.Translate(ox, oy)
+	}
+
+	// 4. Apply parent transform
+	local.Concat(parentGeo)
+	geo := local
 
 	// Handle fill method if specified
 	method := int(loader.FillMethod())

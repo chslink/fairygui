@@ -88,6 +88,10 @@ func NewText() *GTextField {
 	field.widthAutoSize = true
 	field.heightAutoSize = true
 	field.GObject.SetData(field)
+	// 修复：文本是显示性组件，不应该拦截鼠标事件，设置mouseThrough=true让事件穿透到父组件
+	if sprite := field.GObject.DisplayObject(); sprite != nil {
+		sprite.SetMouseThrough(true)
+	}
 	return field
 }
 

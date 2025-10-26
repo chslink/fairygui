@@ -9,17 +9,18 @@ import (
 // GComponent is a container object capable of holding child objects.
 type GComponent struct {
 	*GObject
-	container       *laya.Sprite
-	scrollPane      *ScrollPane
-	children        []*GObject
-	controllers     []*Controller
-	opaque          bool
-	mask            *GObject
-	maskReversed    bool
-	hitTest         HitTest
-	transitions     []TransitionInfo
-	transitionList  []*Transition
-	transitionCache map[string]*Transition
+	container          *laya.Sprite
+	scrollPane         *ScrollPane
+	children           []*GObject
+	controllers        []*Controller
+	opaque             bool
+	mask               *GObject
+	maskReversed       bool
+	hitTest            HitTest
+	transitions        []TransitionInfo
+	transitionList     []*Transition
+	transitionCache    map[string]*Transition
+	sortingChildCount  int // Number of children with sortingOrder > 0
 }
 
 // HitTestMode enumerates supported hit-test strategies.
@@ -50,8 +51,17 @@ func NewGComponent() *GComponent {
 		GObject:   base,
 		container: base.DisplayObject(),
 		hitTest:   HitTest{Mode: HitTestModeNone},
+		opaque:    false, // 修复：默认opaque=false，与TypeScript版本一致，避免容器拦截子元素事件
 	}
 	base.SetData(comp)
+
+	// 参考 TypeScript 原版：GComponent.ts createDisplayObject()
+	// opaque=false时，mouseThrough=true，让事件穿透到子元素
+	if sprite := base.DisplayObject(); sprite != nil {
+		sprite.SetMouseEnabled(true)
+		sprite.SetMouseThrough(true) // opaque=false → mouseThrough=true
+	}
+
 	return comp
 }
 
@@ -172,6 +182,7 @@ func (c *GComponent) AddChild(child *GObject) {
 }
 
 // AddChildAt inserts a child at the given index.
+// If child has sortingOrder > 0, the index is adjusted to maintain sorted order.
 func (c *GComponent) AddChildAt(child *GObject, index int) {
 	if child == nil {
 		return
@@ -179,11 +190,25 @@ func (c *GComponent) AddChildAt(child *GObject, index int) {
 	if child.parent != nil {
 		child.parent.RemoveChild(child)
 	}
+
+	cnt := len(c.children)
 	if index < 0 {
 		index = 0
-	} else if index > len(c.children) {
-		index = len(c.children)
+	} else if index > cnt {
+		index = cnt
 	}
+
+	// Handle sortingOrder: children with sortingOrder > 0 are kept sorted at the end
+	if child.sortingOrder != 0 {
+		c.sortingChildCount++
+		index = c.getInsertPosForSortingChild(child)
+	} else if c.sortingChildCount > 0 {
+		// Non-sorting children must be inserted before sorting children
+		if index > (cnt - c.sortingChildCount) {
+			index = cnt - c.sortingChildCount
+		}
+	}
+
 	child.parent = c
 	c.children = append(c.children, nil)
 	copy(c.children[index+1:], c.children[index:])
@@ -215,6 +240,12 @@ func (c *GComponent) RemoveChildAt(index int) {
 	}
 	child := c.children[index]
 	child.parent = nil
+
+	// Update sorting child count if necessary
+	if child.sortingOrder != 0 {
+		c.sortingChildCount--
+	}
+
 	if container := c.childContainer(); container != nil && child.DisplayObject() != nil {
 		container.RemoveChild(child.DisplayObject())
 	}
@@ -400,7 +431,16 @@ func (c *GComponent) SetOpaque(value bool) {
 	if c == nil {
 		return
 	}
+	if c.opaque == value {
+		return
+	}
 	c.opaque = value
+	// 参考 TypeScript 原版：GComponent.ts set opaque()
+	// opaque = true 时，mouseThrough = false（拦截事件）
+	// opaque = false 时，mouseThrough = true（穿透事件）
+	if sprite := c.DisplayObject(); sprite != nil {
+		sprite.SetMouseThrough(!value)
+	}
 }
 
 // Opaque reports whether the component blocks pointer events.
@@ -499,6 +539,95 @@ func (c *GComponent) SetupAfterAdd(buf *utils.ByteBuffer, start int, resolver Ma
 		pixelResolver.Configure(c, hit, data)
 	}
 	c.setupTransitions(buf, start)
+}
+
+// getInsertPosForSortingChild finds the correct insertion position for a child with sortingOrder > 0.
+// Children with sortingOrder are maintained in ascending order at the end of the children array.
+func (c *GComponent) getInsertPosForSortingChild(target *GObject) int {
+	if c == nil || target == nil {
+		return 0
+	}
+	cnt := len(c.children)
+	for i := 0; i < cnt; i++ {
+		child := c.children[i]
+		if child == target {
+			continue
+		}
+		if target.sortingOrder < child.sortingOrder {
+			return i
+		}
+	}
+	return cnt
+}
+
+// childSortingOrderChanged is called when a child's sortingOrder changes.
+// It repositions the child within the children array to maintain sorted order.
+func (c *GComponent) childSortingOrderChanged(child *GObject, oldValue, newValue int) {
+	if c == nil || child == nil {
+		return
+	}
+
+	// Find current index
+	oldIndex := -1
+	for i, ch := range c.children {
+		if ch == child {
+			oldIndex = i
+			break
+		}
+	}
+	if oldIndex == -1 {
+		return
+	}
+
+	// Handle transition from/to sortingOrder = 0
+	if newValue == 0 {
+		// Child no longer has sortingOrder, move to end of non-sorting section
+		c.sortingChildCount--
+		newIndex := len(c.children) - c.sortingChildCount - 1
+		c.setChildIndex(child, oldIndex, newIndex)
+	} else {
+		if oldValue == 0 {
+			// Child now has sortingOrder for the first time
+			c.sortingChildCount++
+		}
+		// Find new position based on sortingOrder
+		newIndex := c.getInsertPosForSortingChild(child)
+		if oldIndex < newIndex {
+			c.setChildIndex(child, oldIndex, newIndex-1)
+		} else {
+			c.setChildIndex(child, oldIndex, newIndex)
+		}
+	}
+}
+
+// setChildIndex moves a child from oldIndex to newIndex in the children array.
+func (c *GComponent) setChildIndex(child *GObject, oldIndex, newIndex int) {
+	if c == nil || child == nil || oldIndex == newIndex {
+		return
+	}
+	if oldIndex < 0 || oldIndex >= len(c.children) {
+		return
+	}
+	if newIndex < 0 {
+		newIndex = 0
+	} else if newIndex >= len(c.children) {
+		newIndex = len(c.children) - 1
+	}
+
+	// Remove from old position
+	copy(c.children[oldIndex:], c.children[oldIndex+1:])
+	c.children = c.children[:len(c.children)-1]
+
+	// Insert at new position
+	c.children = append(c.children, nil)
+	copy(c.children[newIndex+1:], c.children[newIndex:])
+	c.children[newIndex] = child
+
+	// Update display object order if needed
+	if container := c.childContainer(); container != nil && child.DisplayObject() != nil {
+		container.RemoveChild(child.DisplayObject())
+		container.AddChild(child.DisplayObject())
+	}
 }
 
 // MaskResolver resolves mask children by index.

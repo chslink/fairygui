@@ -44,7 +44,7 @@ type GLoader struct {
 
 // NewLoader creates a loader widget.
 func NewLoader() *GLoader {
-	return &GLoader{
+	loader := &GLoader{
 		GObject:       core.NewGObject(),
 		fill:          LoaderFillNone,
 		align:         LoaderAlignLeft,
@@ -55,6 +55,11 @@ func NewLoader() *GLoader {
 		color:         "#ffffff",
 		fillMethod:    LoaderFillMethodNone,
 	}
+	// 修复：加载器是显示性组件，不应该拦截鼠标事件，设置mouseThrough=true让事件穿透到父组件
+	if sprite := loader.GObject.DisplayObject(); sprite != nil {
+		sprite.SetMouseThrough(true)
+	}
+	return loader
 }
 
 // LoaderFillType describes how the loader fits content to its bounds.
@@ -151,9 +156,14 @@ func (l *GLoader) MovieClip() *GMovieClip {
 	return l.movieClip
 }
 
-// SetURL stores the loader url (ui:// or external). External URLs are not yet handled.
+// SetURL stores the loader url (ui:// or external) and loads the content.
+// External URLs are not yet handled.
 func (l *GLoader) SetURL(url string) {
+	if l.url == url {
+		return
+	}
 	l.url = url
+	l.loadContent()
 }
 
 // URL returns the current loader URL.
@@ -736,4 +746,71 @@ func (l *GLoader) determineMode() laya.TextureCommandMode {
 		return laya.TextureModeTile
 	}
 	return laya.TextureModeSimple
+}
+
+// loadContent 加载 URL 指定的内容
+// 参考 TypeScript GLoader.ts:218-228
+func (l *GLoader) loadContent() {
+	if l == nil {
+		return
+	}
+
+	// 清理旧内容
+	l.clearContent()
+
+	// 检查 URL
+	if l.url == "" {
+		return
+	}
+
+	// 根据 URL 类型加载
+	if len(l.url) >= 5 && l.url[:5] == "ui://" {
+		l.loadFromPackage(l.url)
+	} else {
+		// 外部 URL 暂不支持
+		// l.loadExternal()
+	}
+}
+
+// clearContent 清理加载器的当前内容
+func (l *GLoader) clearContent() {
+	if l == nil {
+		return
+	}
+
+	// 清理 MovieClip
+	if l.movieClip != nil {
+		l.movieClip.SetPlaying(false)
+		l.movieClip = nil
+	}
+
+	// 清理 Component
+	if l.component != nil {
+		if l.component.DisplayObject() != nil && l.DisplayObject() != nil {
+			l.DisplayObject().RemoveChild(l.component.DisplayObject())
+		}
+		l.component = nil
+	}
+
+	// 清理 PackageItem
+	l.packageItem = nil
+}
+
+// loadFromPackage 从 UIPackage 加载资源
+// 参考 TypeScript GLoader.ts:230-276
+func (l *GLoader) loadFromPackage(itemURL string) {
+	if l == nil {
+		return
+	}
+
+	// 通过 URL 获取 PackageItem
+	item := assets.GetItemByURL(itemURL)
+	if item == nil {
+		return
+	}
+
+	// 设置 PackageItem
+	l.SetPackageItem(item)
+
+	// autoSize 会在 SetPackageItem → updateAutoSize 中处理
 }

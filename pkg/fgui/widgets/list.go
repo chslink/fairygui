@@ -90,7 +90,7 @@ const (
 
 // NewList constructs an empty list widget.
 func NewList() *GList {
-	return &GList{
+	list := &GList{
 		GComponent:    core.NewGComponent(),
 		selected:      -1,
 		lastSelected:  -1,
@@ -99,6 +99,9 @@ func NewList() *GList {
 		align:         LoaderAlignLeft,
 		verticalAlign: LoaderAlignTop,
 	}
+	// 参考 TypeScript 原版：GList.ts 构造函数中设置 opaque=true
+	list.GComponent.SetOpaque(true)
+	return list
 }
 
 // SetPackageItem stores the component package item used by this list.

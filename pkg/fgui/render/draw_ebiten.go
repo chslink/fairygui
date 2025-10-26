@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
-	"log"
 	"math"
 	"os"
 	"strconv"
@@ -72,6 +71,9 @@ func DrawComponent(target *ebiten.Image, root *core.GComponent, atlas *AtlasMana
 
 func drawComponent(target *ebiten.Image, comp *core.GComponent, atlas *AtlasManager, parentGeo ebiten.GeoM, parentAlpha float64) error {
 	for _, child := range comp.Children() {
+		if child == nil {
+			continue
+		}
 		if err := drawObject(target, child, atlas, parentGeo, parentAlpha); err != nil {
 			return err
 		}
@@ -119,40 +121,75 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 				if !renderGraphicsSprite(target, sprite, combined, alpha) {
 					return fmt.Errorf("failed to render graphics command type %d", cmd.Type)
 				}
-				return nil // renderGraphicsSprite 已处理所有矢量命令
+				// ✅ 矢量命令处理完成后，继续渲染子对象
+				// 需要处理所有可能包含子对象的容器类型
+				switch data := obj.Data().(type) {
+				case *core.GComponent:
+					return drawComponent(target, data, atlas, combined, alpha)
+				case *widgets.GButton:
+					// 设置鼠标事件启用
+					if sprite := obj.DisplayObject(); sprite != nil {
+						sprite.SetMouseEnabled(true)
+					}
+					return drawComponent(target, data.GComponent, atlas, combined, alpha)
+				case *widgets.GComboBox:
+					if root := data.ComponentRoot(); root != nil {
+						return drawComponent(target, root, atlas, combined, alpha)
+					}
+				case *widgets.GList:
+					fmt.Printf("[DEBUG GList] (vector path) rendering GList: name=%s, children=%d\n",
+						obj.Name(), len(data.GComponent.Children()))
+					return drawComponent(target, data.GComponent, atlas, combined, alpha)
+				case *widgets.GTree:
+					return drawComponent(target, data.GComponent, atlas, combined, alpha)
+				}
+				return nil
 			}
 		}
 		// 命令处理完成，检查是否还需要递归渲染子对象
-		if comp, ok := obj.Data().(*core.GComponent); ok {
-			return drawComponent(target, comp, atlas, combined, alpha)
+		// 需要处理所有可能包含子对象的容器类型
+		switch data := obj.Data().(type) {
+		case *core.GComponent:
+			return drawComponent(target, data, atlas, combined, alpha)
+		case *widgets.GButton:
+			// GButton 内嵌 GComponent，渲染其子对象
+			// 设置鼠标事件启用
+			if sprite := obj.DisplayObject(); sprite != nil {
+				sprite.SetMouseEnabled(true)
+			}
+			return drawComponent(target, data.GComponent, atlas, combined, alpha)
+		case *widgets.GComboBox:
+			// GComboBox 也是容器
+			if root := data.ComponentRoot(); root != nil {
+				return drawComponent(target, root, atlas, combined, alpha)
+			}
+		case *widgets.GList:
+			// GList 也是容器
+			fmt.Printf("[DEBUG GList] rendering GList: name=%s, children=%d\n",
+				obj.Name(), len(data.GComponent.Children()))
+			return drawComponent(target, data.GComponent, atlas, combined, alpha)
+		case *widgets.GTree:
+			// GTree 也是容器
+			return drawComponent(target, data.GComponent, atlas, combined, alpha)
 		}
 		return nil
 	}
 
-	// ⚠️ 以下是旧的类型分发逻辑（兼容尚未迁移的 Widget）
+	// ✅ Widget 类型分发：处理各种 Widget 的专门渲染逻辑
+	// Graphics 命令已在上面统一处理，这里处理特殊 Widget 和兼容路径
 	w := obj.Width()
 	h := obj.Height()
 	if w <= 0 {
-		switch data := obj.Data().(type) {
-		case *assets.PackageItem:
+		if data, ok := obj.Data().(*assets.PackageItem); ok {
 			if data != nil && data.Sprite != nil {
 				w = float64(data.Sprite.Rect.Width)
-			}
-		case *widgets.GImage:
-			if pkg := data.PackageItem(); pkg != nil && pkg.Sprite != nil {
-				w = float64(pkg.Sprite.Rect.Width)
 			}
 		}
 	}
 	if h <= 0 {
-		switch data := obj.Data().(type) {
-		case *assets.PackageItem:
+		if data, ok := obj.Data().(*assets.PackageItem); ok {
 			if data != nil && data.Sprite != nil {
 				h = float64(data.Sprite.Rect.Height)
-			}
-		case *widgets.GImage:
-			if pkg := data.PackageItem(); pkg != nil && pkg.Sprite != nil {
-				h = float64(pkg.Sprite.Rect.Height)
 			}
 		}
 	}
@@ -163,13 +200,9 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			return err
 		}
 	case *widgets.GImage:
-		// ⚠️ GImage 已迁移到命令模式，这里是兼容路径
-		if gfx == nil || gfx.IsEmpty() {
-			// 如果没有命令，使用旧渲染路径
-			if err := renderImageWidget(target, data, atlas, combined, alpha, sprite); err != nil {
-				return err
-			}
-		}
+		// ✅ GImage 已完全迁移到命令模式
+		// updateGraphics() 总是生成 TextureCommand（除非 packageItem == nil）
+		// 命令由统一的 TextureRenderer 处理
 	case *widgets.GMovieClip:
 		if err := renderMovieClipWidget(target, data, atlas, combined, alpha, sprite); err != nil {
 			return err
@@ -255,6 +288,13 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		if err := renderGraph(target, data, combined, alpha, sprite); err != nil {
 			return err
 		}
+	case *widgets.GList:
+		// GList 内嵌 GComponent，渲染其子对象
+		fmt.Printf("[DEBUG GList] (widget path) rendering GList: name=%s, children=%d\n",
+			obj.Name(), len(data.GComponent.Children()))
+		if err := drawComponent(target, data.GComponent, atlas, combined, alpha); err != nil {
+			return err
+		}
 	case *widgets.GComboBox:
 		if root := data.ComponentRoot(); root != nil {
 			if err := drawComponent(target, root, atlas, combined, alpha); err != nil {
@@ -273,158 +313,6 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 	return nil
 }
 
-func renderImageWidget(target *ebiten.Image, widget *widgets.GImage, atlas *AtlasManager, parentGeo ebiten.GeoM, alpha float64, sprite *laya.Sprite) error {
-	if widget == nil {
-		return nil
-	}
-	item := widget.PackageItem()
-	if item == nil {
-		return nil
-	}
-	spriteAny, err := atlas.ResolveSprite(item)
-	if err != nil {
-		return err
-	}
-	img, ok := spriteAny.(*ebiten.Image)
-	if !ok || img == nil {
-		return errors.New("render: atlas returned unexpected sprite type for image")
-	}
-
-	tint := parseColor(widget.Color())
-
-	bounds := img.Bounds()
-	srcW := float64(bounds.Dx())
-	srcH := float64(bounds.Dy())
-	dstW := widget.Width()
-	dstH := widget.Height()
-	if dstW <= 0 {
-		dstW = srcW
-	}
-	if dstH <= 0 {
-		dstH = srcH
-	}
-
-	geo := parentGeo
-	if sprite := item.Sprite; sprite != nil {
-		if sprite.Offset.X != 0 || sprite.Offset.Y != 0 {
-			geo.Translate(float64(sprite.Offset.X), float64(sprite.Offset.Y))
-		}
-	}
-
-	// 处理翻转：构建局部翻转变换，然后应用到parentGeo之前
-	var localGeo ebiten.GeoM
-	if flip := widget.Flip(); flip != widgets.FlipTypeNone {
-		scaleX := 1.0
-		scaleY := 1.0
-		tx := 0.0
-		ty := 0.0
-		if flip == widgets.FlipTypeHorizontal || flip == widgets.FlipTypeBoth {
-			scaleX = -1
-			tx = dstW
-		}
-		if flip == widgets.FlipTypeVertical || flip == widgets.FlipTypeBoth {
-			scaleY = -1
-			ty = dstH
-		}
-		localGeo.Scale(scaleX, scaleY)
-		localGeo.Translate(tx, ty)
-	}
-
-	if grid := item.Scale9Grid; grid != nil {
-		left := clampFloat(float64(grid.X), 0, srcW)
-		top := clampFloat(float64(grid.Y), 0, srcH)
-		right := clampFloat(srcW-float64(grid.X+grid.Width), 0, srcW)
-		bottom := clampFloat(srcH-float64(grid.Y+grid.Height), 0, srcH)
-		slice := nineSlice{
-			left:   int(left),
-			right:  int(right),
-			top:    int(top),
-			bottom: int(bottom),
-		}
-		scaleByTile, tileGrid := widget.ScaleSettings()
-		debugLabel := fmt.Sprintf("image=%s", item.ID)
-		if debugNineSlice {
-			logKey := fmt.Sprintf("scale9:%s:%.1fx%.1f:%d:%d:%d:%d:%t:%d", item.ID, dstW, dstH, slice.left, slice.right, slice.top, slice.bottom, scaleByTile, tileGrid)
-			if prev, ok := lastNineSliceLog.Load(item.ID); !ok || prev != logKey {
-				log.Printf("[render][9slice] id=%s dst=%.1fx%.1f src=%dx%d slice={L:%d R:%d T:%d B:%d} tile=%v grid=%d",
-					item.ID, dstW, dstH, bounds.Dx(), bounds.Dy(), slice.left, slice.right, slice.top, slice.bottom, scaleByTile, tileGrid)
-				lastNineSliceLog.Store(item.ID, logKey)
-			}
-		}
-		// 组合变换：localGeo（翻转）在parentGeo（位置/旋转）之前应用
-		combinedGeo := ebiten.GeoM{}
-		combinedGeo.Concat(localGeo)
-		combinedGeo.Concat(geo)
-		drawNineSlice(target, combinedGeo, img, slice, dstW, dstH, alpha, tint, scaleByTile, tileGrid, sprite, debugLabel)
-		if debugNineSliceOverlayEnabled {
-			drawNineSliceOverlay(target, geo, slice, dstW, dstH)
-		}
-		if debugNineSlice {
-			x0, y0 := geo.Apply(0, 0)
-			x1, y1 := geo.Apply(dstW, 0)
-			x2, y2 := geo.Apply(dstW, dstH)
-			x3, y3 := geo.Apply(0, dstH)
-			rectKey := fmt.Sprintf("scale9rect:%s:%.1fx%.1f:%.1f,%.1f:%.1f,%.1f:%.1f,%.1f:%.1f,%.1f", item.ID, dstW, dstH, x0, y0, x1, y1, x2, y2, x3, y3)
-			if prev, ok := textureRectLog.Load(item.ID); !ok || prev != rectKey {
-				log.Printf("[render][rect] id=%s corners=(%.1f,%.1f)-(%.1f,%.1f)-(%.1f,%.1f)-(%.1f,%.1f)", item.ID, x0, y0, x1, y1, x2, y2, x3, y3)
-				textureRectLog.Store(item.ID, rectKey)
-			}
-		}
-		return nil
-	}
-
-	// 检查是否需要平铺渲染（针对没有 Scale9Grid 但设置了 ScaleByTile 的图片）
-	scaleByTile, tileGrid := widget.ScaleSettings()
-	if scaleByTile && item.Scale9Grid == nil {
-		// 对于平铺图片，使用整个图片作为中心区域进行平铺
-		debugLabel := fmt.Sprintf("tileimage=%s", item.ID)
-		if debugNineSlice {
-			logKey := fmt.Sprintf("tile:%s:%.1fx%.1f:%t:%d", item.ID, dstW, dstH, scaleByTile, tileGrid)
-			if prev, ok := lastNineSliceLog.Load(item.ID); !ok || prev != logKey {
-				log.Printf("[render][tile] id=%s dst=%.1fx%.1f src=%dx%d tile=%v grid=%d",
-					item.ID, dstW, dstH, bounds.Dx(), bounds.Dy(), scaleByTile, tileGrid)
-				lastNineSliceLog.Store(item.ID, logKey)
-			}
-		}
-		// 平铺渲染时，只应用位置变换，翻转变换在 tileImagePatch 中单独处理
-		// 使用完整的源图像区域
-		tileImagePatchWithFlip(target, geo, localGeo, img, 0, 0, float64(bounds.Dx()), float64(bounds.Dy()), 0, 0, dstW, dstH, alpha, tint, sprite, debugLabel)
-		return nil
-	}
-
-	sx := 1.0
-	sy := 1.0
-	if srcW > 0 {
-		sx = dstW / srcW
-	}
-	if srcH > 0 {
-		sy = dstH / srcH
-	}
-	// 组合变换：先应用缩放和翻转（localGeo），再应用父级变换（geo）
-	scaleGeo := ebiten.GeoM{}
-	scaleGeo.Scale(sx, sy)
-	scaleGeo.Concat(localGeo)
-	scaleGeo.Concat(geo)
-	renderImageWithGeo(target, img, scaleGeo, alpha, tint, sprite)
-	if debugNineSlice {
-		logKey := fmt.Sprintf("simple:%s:%.1fx%.1f:%.2f:%.2f", item.ID, dstW, dstH, sx, sy)
-		if prev, ok := lastNineSliceLog.Load(item.ID); !ok || prev != logKey {
-			log.Printf("[render][image] id=%s simple-scale dst=%.1fx%.1f src=%dx%d scale=(%.2f,%.2f)",
-				item.ID, dstW, dstH, bounds.Dx(), bounds.Dy(), sx, sy)
-			lastNineSliceLog.Store(item.ID, logKey)
-		}
-		x0, y0 := scaleGeo.Apply(0, 0)
-		x1, y1 := scaleGeo.Apply(1, 0)
-		x2, y2 := scaleGeo.Apply(1, 1)
-		x3, y3 := scaleGeo.Apply(0, 1)
-		rectKey := fmt.Sprintf("simpleRect:%s:%.1fx%.1f:%.2f:%.2f:%.1f,%.1f:%.1f,%.1f:%.1f,%.1f:%.1f,%.1f", item.ID, dstW, dstH, sx, sy, x0, y0, x1, y1, x2, y2, x3, y3)
-		if prev, ok := textureRectLog.Load(item.ID); !ok || prev != rectKey {
-			log.Printf("[render][rect] id=%s corners=(%.1f,%.1f)-(%.1f,%.1f)-(%.1f,%.1f)-(%.1f,%.1f)", item.ID, x0, y0, x1, y1, x2, y2, x3, y3)
-			textureRectLog.Store(item.ID, rectKey)
-		}
-	}
-	return nil
-}
 
 func renderMovieClipWidget(target *ebiten.Image, widget *widgets.GMovieClip, atlas *AtlasManager, parentGeo ebiten.GeoM, alpha float64, sprite *laya.Sprite) error {
 	if widget == nil {

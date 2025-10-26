@@ -82,6 +82,12 @@ func NewButton() *GButton {
 	btn.titleColor = "#ffffff"
 	btn.titleFontSize = 12
 	btn.GComponent.SetData(btn)
+	// 修复：按钮是交互式组件，需要拦截鼠标事件
+	// 虽然TypeScript版本没有显式设置，但按钮需要能够接收点击
+	btn.GComponent.GObject.SetTouchable(true)
+	if sprite := btn.GComponent.GObject.DisplayObject(); sprite != nil {
+		sprite.SetMouseThrough(false)
+	}
 	btn.bindEvents()
 	return btn
 }

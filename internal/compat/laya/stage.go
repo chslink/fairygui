@@ -205,6 +205,7 @@ func (s *Stage) handleMouseInput(mouse MouseState) {
 		s.touchSeq++
 		s.activeID = s.touchSeq
 		downEvent := s.pointerEvent(point, target, actual, s.mouse, s.activeID, TouchPhaseBegin)
+
 		if target != nil {
 			target.EmitWithBubble(EventMouseDown, downEvent)
 			target.EmitWithBubble(EventTouchBegin, downEvent)

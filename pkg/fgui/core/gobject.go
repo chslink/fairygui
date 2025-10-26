@@ -81,6 +81,7 @@ type GObject struct {
 	shakeOffsetY       float64
 	customData         string
 	blendMode          BlendMode
+	sortingOrder       int // Z-order for rendering and interaction (0 = normal order)
 }
 
 type ownerSizeChanged interface {
@@ -1283,4 +1284,33 @@ func toFloat(value any) (float64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// SortingOrder returns the Z-order value used for rendering and interaction.
+// Objects with higher values are rendered later (on top).
+// Default is 0, which means use insertion order.
+func (g *GObject) SortingOrder() int {
+	if g == nil {
+		return 0
+	}
+	return g.sortingOrder
+}
+
+// SetSortingOrder updates the Z-order value and repositions the object within its parent's children array.
+// Objects with sortingOrder > 0 are maintained in ascending order at the end of the children array.
+func (g *GObject) SetSortingOrder(value int) {
+	if g == nil {
+		return
+	}
+	if value < 0 {
+		value = 0
+	}
+	if g.sortingOrder == value {
+		return
+	}
+	oldValue := g.sortingOrder
+	g.sortingOrder = value
+	if g.parent != nil {
+		g.parent.childSortingOrderChanged(g, oldValue, value)
+	}
 }

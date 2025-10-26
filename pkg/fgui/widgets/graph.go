@@ -42,6 +42,10 @@ func NewGraph() *GGraph {
 		fillColor: "#ffffff",
 	}
 	obj.SetData(graph)
+	// 修复：图形是显示性组件，不应该拦截鼠标事件，设置mouseThrough=true让事件穿透到父组件
+	if sprite := obj.DisplayObject(); sprite != nil {
+		sprite.SetMouseThrough(true)
+	}
 	return graph
 }
 

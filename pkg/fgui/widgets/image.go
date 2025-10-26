@@ -38,6 +38,10 @@ func NewImage() *GImage {
 		color:   "#ffffff",
 	}
 	img.GObject.SetData(img)
+	// 修复：图片是显示性组件，不应该拦截鼠标事件，设置mouseThrough=true让事件穿透到父组件
+	if sprite := img.GObject.DisplayObject(); sprite != nil {
+		sprite.SetMouseThrough(true)
+	}
 	return img
 }
 

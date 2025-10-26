@@ -1,6 +1,8 @@
 package laya
 
-import "reflect"
+import (
+	"reflect"
+)
 
 // EventType identifies an event emitted by the compatibility layer.
 type EventType string
@@ -122,6 +124,7 @@ func (d *BasicEventDispatcher) Emit(evt EventType, data any) {
 	if len(list) == 0 {
 		return
 	}
+
 	event := Event{Type: evt, Data: data}
 	remaining := list[:0]
 	for _, entry := range list {
