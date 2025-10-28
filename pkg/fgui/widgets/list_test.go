@@ -264,3 +264,55 @@ func TestListControllerRetainsPageAfterClear(t *testing.T) {
 		t.Fatalf("expected list selection cleared, got %d", list.SelectedIndex())
 	}
 }
+
+// TestListSetVirtualPreservesEventListeners 验证切换虚拟化状态时事件监听器被正确保留
+// 这是对 list.go:1126 修复的回归测试
+func TestListSetVirtualPreservesEventListeners(t *testing.T) {
+	list := NewList()
+	list.GComponent.GObject.SetSize(200, 100)
+
+	// 添加两个项目
+	itemA := core.NewGObject()
+	itemA.SetSize(60, 40)
+	itemA.SetPosition(10, 10)
+	list.AddItem(itemA)
+
+	itemB := core.NewGObject()
+	itemB.SetSize(60, 40)
+	itemB.SetPosition(90, 10)
+	list.AddItem(itemB)
+
+	// 创建测试环境
+	env := testutil.NewStageEnv(t, 240, 120)
+	env.Stage.AddChild(list.GComponent.GObject.DisplayObject())
+
+	// 验证初始点击事件工作正常
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 40, Y: 30, Primary: true})
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 40, Y: 30, Primary: false})
+	if idx := list.SelectedIndex(); idx != 0 {
+		t.Fatalf("expected selected index 0 before virtualization, got %d", idx)
+	}
+
+	// 启用虚拟化
+	list.SetVirtual(true)
+	// 注意：虚拟化模式下需要设置 itemRenderer 和其他配置
+	// 这里只是测试切换逻辑，不测试虚拟化的完整功能
+
+	// 禁用虚拟化 - 这里是关键：修复前会丢失事件监听器
+	list.SetVirtual(false)
+
+	// 清除之前的选择
+	list.ClearSelection()
+
+	// 验证禁用虚拟化后点击事件仍然有效
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 120, Y: 30, Primary: true})
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 120, Y: 30, Primary: false})
+
+	// 关键断言：如果修复正确，应该能选中第二个项目
+	if idx := list.SelectedIndex(); idx != 1 {
+		t.Fatalf("expected selected index 1 after disabling virtualization (event listeners should be restored), got %d", idx)
+	}
+	if list.SelectedItem() != itemB {
+		t.Fatalf("expected selected item to be itemB after disabling virtualization")
+	}
+}

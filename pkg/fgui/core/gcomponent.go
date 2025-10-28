@@ -123,15 +123,18 @@ func (c *GComponent) SetupScroll(buf *utils.ByteBuffer) {
 	scrollBarDisplay := int(buf.ReadByte())
 	flags := buf.ReadInt32()
 	if buf.ReadBool() {
-		_ = buf.ReadInt32()
-		_ = buf.ReadInt32()
-		_ = buf.ReadInt32()
-		_ = buf.ReadInt32()
+		_ = buf.ReadInt32() // scrollBarMargin.top
+		_ = buf.ReadInt32() // scrollBarMargin.bottom
+		_ = buf.ReadInt32() // scrollBarMargin.left
+		_ = buf.ReadInt32() // scrollBarMargin.right
 	}
-	_ = buf.ReadS()
-	_ = buf.ReadS()
-	_ = buf.ReadS()
-	_ = buf.ReadS()
+	vtScrollBarRes := buf.ReadS()  // 垂直滚动条资源 URL
+	hzScrollBarRes := buf.ReadS()  // 水平滚动条资源 URL
+	headerRes := buf.ReadS()       // header 资源 URL
+	footerRes := buf.ReadS()       // footer 资源 URL
+	_ = headerRes
+	_ = footerRes
+
 
 	mode := ScrollTypeBoth
 	switch scrollTypeValue {
@@ -144,7 +147,21 @@ func (c *GComponent) SetupScroll(buf *utils.ByteBuffer) {
 	if pane == nil {
 		return
 	}
+
+	// 保存滚动条配置
+	pane.scrollBarDisplay = scrollBarDisplay
+	if vtScrollBarRes != nil {
+		pane.vtScrollBarURL = *vtScrollBarRes
+	}
+	if hzScrollBarRes != nil {
+		pane.hzScrollBarURL = *hzScrollBarRes
+	}
+
+	// 解析 flags
 	pane.SetMouseWheelEnabled(scrollBarDisplay != int(ScrollBarDisplayHidden))
+	if flags&1 != 0 {
+		pane.displayOnLeft = true
+	}
 	if flags&2 != 0 {
 		pane.snapToItem = true
 	}
@@ -159,6 +176,9 @@ func (c *GComponent) SetupScroll(buf *utils.ByteBuffer) {
 	}
 	if flags&256 != 0 {
 		pane.inertiaDisabled = true
+	}
+	if flags&1024 != 0 {
+		pane.floating = true
 	}
 	pane.OnOwnerSizeChanged()
 }
@@ -628,6 +648,30 @@ func (c *GComponent) setChildIndex(child *GObject, oldIndex, newIndex int) {
 		container.RemoveChild(child.DisplayObject())
 		container.AddChild(child.DisplayObject())
 	}
+}
+
+// ViewWidth returns the width of the scrollable view port if available, otherwise the component width.
+// 对应 TypeScript 版本的 get viewWidth() 方法 (GComponent.ts:871-876)
+func (c *GComponent) ViewWidth() float64 {
+	if c == nil {
+		return 0
+	}
+	if c.scrollPane != nil {
+		return c.scrollPane.ViewWidth()
+	}
+	return c.Width()
+}
+
+// ViewHeight returns the height of the scrollable view port if available, otherwise the component height.
+// 对应 TypeScript 版本的 get viewHeight() 方法 (GComponent.ts:885-890)
+func (c *GComponent) ViewHeight() float64 {
+	if c == nil {
+		return 0
+	}
+	if c.scrollPane != nil {
+		return c.scrollPane.ViewHeight()
+	}
+	return c.Height()
 }
 
 // MaskResolver resolves mask children by index.

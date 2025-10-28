@@ -11,6 +11,7 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 
+	"github.com/chslink/fairygui/demo/debug"
 	"github.com/chslink/fairygui/demo/scenes"
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui"
@@ -53,6 +54,7 @@ type game struct {
 	height     int
 	lastUpdate time.Time
 	keysDown   map[ebiten.Key]bool // 跟踪按键状态,避免重复触发
+	debug      *debug.Server       // 调试服务器
 }
 
 func newGame(ctx context.Context) (*game, error) {
@@ -81,6 +83,14 @@ func newGame(ctx context.Context) (*game, error) {
 	stageRoot.GObject.SetData(stageRoot)
 	root.AddChild(stageRoot.GObject)
 
+	// 启动调试服务器 - 监控manager的stage而不是root
+	debugServer := debug.NewServer(stageRoot, 8090)
+	if err := debugServer.Start(); err != nil {
+		log.Printf("warning: failed to start debug server: %v", err)
+	} else {
+		log.Printf("debug server started at %s", debugServer.GetURL())
+	}
+
 	return &game{
 		root:     root,
 		manager:  manager,
@@ -88,6 +98,7 @@ func newGame(ctx context.Context) (*game, error) {
 		width:    manager.Width(),
 		height:   manager.Height(),
 		keysDown: make(map[ebiten.Key]bool),
+		debug:    debugServer,
 	}, nil
 }
 
@@ -222,6 +233,7 @@ func (g *game) keyboardEvents() []laya.KeyboardEvent {
 		ebiten.KeyV:         laya.KeyCodeV,
 		ebiten.KeyX:         laya.KeyCodeX,
 		ebiten.KeyZ:         laya.KeyCodeZ,
+		ebiten.KeyF1:        laya.KeyCodeF1, // 添加F1键用于显示调试信息
 	}
 
 	// 遍历所有按键,检测状态变化
@@ -231,6 +243,10 @@ func (g *game) keyboardEvents() []laya.KeyboardEvent {
 
 		// 按键刚按下(按下事件)
 		if isPressed && !wasPressed {
+			// 特殊处理F1键 - 显示调试信息
+			if ebitenKey == ebiten.KeyF1 {
+				g.showDebugInfo()
+			}
 			events = append(events, laya.KeyboardEvent{
 				Code:      layaCode,
 				Down:      true,
@@ -251,6 +267,36 @@ func (g *game) keyboardEvents() []laya.KeyboardEvent {
 	}
 
 	return events
+}
+
+// showDebugInfo 显示调试信息
+func (g *game) showDebugInfo() {
+	if g.debug == nil || !g.debug.IsEnabled() {
+		log.Println("调试服务器未启用")
+		return
+	}
+
+	url := g.debug.GetURL()
+	log.Printf("=== FairyGUI Debug Information ===")
+	log.Printf("🌐 Debug Server: %s", url)
+	log.Printf("📊 Tree View: %s/tree", url)
+	log.Printf("📋 JSON API: %s/api/tree", url)
+	log.Printf("🔄 Virtual Lists: %s/api/virtual-lists", url)
+	log.Printf("=====================================")
+
+	// 显示当前场景信息
+	if g.manager != nil {
+		currentScene := g.manager.Current()
+		if currentScene != nil {
+			log.Printf("🎮 Current Scene: %s", currentScene.Name())
+		}
+
+		// 显示根组件的子对象数量
+		if g.root != nil {
+			childrenCount := len(g.root.Children())
+			log.Printf("🏗️  Root Children: %d", childrenCount)
+		}
+	}
 }
 
 func frameDelta(previous time.Time, now time.Time) time.Duration {

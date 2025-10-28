@@ -24,6 +24,59 @@ type Factory struct {
 	packageDirs     map[string]string
 	loader          assets.Loader
 	loaderRoot      string
+
+	// 性能优化：包状态缓存
+	loadedPackages  map[string]bool // 已加载Atlas的包
+	registeredFonts map[string]bool // 已注册字体的包
+}
+
+// FactoryObjectCreator 将Factory包装为ObjectCreator，用于GList虚拟列表
+type FactoryObjectCreator struct {
+	factory *Factory
+	pkg     *assets.Package
+	ctx     context.Context
+}
+
+// CreateObject 实现ObjectCreator接口
+func (c *FactoryObjectCreator) CreateObject(url string) *core.GObject {
+	if c.factory == nil {
+		return nil
+	}
+
+	var item *assets.PackageItem
+
+	// 首先尝试全局URL查找（支持ui://packageId/itemId格式）
+	if strings.HasPrefix(url, "ui://") {
+		item = assets.GetItemByURL(url)
+	}
+
+	// 如果没找到，尝试在当前包中查找
+	if item == nil && c.pkg != nil {
+		// 尝试通过名称查找
+		item = c.pkg.ItemByName(url)
+		if item == nil {
+			// 尝试通过ID查找
+			item = c.pkg.ItemByID(url)
+		}
+	}
+
+	if item == nil {
+		return nil
+	}
+
+	// 确定使用哪个包
+	pkg := c.pkg
+	if item.Owner != nil {
+		pkg = item.Owner
+	}
+
+	// 使用Factory构建组件
+	comp, err := c.factory.BuildComponent(c.ctx, pkg, item)
+	if err != nil {
+		return nil
+	}
+
+	return comp.GObject
 }
 
 // AtlasResolver fetches renderable sprites (build-tagged implementation lives under render package).
@@ -43,6 +96,8 @@ func NewFactory(resolver AtlasResolver, pkgResolver PackageResolver) *Factory {
 		packagesByID:    make(map[string]*assets.Package),
 		packagesByName:  make(map[string]*assets.Package),
 		packageDirs:     make(map[string]string),
+		loadedPackages:  make(map[string]bool),
+		registeredFonts: make(map[string]bool),
 	}
 }
 
@@ -83,6 +138,71 @@ func (f *Factory) RegisterPackage(pkg *assets.Package) {
 	assets.RegisterPackage(pkg)
 }
 
+// ensurePackageReady 确保包已准备好（Atlas已加载、已注册、字体已注册）
+// 使用缓存避免重复操作，提升构建性能
+func (f *Factory) ensurePackageReady(ctx context.Context, pkg *assets.Package) error {
+	if pkg == nil {
+		return nil
+	}
+
+	// 生成包键（优先使用ID，其次使用Name）
+	pkgKey := pkg.ID
+	if pkgKey == "" {
+		pkgKey = pkg.Name
+	}
+	if pkgKey == "" {
+		return nil // 匿名包，跳过缓存
+	}
+
+	// 只加载一次Atlas（避免重复加载纹理）
+	if f.atlasManager != nil && !f.loadedPackages[pkgKey] {
+		if err := f.atlasManager.LoadPackage(ctx, pkg); err != nil {
+			return err
+		}
+		f.loadedPackages[pkgKey] = true
+	}
+
+	// 注册包（内部会检查重复）
+	f.RegisterPackage(pkg)
+
+	// 只注册一次字体（避免重复注册）
+	if !f.registeredFonts[pkgKey] {
+		render.RegisterBitmapFonts(pkg)
+		f.registeredFonts[pkgKey] = true
+	}
+
+	return nil
+}
+
+// extractGComponent 从 widget 中提取 GComponent
+func extractGComponent(widget interface{}) *core.GComponent {
+	if widget == nil {
+		return nil
+	}
+	switch w := widget.(type) {
+	case *core.GComponent:
+		return w
+	case *widgets.GScrollBar:
+		return w.GComponent
+	case *widgets.GButton:
+		return w.GComponent
+	case *widgets.GLabel:
+		return w.GComponent
+	case *widgets.GList:
+		return w.GComponent
+	case *widgets.GProgressBar:
+		return w.GComponent
+	case *widgets.GSlider:
+		return w.GComponent
+	case *widgets.GComboBox:
+		return w.GComponent
+	case *widgets.GTree:
+		return w.GComponent
+	default:
+		return nil
+	}
+}
+
 // BuildComponent instantiates a component hierarchy for the given package item.
 func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item *assets.PackageItem) (*core.GComponent, error) {
 	if item == nil || item.Type != assets.PackageItemTypeComponent {
@@ -91,17 +211,29 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 	if item.Component == nil {
 		return nil, fmt.Errorf("builder: component data missing for %s", item.Name)
 	}
-	if f.atlasManager != nil {
-		if err := f.atlasManager.LoadPackage(ctx, pkg); err != nil {
-			return nil, err
-		}
+
+	// 优化：使用缓存的包准备方法，避免重复操作
+	if err := f.ensurePackageReady(ctx, pkg); err != nil {
+		return nil, err
 	}
-	f.RegisterPackage(pkg)
 
-	// 注册位图字体
-	render.RegisterBitmapFonts(pkg)
-
-	root := core.NewGComponent()
+	// 根据 ObjectType 创建对应的 widget
+	// 对于特殊类型（如 ScrollBar, Button 等），需要创建对应的 widget 实例
+	var root *core.GComponent
+	widget := widgets.CreateWidgetFromPackage(item)
+	if widget != nil {
+		// 从 widget 中提取 GComponent
+		root = extractGComponent(widget)
+		if root != nil {
+			// 设置 Data 为 widget 实例
+			root.GObject.SetData(widget)
+		} else {
+			// 降级到普通组件
+			root = core.NewGComponent()
+		}
+	} else {
+		root = core.NewGComponent()
+	}
 	root.SetResourceID(item.ID)
 	if item.Component.InitWidth > 0 || item.Component.InitHeight > 0 {
 		root.SetSize(float64(item.Component.InitWidth), float64(item.Component.InitHeight))
@@ -150,6 +282,12 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 	root.SetupAfterAdd(item.RawData, 0, setupResolver, setupResolver)
 
 	f.finalizeComponentSize(root)
+
+	// 创建并绑定滚动条（如果有）
+	if pane := root.ScrollPane(); pane != nil {
+		f.setupScrollBars(ctx, pkg, root, pane)
+	}
+
 	return root, nil
 }
 
@@ -371,6 +509,20 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		widget.SetDefaultItem(child.Data)
 		widget.SetPackageItem(resolvedItem)
 		obj.SetData(widget)
+
+		// 关键修复：应用基础属性（尺寸、位置等）
+		// 对应 TypeScript 版本的 super.setup_beforeAdd 调用
+		obj.ApplyComponentChild(child)
+
+		// 为虚拟列表设置对象创建器
+		// 这样虚拟列表可以动态创建列表项
+		creator := &FactoryObjectCreator{
+			factory: f,
+			pkg:     pkg,
+			ctx:     ctx,
+		}
+		widget.SetObjectCreator(creator)
+
 		if sub != nil {
 			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
 				before.SetupBeforeAdd(ensureCtx(), sub)
@@ -380,6 +532,12 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
 				after.SetupAfterAdd(ensureCtx(), sub)
 			}
+		}
+
+		// SetupBeforeAdd会创建ScrollPane，现在创建滚动条
+		// 对应 TypeScript 版本 ScrollPane.ts:149-178 (构造函数中创建滚动条)
+		if pane := widget.GComponent.ScrollPane(); pane != nil {
+			f.setupScrollBars(ctx, pkg, widget.GComponent, pane)
 		}
 	case *widgets.GProgressBar:
 		obj = widget.GComponent.GObject
@@ -584,11 +742,10 @@ func (f *Factory) resolvePackageItem(ctx context.Context, pkg *assets.Package, o
 				if resolved == nil {
 					continue
 				}
-				f.RegisterPackage(resolved)
-				if f.atlasManager != nil {
-					if err := f.atlasManager.LoadPackage(ctx, resolved); err != nil {
-						fmt.Printf("builder: load dependent package failed: %v\n", err)
-					}
+				// 优化：使用ensurePackageReady避免重复操作
+				if err := f.ensurePackageReady(ctx, resolved); err != nil {
+					fmt.Printf("builder: load dependent package failed: %v\n", err)
+					continue
 				}
 				resolvedPkg = resolved
 				break
@@ -658,13 +815,12 @@ func (f *Factory) resolveIcon(ctx context.Context, owner *assets.Package, icon s
 				fmt.Printf("builder: resolve icon package %s failed: %v\n", pkgKey, err)
 			}
 			if resolved != nil {
-				f.RegisterPackage(resolved)
-				if f.atlasManager != nil {
-					if err := f.atlasManager.LoadPackage(ctx, resolved); err != nil {
-						fmt.Printf("builder: load icon package failed: %v\n", err)
-					}
+				// 优化：使用ensurePackageReady避免重复操作
+				if err := f.ensurePackageReady(ctx, resolved); err != nil {
+					fmt.Printf("builder: load icon package failed: %v\n", err)
+				} else {
+					pkg = resolved
 				}
-				pkg = resolved
 			}
 		}
 		if pkg == nil {
@@ -1585,4 +1741,62 @@ func uniqueStrings(values []string) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+// setupScrollBars 创建并绑定滚动条到ScrollPane
+// 对应 TypeScript 版本 ScrollPane.ts:149-178
+func (f *Factory) setupScrollBars(ctx context.Context, pkg *assets.Package, owner *core.GComponent, pane *core.ScrollPane) {
+	if pane == nil || owner == nil {
+		return
+	}
+
+	vtURL := pane.VtScrollBarURL()
+	hzURL := pane.HzScrollBarURL()
+
+	// 如果滚动条URL为空，使用默认值（对应 TypeScript 版本 ScrollPane.ts:150,160）
+	// TypeScript: var res: string = vtScrollBarRes ? vtScrollBarRes : UIConfig.verticalScrollBar;
+	if vtURL == "" {
+		// 默认垂直滚动条：ui://9leh0eyf/i3s65w (Basics包中的ScrollBar_VT)
+		vtURL = "ui://9leh0eyf/i3s65w"
+	}
+	if hzURL == "" {
+		// 默认水平滚动条：ui://9leh0eyf/i3s65i (Basics包中的ScrollBar_HZ)
+		hzURL = "ui://9leh0eyf/i3s65i"
+	}
+
+	// 创建垂直滚动条
+	if vtURL != "" {
+		if vtItem := f.resolveIcon(ctx, pkg, vtURL); vtItem != nil {
+			targetPkg := vtItem.Owner
+			if targetPkg == nil {
+				targetPkg = pkg
+			}
+			if vtComp, err := f.BuildComponent(ctx, targetPkg, vtItem); err == nil && vtComp != nil {
+				pane.SetVtScrollBar(vtComp.GObject)
+				owner.AddChild(vtComp.GObject)
+				// 调用GScrollBar的SetScrollPane绑定
+				if scrollBar, ok := vtComp.GObject.Data().(*widgets.GScrollBar); ok {
+					scrollBar.SetScrollPane(pane, true) // true = vertical
+				}
+			}
+		}
+	}
+
+	// 创建水平滚动条
+	if hzURL != "" {
+		if hzItem := f.resolveIcon(ctx, pkg, hzURL); hzItem != nil {
+			targetPkg := hzItem.Owner
+			if targetPkg == nil {
+				targetPkg = pkg
+			}
+			if hzComp, err := f.BuildComponent(ctx, targetPkg, hzItem); err == nil && hzComp != nil {
+				pane.SetHzScrollBar(hzComp.GObject)
+				owner.AddChild(hzComp.GObject)
+				// 调用GScrollBar的SetScrollPane绑定
+				if scrollBar, ok := hzComp.GObject.Data().(*widgets.GScrollBar); ok {
+					scrollBar.SetScrollPane(pane, false) // false = horizontal
+				}
+			}
+		}
+	}
 }

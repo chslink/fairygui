@@ -1,4 +1,4 @@
-//go:build ebiten
+
 
 package capture
 

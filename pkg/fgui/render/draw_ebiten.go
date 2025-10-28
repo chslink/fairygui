@@ -137,8 +137,12 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 						return drawComponent(target, root, atlas, combined, alpha)
 					}
 				case *widgets.GList:
-					fmt.Printf("[DEBUG GList] (vector path) rendering GList: name=%s, children=%d\n",
-						obj.Name(), len(data.GComponent.Children()))
+					// 在渲染前检查虚拟列表是否需要刷新
+					if list, ok := obj.Data().(*widgets.GList); ok && list.IsVirtual() {
+						list.CheckVirtualList()
+					}
+					//fmt.Printf("[DEBUG GList] (vector path) rendering GList: name=%s, children=%d\n",
+					//	obj.Name(), len(data.GComponent.Children()))
 					return drawComponent(target, data.GComponent, atlas, combined, alpha)
 				case *widgets.GTree:
 					return drawComponent(target, data.GComponent, atlas, combined, alpha)
@@ -165,8 +169,8 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			}
 		case *widgets.GList:
 			// GList 也是容器
-			fmt.Printf("[DEBUG GList] rendering GList: name=%s, children=%d\n",
-				obj.Name(), len(data.GComponent.Children()))
+			//fmt.Printf("[DEBUG GList] rendering GList: name=%s, children=%d\n",
+			//	obj.Name(), len(data.GComponent.Children()))
 			return drawComponent(target, data.GComponent, atlas, combined, alpha)
 		case *widgets.GTree:
 			// GTree 也是容器
@@ -290,8 +294,12 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		}
 	case *widgets.GList:
 		// GList 内嵌 GComponent，渲染其子对象
-		fmt.Printf("[DEBUG GList] (widget path) rendering GList: name=%s, children=%d\n",
-			obj.Name(), len(data.GComponent.Children()))
+		// 在渲染前检查虚拟列表是否需要刷新
+		if list, ok := obj.Data().(*widgets.GList); ok && list.IsVirtual() {
+			list.CheckVirtualList()
+		}
+		//fmt.Printf("[DEBUG GList] (widget path) rendering GList: name=%s, children=%d\n",
+		//	obj.Name(), len(data.GComponent.Children()))
 		if err := drawComponent(target, data.GComponent, atlas, combined, alpha); err != nil {
 			return err
 		}
@@ -312,7 +320,6 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 
 	return nil
 }
-
 
 func renderMovieClipWidget(target *ebiten.Image, widget *widgets.GMovieClip, atlas *AtlasManager, parentGeo ebiten.GeoM, alpha float64, sprite *laya.Sprite) error {
 	if widget == nil {

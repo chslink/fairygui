@@ -73,6 +73,15 @@ type ScrollPane struct {
 	stageUpListener   laya.Listener
 	scrollListeners   map[int]ScrollListener
 	nextListenerID    int
+
+	// 滚动条相关
+	hzScrollBar      *GObject // 水平滚动条
+	vtScrollBar      *GObject // 垂直滚动条
+	hzScrollBarURL   string   // 水平滚动条资源 URL
+	vtScrollBarURL   string   // 垂直滚动条资源 URL
+	scrollBarDisplay int      // 滚动条显示模式
+	displayOnLeft    bool     // 垂直滚动条是否在左侧显示
+	floating         bool     // 浮动滚动条（不占用 viewSize）
 }
 
 func newScrollPane(owner *GComponent) *ScrollPane {
@@ -222,9 +231,18 @@ func (p *ScrollPane) SetViewSize(width, height float64) {
 	p.refreshOverlap()
 	p.clampPosition()
 	p.notifyScrollListeners()
+	p.updateScrollBars() // 更新滚动条显示百分比
 }
 
 // SetContentSize updates the scrollable content size。
+// ContentSize returns the content dimensions.
+func (p *ScrollPane) ContentSize() laya.Point {
+	if p == nil {
+		return laya.Point{}
+	}
+	return p.contentSize
+}
+
 func (p *ScrollPane) SetContentSize(width, height float64) {
 	if p == nil {
 		return
@@ -239,6 +257,7 @@ func (p *ScrollPane) SetContentSize(width, height float64) {
 	p.refreshOverlap()
 	p.clampPosition()
 	p.notifyScrollListeners()
+	p.updateScrollBars() // 更新滚动条显示百分比
 }
 
 // SetScrollStep sets the per-step scroll amount used for wheel滚动。
@@ -370,6 +389,65 @@ func (p *ScrollPane) Dispose() {
 		return
 	}
 	p.unregisterEvents()
+	// 清理滚动条引用
+	p.hzScrollBar = nil
+	p.vtScrollBar = nil
+}
+
+// SetHzScrollBar 设置水平滚动条。
+func (p *ScrollPane) SetHzScrollBar(bar *GObject) {
+	if p == nil {
+		return
+	}
+	p.hzScrollBar = bar
+}
+
+// SetVtScrollBar 设置垂直滚动条。
+func (p *ScrollPane) SetVtScrollBar(bar *GObject) {
+	if p == nil {
+		return
+	}
+	p.vtScrollBar = bar
+}
+
+// HzScrollBarURL 返回水平滚动条资源 URL。
+func (p *ScrollPane) HzScrollBarURL() string {
+	if p == nil {
+		return ""
+	}
+	return p.hzScrollBarURL
+}
+
+// VtScrollBarURL 返回垂直滚动条资源 URL。
+func (p *ScrollPane) VtScrollBarURL() string {
+	if p == nil {
+		return ""
+	}
+	return p.vtScrollBarURL
+}
+
+// ScrollBarDisplay 返回滚动条显示模式。
+func (p *ScrollPane) ScrollBarDisplay() int {
+	if p == nil {
+		return 0
+	}
+	return p.scrollBarDisplay
+}
+
+// DisplayOnLeft 返回垂直滚动条是否在左侧显示。
+func (p *ScrollPane) DisplayOnLeft() bool {
+	if p == nil {
+		return false
+	}
+	return p.displayOnLeft
+}
+
+// Floating 返回滚动条是否浮动（不占用 viewSize）。
+func (p *ScrollPane) Floating() bool {
+	if p == nil {
+		return false
+	}
+	return p.floating
 }
 
 func (p *ScrollPane) setPos(x, y float64) {
@@ -400,6 +478,7 @@ func (p *ScrollPane) setPos(x, y float64) {
 	if changed {
 		p.applyPosition()
 		p.notifyScrollListeners()
+		p.updateScrollBars() // 更新滚动条位置
 	}
 }
 
@@ -769,4 +848,29 @@ func (p *ScrollPane) snapToNearestPage() {
 		targetY = math.Round(targetY/pageH) * pageH
 	}
 	p.setPos(targetX, targetY)
+}
+
+// updateScrollBars 更新滚动条的位置和显示百分比
+// 对应 TypeScript 版本 ScrollPane.ts:1316-1324 (updateScrollBarPos)
+// 以及 ScrollPane.ts:816-827 (handleSizeChanged中的displayPerc设置)
+func (p *ScrollPane) updateScrollBars() {
+	if p == nil {
+		return
+	}
+
+	info := p.currentScrollInfo()
+
+	// 更新垂直滚动条
+	if p.vtScrollBar != nil {
+		if scrollBar, ok := p.vtScrollBar.Data().(interface{ SyncFromPane(ScrollInfo) }); ok {
+			scrollBar.SyncFromPane(info)
+		}
+	}
+
+	// 更新水平滚动条
+	if p.hzScrollBar != nil {
+		if scrollBar, ok := p.hzScrollBar.Data().(interface{ SyncFromPane(ScrollInfo) }); ok {
+			scrollBar.SyncFromPane(info)
+		}
+	}
 }

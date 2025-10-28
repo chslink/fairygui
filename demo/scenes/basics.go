@@ -216,8 +216,9 @@ func (d *BasicsDemo) initializeDemo(kind string, info *demoInfo) {
 		d.initPopup(info.component)
 	case "Drag&Drop":
 		d.initDragDrop(info.component)
-	case "Loader":
-		d.initLoader(info.component)
+	// 注：Depth 场景需要 sortingOrder 和 draggable 功能，待实现后添加
+	// 注：TypeScript 原版没有实现 Loader、MovieClip、Image、Graph 等场景的交互
+	// 这些场景只展示静态内容，不需要额外初始化
 	default:
 		log.Printf("[basics] demo %s has no explicit init", kind)
 	}
@@ -227,14 +228,15 @@ func (d *BasicsDemo) initButton(component *core.GComponent) {
 	if component == nil {
 		return
 	}
+	// 参考 TypeScript 原版：BasicsDemo.ts playButton()
+	// 只给 n34 添加简单的点击事件
 	target := component.ChildByName("n34")
-	if target == nil {
-		return
-	}
-	if sprite := target.DisplayObject(); sprite != nil {
-		sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
-			log.Printf("[basics] button clicked")
-		})
+	if target != nil {
+		if sprite := target.DisplayObject(); sprite != nil {
+			sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+				log.Printf("[basics] ✅ click button - EVENT RECEIVED!")
+			})
+		}
 	}
 }
 
@@ -334,6 +336,13 @@ func (d *BasicsDemo) initGrid(component *core.GComponent) {
 		if cb := item.ChildByName("cb"); cb != nil {
 			if btn, ok := cb.Data().(*widgets.GButton); ok {
 				btn.SetSelected(false)
+			}
+		}
+		// 参考 TypeScript 原版：BasicsDemo.ts playGrid()
+		// 设置 MovieClip 的播放状态：偶数索引播放，奇数索引停止
+		if mc := item.ChildByName("mc"); mc != nil {
+			if clip, ok := mc.Data().(*widgets.GMovieClip); ok && clip != nil {
+				clip.SetPlaying(idx%2 == 0)
 			}
 		}
 		setComponentText(item, "t1", names[idx])
@@ -1353,16 +1362,3 @@ func listItemTitle(list *widgets.GList, index int) string {
 	return fmt.Sprintf("#%d", index+1)
 }
 
-func (d *BasicsDemo) initLoader(component *core.GComponent) {
-	if component == nil {
-		return
-	}
-	// Loader 场景主要展示不同配置的资源加载能力:
-	// n1: 基础静态图片 (r3.png)
-	// n2: 缩放模式图片 (r3.png, fill="scale")
-	// n3: 2倍缩放居中对齐图片 (r4.png)
-	// n4: MovieClip 动画 (nlge1k.jta)
-	// n5: 居中对齐的 MovieClip (pet.jta)
-	// 所有资源都通过 ui:// URL 自动加载,无需额外初始化
-	log.Printf("[basics] Loader demo initialized with 5 loader instances")
-}

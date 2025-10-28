@@ -37,6 +37,7 @@ const (
 	KeyCodeV         KeyCode = 86
 	KeyCodeX         KeyCode = 88
 	KeyCodeZ         KeyCode = 90
+	KeyCodeF1        KeyCode = 112
 )
 
 // KeyboardEvent carries keyboard input details dispatched by the stage.

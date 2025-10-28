@@ -1,13 +1,25 @@
 package widgets
 
 import (
+	"log"
+	"math"
 	"sort"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/gears"
 	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
+
+// globalObjectPool 全局对象池，供所有GList实例共享
+// 这样可以最大化对象重用效率，避免每个列表都创建自己的池
+var globalObjectPool *GObjectPool
+
+// init 初始化全局对象池
+func init() {
+	globalObjectPool = NewGObjectPool()
+}
 
 // ListLayoutType mirrors FairyGUI 的列表布局枚举。
 type ListLayoutType int
@@ -37,7 +49,7 @@ type ListMargin struct {
 	Right  int
 }
 
-// GList represents a minimal list widget backed by a component package item.
+// GList represents a list widget with virtual list support.
 type GList struct {
 	*core.GComponent
 	packageItem    *assets.PackageItem
@@ -68,6 +80,33 @@ type GList struct {
 	overflow       assets.OverflowType
 	scrollToView   bool
 	foldInvisible  bool
+
+	// 虚拟化支持 - 对应 TypeScript 版本的核心字段
+	virtual            bool        // 是否启用虚拟化
+	loop               bool        // 是否循环
+	numItems           int         // 数据项总数
+	realNumItems       int         // 实际项数（循环模式）
+	firstIndex         int         // 左上角索引
+	curLineItemCount   int         // 每行项目数
+	curLineItemCount2  int         // 只用在页面模式，表示垂直方向的项目数
+	itemSize           *laya.Point // 项目尺寸
+	virtualListChanged int         // 1-内容改变, 2-尺寸改变
+	virtualItems       []*ItemInfo // 虚拟项数组
+	itemInfoVer        int         // 项信息版本
+	eventLocked        bool        // 事件锁定
+
+	// 渲染回调
+	itemRenderer func(index int, item *core.GObject) // 项目渲染器
+	itemProvider func(index int) string              // 项目提供者
+	pool         *GObjectPool                        // 对象池
+
+	// 对象创建器，用于动态创建对象
+	creator ObjectCreator // 对象创建器
+
+	// 批量操作标志，用于避免重复计算布局
+	batchAdding bool
+	// 首次布局标志
+	boundsInitialized bool
 }
 
 // ComponentRoot exposes the embedded component for helpers.
@@ -88,7 +127,7 @@ const (
 	ListSelectionModeNone
 )
 
-// NewList constructs an empty list widget.
+// NewList constructs an empty list widget with virtual list support.
 func NewList() *GList {
 	list := &GList{
 		GComponent:    core.NewGComponent(),
@@ -98,6 +137,16 @@ func NewList() *GList {
 		layout:        ListLayoutTypeSingleColumn,
 		align:         LoaderAlignLeft,
 		verticalAlign: LoaderAlignTop,
+		// 关键修复：初始化items数组
+		items:        make([]*core.GObject, 0),
+		itemHandlers: make(map[*core.GObject]laya.Listener),
+		selectedSet:  make(map[int]struct{}),
+		// 虚拟化相关初始化
+		itemSize:     &laya.Point{},
+		virtualItems: make([]*ItemInfo, 0),
+		// 使用全局对象池，而不是每个列表创建独立的池
+		// 这样可以在多个列表间共享相同类型的对象，最大化重用效率
+		pool: globalObjectPool,
 	}
 	// 参考 TypeScript 原版：GList.ts 构造函数中设置 opaque=true
 	list.GComponent.SetOpaque(true)
@@ -132,6 +181,31 @@ func (l *GList) SetResource(res string) {
 // Resource returns the stored raw resource identifier.
 func (l *GList) Resource() string {
 	return l.resource
+}
+
+// SetSize 覆盖 GComponent 的 SetSize 方法，在尺寸变化时触发布局更新
+// 对应 TypeScript 版本中通过 setBoundsChangedFlag() 触发延迟布局的机制
+func (l *GList) SetSize(width, height float64) {
+	if l == nil || l.GComponent == nil {
+		return
+	}
+
+	oldWidth := l.GComponent.Width()
+	oldHeight := l.GComponent.Height()
+
+	// 调用父类 SetSize
+	l.GComponent.SetSize(width, height)
+
+	// 如果不是虚拟列表且有子项，在以下情况触发布局更新：
+	// 1. 尺寸发生变化
+	// 2. 首次调用（boundsInitialized=false）
+	sizeChanged := width != oldWidth || height != oldHeight
+	shouldUpdate := !l.virtual && len(l.items) > 0 && (sizeChanged || !l.boundsInitialized)
+
+	if shouldUpdate {
+		l.updateBounds()
+		l.boundsInitialized = true
+	}
 }
 
 // SetSelectionMode updates the list selection strategy.
@@ -220,6 +294,12 @@ func (l *GList) InsertItemAt(obj *core.GObject, index int) {
 			}
 		}
 		l.selectedSet = updated
+	}
+
+	// 对应 TypeScript 版本 GComponent.addChildAt 中的 setBoundsChangedFlag() 调用
+	// 添加子项后需要重新计算布局（除非在批量添加中或视口尺寸未设置）
+	if !l.virtual && !l.batchAdding && l.GComponent.ViewWidth() > 0 {
+		l.updateBounds()
 	}
 }
 
@@ -820,41 +900,240 @@ func (l *GList) SetupBeforeAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	if buf.Remaining() < 2 {
 		return
 	}
-	cnt := int(buf.ReadInt16())
-	for i := 0; i < cnt; i++ {
-		if buf.Remaining() < 2 {
-			break
-		}
-		nextPos := int(buf.ReadInt16()) + buf.Pos()
-		if buf.Remaining() >= 2 {
-			_ = buf.ReadS()
-		}
-		if nextPos < 0 || nextPos > buf.Len() {
-			break
-		}
-		_ = buf.SetPos(nextPos)
-	}
+	// 读取并创建列表项 - 这是关键缺失功能
+	l.readItems(buf)
 }
 
 // SetupAfterAdd 在组件加入父对象后应用控制器索引等设置。
+// 对应TypeScript版本的setup_afterAdd方法(GList.ts:2368-2376)
 func (l *GList) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	if l == nil || buf == nil {
 		return
 	}
 	saved := buf.Pos()
 	defer func() { _ = buf.SetPos(saved) }()
+
+	// 注意：buf 是 SubBuffer，起始位置为 0，所以 Seek(0, 6) 是正确的
+	// 这与 TypeScript 中的 buffer.seek(beginPos, 6) 等价
 	if !buf.Seek(0, 6) || buf.Remaining() < 2 {
 		return
 	}
+
 	index := int(buf.ReadInt16())
-	if index < 0 || ctx == nil || ctx.Parent == nil {
+	// TypeScript 原版: if (i != -1)
+	// 即：只有当索引为 -1 时才跳过设置控制器
+	if index != -1 {
+		// 安全检查：确保父组件和控制器有效
+		if ctx != nil && ctx.Parent != nil {
+			controllers := ctx.Parent.Controllers()
+			if index >= 0 && index < len(controllers) {
+				// TypeScript 原版: this._selectionController = this._parent.getControllerAt(i)
+				l.SetSelectionController(controllers[index])
+			}
+		}
+	}
+
+	// 备用布局触发：如果 SetSize 没有被调用（例如 FUI 中尺寸是负数/自动尺寸）
+	// 在这里作为最后的备份触发一次布局
+	if !l.virtual && len(l.items) > 0 && !l.boundsInitialized {
+		// 对于不依赖容器尺寸的布局类型（SingleColumn/SingleRow），即使尺寸是 0 也触发
+		// 对于 Flow 布局，如果尺寸是 0，尝试从父组件获取参考尺寸
+		canLayout := false
+		switch l.layout {
+		case ListLayoutTypeSingleColumn, ListLayoutTypeSingleRow:
+			canLayout = true // 这些布局不依赖容器尺寸
+		case ListLayoutTypeFlowHorizontal, ListLayoutTypeFlowVertical, ListLayoutTypePagination:
+			// Flow 布局依赖容器尺寸
+			if l.GComponent.Width() > 0 || l.GComponent.Height() > 0 {
+				canLayout = true
+			} else if ctx != nil && ctx.Parent != nil {
+				// 尝试使用父组件的尺寸作为参考
+				parentWidth := ctx.Parent.Width()
+				parentHeight := ctx.Parent.Height()
+				if parentWidth > 0 && parentHeight > 0 {
+					// 设置 GList 尺寸为父组件尺寸，触发布局计算
+					l.GComponent.SetSize(parentWidth, parentHeight)
+					canLayout = true
+				}
+			}
+		}
+
+		if canLayout {
+			l.updateBounds()
+			l.boundsInitialized = true
+		}
+	}
+}
+
+// readItems 读取并创建列表项 - 对应TypeScript版本的readItems方法
+func (l *GList) readItems(buf *utils.ByteBuffer) {
+	if l == nil || buf == nil {
 		return
 	}
-	controllers := ctx.Parent.Controllers()
-	if index >= len(controllers) {
+
+	// 批量添加模式：避免每次 AddItem 都重新计算布局
+	l.batchAdding = true
+	defer func() {
+		l.batchAdding = false
+	}()
+
+	cnt := int(buf.ReadInt16())
+	for i := 0; i < cnt; i++ {
+		if buf.Remaining() < 2 {
+			break
+		}
+		nextPos := int(buf.ReadInt16()) + buf.Pos()
+
+		// 读取项目资源URL
+		str := buf.ReadS()
+		if str == nil || *str == "" {
+			// 如果没有指定资源URL，使用默认项
+			str = &l.defaultItem
+			if str == nil || *str == "" {
+				// 跳过这个项目
+				_ = buf.SetPos(nextPos)
+				continue
+			}
+		}
+
+		// 从对象池获取对象
+		obj := l.getFromPool(*str)
+		if obj != nil {
+			// 关键修复：使用AddItem而不是AddChild，确保items数组被正确更新
+			l.AddItem(obj)
+			// 设置项目属性
+			l.setupItem(buf, obj)
+		}
+
+		_ = buf.SetPos(nextPos)
+	}
+
+	// 注意：不在这里调用 updateBounds()，因为此时组件尺寸还未设置
+	// 将在 SetupAfterAdd 中调用
+}
+
+// setupItem 设置项目属性 - 对应TypeScript版本的setupItem方法
+func (l *GList) setupItem(buf *utils.ByteBuffer, obj *core.GObject) {
+	if l == nil || buf == nil || obj == nil {
 		return
 	}
-	l.SetSelectionController(controllers[index])
+
+	// 读取并设置文本
+	str := buf.ReadS()
+	if str != nil && *str != "" {
+		// 设置对象的文本属性
+		if textField, ok := obj.Data().(*GTextField); ok {
+			textField.SetText(*str)
+		} else if button, ok := obj.Data().(*GButton); ok {
+			button.SetTitle(*str)
+		}
+	}
+
+	// 读取并设置选中标题（仅对按钮有效）
+	str = buf.ReadS()
+	if str != nil && *str != "" {
+		if button, ok := obj.Data().(*GButton); ok {
+			button.SetSelectedTitle(*str)
+		}
+	}
+
+	// 读取并设置图标
+	str = buf.ReadS()
+	if str != nil && *str != "" {
+		if button, ok := obj.Data().(*GButton); ok {
+			button.SetIcon(*str)
+		}
+		// 注意：GImage没有SetURL方法，需要通过PackageItem设置
+		// 这里暂时只处理按钮的图标设置
+	}
+
+	// 读取并设置选中图标（仅对按钮有效）
+	str = buf.ReadS()
+	if str != nil && *str != "" {
+		if button, ok := obj.Data().(*GButton); ok {
+			button.SetSelectedIcon(*str)
+		}
+	}
+
+	// 读取并设置名称
+	str = buf.ReadS()
+	if str != nil && *str != "" {
+		obj.SetName(*str)
+	}
+
+	// 设置控制器状态（仅对组件有效）
+	if comp, ok := obj.Data().(*core.GComponent); ok {
+		// 读取控制器设置
+		cnt := int(buf.ReadInt16())
+		for i := 0; i < cnt; i++ {
+			if buf.Remaining() < 2 {
+				break
+			}
+			ctrlName := buf.ReadS()
+			ctrlPage := buf.ReadS()
+			if ctrlName != nil && ctrlPage != nil {
+				if controller := comp.ControllerByName(*ctrlName); controller != nil {
+					controller.SetSelectedPageID(*ctrlPage)
+				}
+			}
+		}
+
+		// 版本2+：设置子对象属性
+		if buf.Version >= 2 {
+			if buf.Remaining() >= 2 {
+				cnt = int(buf.ReadInt16())
+				for i := 0; i < cnt; i++ {
+					if buf.Remaining() < 6 {
+						break
+					}
+					target := buf.ReadS()
+					propertyId := int(buf.ReadInt16())
+					value := buf.ReadS()
+					if target != nil && value != nil {
+						if obj2 := core.FindChildByPath(comp, *target); obj2 != nil {
+							// 将int转换为ObjectPropID
+							propID := gears.ObjectPropID(propertyId)
+							obj2.SetProp(propID, *value)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// getFromPool 从对象池获取对象 - 对应TypeScript版本的getFromPool
+func (l *GList) getFromPool(url string) *core.GObject {
+	if l == nil {
+		return nil
+	}
+
+	// 优先使用对象池
+	if l.pool != nil {
+		return l.pool.GetObject(url)
+	}
+
+	// 如果没有对象池，使用对象创建器
+	if l.creator != nil {
+		return l.creator.CreateObject(url)
+	}
+
+	return nil
+}
+
+// returnToPool 将对象返回到对象池
+// 对应 TypeScript 版本的 returnToPool 方法 (GList.ts:220-223)
+func (l *GList) returnToPool(obj *core.GObject) {
+	if l == nil || obj == nil {
+		return
+	}
+
+	if l.pool != nil {
+		// TypeScript: obj.displayObject.cacheAs = "none";
+		// 在Go版本中，我们不需要设置cacheAs
+		// TypeScript: this._pool.returnObject(obj);
+		l.pool.ReturnObject(obj)
+	}
 }
 
 func mapListAlign(code int8) LoaderAlign {
@@ -895,4 +1174,575 @@ func clampListLayout(value ListLayoutType) ListLayoutType {
 		return ListLayoutTypeSingleColumn
 	}
 	return value
+}
+
+// =============== 虚拟化相关方法 ===============
+
+// SetVirtual 设置是否启用虚拟化
+// 对应 TypeScript 版本的 _setVirtual 方法 (GList.ts:964-1008)
+func (l *GList) SetVirtual(value bool) {
+	if l.virtual == value {
+		return
+	}
+
+	l.virtual = value
+	if value {
+		// 启用虚拟化
+		log.Printf("🔧 SetVirtual(true) 开始 - 列表名称:%s", l.GComponent.GObject.Name())
+		log.Printf("   状态检查: creator=%v, pool=%v, defaultItem=%s",
+			l.creator != nil, l.pool != nil, l.defaultItem)
+
+		// TypeScript: if (this._scrollPane == null) throw new Error("Virtual list must be scrollable!");
+		scrollPane := l.GComponent.ScrollPane()
+		if scrollPane == nil {
+			log.Printf("⚠️  警告: 虚拟列表必须可滚动! 将创建ScrollPane")
+			log.Printf("   列表尺寸: %.0fx%.0f", l.GComponent.Width(), l.GComponent.Height())
+			// 创建默认的垂直滚动面板
+			scrollPane = l.GComponent.EnsureScrollPane(core.ScrollTypeVertical)
+			log.Printf("   ScrollPane创建后视图尺寸: %.0fx%.0f", scrollPane.ViewWidth(), scrollPane.ViewHeight())
+		} else {
+			// ScrollPane已存在，但需要刷新视图尺寸
+			// 这是关键修复：FUI加载的ScrollPane的viewSize可能未正确初始化
+			log.Printf("   ScrollPane已存在，当前视图尺寸: %.0fx%.0f", scrollPane.ViewWidth(), scrollPane.ViewHeight())
+			scrollPane.SetViewSize(l.GComponent.Width(), l.GComponent.Height())
+			log.Printf("   刷新后视图尺寸: %.0fx%.0f", scrollPane.ViewWidth(), scrollPane.ViewHeight())
+		}
+
+		// 移除所有子对象到对象池
+		// TypeScript: this.removeChildrenToPool();
+		children := l.GComponent.Children()
+		log.Printf("   移除 %d 个现有子对象", len(children))
+		for _, child := range children {
+			if child != nil {
+				l.GComponent.RemoveChild(child)
+			}
+		}
+
+		// 初始化虚拟项数组
+		if l.virtualItems == nil {
+			l.virtualItems = make([]*ItemInfo, 0)
+		}
+
+		// 自动初始化 itemSize
+		// TypeScript: if (this._itemSize == null) { ... }
+		log.Printf("   itemSize检查: %v (X=%.0f, Y=%.0f)",
+			l.itemSize,
+			func() float64 {
+				if l.itemSize != nil {
+					return l.itemSize.X
+				}
+				return 0
+			}(),
+			func() float64 {
+				if l.itemSize != nil {
+					return l.itemSize.Y
+				}
+				return 0
+			}())
+
+		if l.itemSize == nil || (l.itemSize.X == 0 && l.itemSize.Y == 0) {
+			if l.itemSize == nil {
+				l.itemSize = &laya.Point{}
+			}
+
+			// 从对象池获取默认对象来测量尺寸
+			// TypeScript: var obj: GObject = this.getFromPool(null);
+			log.Printf("   尝试从池中获取对象: url=%s", l.defaultItem)
+			obj := l.getFromPool(l.defaultItem)
+			if obj == nil {
+				log.Printf("❌ 错误: 无法获取默认列表项! defaultItem=%s, creator=%v, pool=%v",
+					l.defaultItem, l.creator != nil, l.pool != nil)
+				// 使用默认尺寸避免崩溃
+				l.itemSize.X = 100
+				l.itemSize.Y = 30
+			} else {
+				// TypeScript: this._itemSize.x = obj.width; this._itemSize.y = obj.height;
+				l.itemSize.X = obj.Width()
+				l.itemSize.Y = obj.Height()
+				log.Printf("✅ 成功测量itemSize: %.0fx%.0f", l.itemSize.X, l.itemSize.Y)
+				// TypeScript: this.returnToPool(obj);
+				l.returnToPool(obj)
+			}
+		} else {
+			log.Printf("   itemSize已存在，跳过初始化")
+		}
+
+		// 设置滚动步长
+		// TypeScript: if (this._layout == ListLayoutType.SingleColumn || this._layout == ListLayoutType.FlowHorizontal)
+		if scrollPane != nil {
+			if l.layout == ListLayoutTypeSingleColumn || l.layout == ListLayoutTypeFlowHorizontal {
+				// TypeScript: this._scrollPane.scrollStep = this._itemSize.y;
+				scrollPane.SetScrollStep(l.itemSize.Y)
+			} else {
+				// TypeScript: this._scrollPane.scrollStep = this._itemSize.x;
+				scrollPane.SetScrollStep(l.itemSize.X)
+			}
+		}
+
+		// 设置虚拟列表改变标记
+		l.SetVirtualListChangedFlag(true)
+	} else {
+		// 禁用虚拟化
+		l.ClearVirtualItems()
+		children := l.GComponent.Children()
+		for _, child := range children {
+			if child != nil {
+				l.GComponent.RemoveChild(child)
+			}
+		}
+		// 重新添加现有的items并恢复事件监听
+		for _, item := range l.items {
+			if item != nil {
+				l.GComponent.AddChild(item)
+				l.attachItemClick(item)
+			}
+		}
+	}
+}
+
+// IsVirtual 返回是否启用虚拟化
+func (l *GList) IsVirtual() bool {
+	return l.virtual
+}
+
+// SetLoop 设置是否循环（仅在虚拟模式下有效）
+func (l *GList) SetLoop(value bool) {
+	if !l.virtual {
+		return
+	}
+	if l.loop != value {
+		l.loop = value
+		l.SetVirtualListChangedFlag(true)
+	}
+}
+
+// IsLoop 返回是否循环
+func (l *GList) IsLoop() bool {
+	return l.loop
+}
+
+// ChildrenCount returns the number of child objects in the list.
+func (l *GList) ChildrenCount() int {
+	if l == nil || l.GComponent == nil {
+		return 0
+	}
+	return len(l.GComponent.Children())
+}
+
+// NumItems 返回数据项总数（虚拟模式）
+func (l *GList) NumItems() int {
+	if l.virtual {
+		return l.numItems
+	}
+	return len(l.items)
+}
+
+// SetNumItems 设置数据项总数（虚拟模式）
+func (l *GList) SetNumItems(value int) {
+	if !l.virtual {
+		return
+	}
+
+	if l.numItems == value {
+		return
+	}
+
+	l.numItems = value
+	if l.loop {
+		l.realNumItems = l.numItems * 6 // 设置6倍数量，用于循环滚动
+	} else {
+		l.realNumItems = l.numItems
+	}
+
+	// 重置选择状态
+	l.ClearSelection()
+
+	// 确保虚拟项数组大小
+	l.EnsureVirtualItems(l.realNumItems)
+
+	// 设置虚拟列表改变标记
+	l.SetVirtualListChangedFlag(true)
+}
+
+// SetItemRenderer 设置项目渲染器
+func (l *GList) SetItemRenderer(renderer func(index int, item *core.GObject)) {
+	l.itemRenderer = renderer
+}
+
+// SetItemProvider 设置项目提供者
+func (l *GList) SetItemProvider(provider func(index int) string) {
+	l.itemProvider = provider
+}
+
+// VirtualItemSize 返回虚拟项目尺寸
+func (l *GList) VirtualItemSize() *laya.Point {
+	return l.itemSize
+}
+
+// SetVirtualItemSize 设置虚拟项目尺寸
+func (l *GList) SetVirtualItemSize(value *laya.Point) {
+	if !l.virtual {
+		return
+	}
+	if value != nil {
+		l.itemSize.X = value.X
+		l.itemSize.Y = value.Y
+		l.SetVirtualListChangedFlag(true)
+	}
+}
+
+// SetObjectCreator 设置对象创建器，用于动态创建对象
+func (l *GList) SetObjectCreator(creator ObjectCreator) {
+	l.creator = creator
+	if l.pool != nil {
+		l.pool.creator = creator
+	}
+}
+
+// RefreshVirtualList 刷新虚拟列表
+func (l *GList) RefreshVirtualList() {
+	if !l.virtual {
+		// 如果不是虚拟列表，不做任何操作
+		return
+	}
+
+	// 这里是关键问题！原始代码只是设置了一个标志，但没有实际触发刷新
+	// 现在修改为直接调用刷新方法
+	l.SetVirtualListChangedFlag(false) // 传入false表示内容改变而非布局改变
+	l.refreshVirtualList()             // 直接调用刷新方法
+}
+
+// RefreshVirtualListPublic 刷新虚拟列表（公共方法，兼容旧代码）
+func (l *GList) RefreshVirtualListPublic() {
+	l.RefreshVirtualList()
+}
+
+// =============== 内部辅助方法 ===============
+
+// SetVirtualListChangedFlag 设置虚拟列表改变标记
+func (l *GList) SetVirtualListChangedFlag(layoutChanged bool) {
+	if !l.virtual {
+		return
+	}
+
+	if layoutChanged {
+		l.virtualListChanged = 2
+	} else if l.virtualListChanged == 0 {
+		l.virtualListChanged = 1
+	}
+
+	// 延迟刷新，避免频繁更新
+	// 这里简化处理，直接刷新
+	l.refreshVirtualList()
+}
+
+// CheckVirtualList 检查虚拟列表是否需要刷新
+func (l *GList) CheckVirtualList() bool {
+	if !l.virtual {
+		return false
+	}
+
+	if l.virtualListChanged != 0 {
+		l.refreshVirtualList()
+		return true
+	}
+	return false
+}
+
+// EnsureVirtualItems 确保虚拟项数组大小
+func (l *GList) EnsureVirtualItems(count int) {
+	currentCount := len(l.virtualItems)
+	if currentCount < count {
+		// 扩展数组
+		for i := currentCount; i < count; i++ {
+			l.virtualItems = append(l.virtualItems, &ItemInfo{})
+		}
+	} else if currentCount > count {
+		// 缩容数组
+		l.virtualItems = l.virtualItems[:count]
+	}
+}
+
+// ClearVirtualItems 清空虚拟项
+func (l *GList) ClearVirtualItems() {
+	if l.pool != nil {
+		// 将所有对象返回池中
+		for _, ii := range l.virtualItems {
+			if ii != nil && ii.obj != nil {
+				l.pool.ReturnObject(ii.obj)
+				ii.obj = nil
+			}
+		}
+	}
+	l.virtualItems = make([]*ItemInfo, 0)
+}
+
+// ResetAllUpdateFlags 重置所有更新标记
+func (l *GList) ResetAllUpdateFlags() {
+	l.itemInfoVer++
+}
+
+// IsItemUpdated 检查项是否已更新
+func (l *GList) IsItemUpdated(item *ItemInfo) bool {
+	return item.updateFlag == l.itemInfoVer
+}
+
+// MarkItemUpdated 标记项为已更新
+func (l *GList) MarkItemUpdated(item *ItemInfo) {
+	item.updateFlag = l.itemInfoVer
+}
+
+// OwnerSizeChanged 处理所有者尺寸变化 - 用于虚拟列表刷新
+func (l *GList) OwnerSizeChanged(oldWidth, oldHeight float64) {
+	if l.virtual {
+		// 当列表尺寸变化时，刷新虚拟列表
+		l.SetVirtualListChangedFlag(true)
+	}
+}
+
+// updateBounds 计算并更新非虚拟列表中所有子元素的位置
+// 对应 TypeScript 版本的 GList.updateBounds() 方法 (GList.ts:1919-2100)
+func (l *GList) updateBounds() {
+	if l == nil || l.virtual {
+		return
+	}
+
+	var curX, curY float64 = 0, 0
+	var maxWidth, maxHeight float64 = 0, 0
+	var cw, ch float64
+	var j int = 0 // 当前行/列的项目计数
+
+	cnt := len(l.items)
+	if cnt == 0 {
+		l.setBounds(0, 0, 0, 0)
+		return
+	}
+
+	// 使用视口尺寸，而不是组件总尺寸
+	// 对于有滚动的列表，这是滚动面板的可视区域
+	viewWidth := l.GComponent.ViewWidth()
+	viewHeight := l.GComponent.ViewHeight()
+
+	// 关键修复：如果 ViewWidth/ViewHeight 返回 0，使用组件尺寸作为 fallback
+	// 这处理了 ScrollPane 的 ViewSize 还未初始化的情况
+	if viewWidth == 0 {
+		viewWidth = l.GComponent.Width()
+	}
+	if viewHeight == 0 {
+		viewHeight = l.GComponent.Height()
+	}
+
+	// 处理容器尺寸为 0 的情况
+	// - SingleColumn/SingleRow: 不依赖容器尺寸，可以直接布局
+	// - Flow 布局: 需要容器尺寸来判断换行/换列，如果是 0 则暂时跳过
+	if viewWidth == 0 || viewHeight == 0 {
+		switch l.layout {
+		case ListLayoutTypeSingleColumn, ListLayoutTypeSingleRow:
+			// 这些布局不依赖容器尺寸，允许继续
+			if viewWidth == 0 {
+				viewWidth = 1 // 避免除零错误
+			}
+			if viewHeight == 0 {
+				viewHeight = 1
+			}
+		case ListLayoutTypeFlowHorizontal, ListLayoutTypeFlowVertical, ListLayoutTypePagination:
+			// Flow 布局依赖容器尺寸，如果尺寸无效则跳过
+			log.Printf("⚠️  updateBounds: Flow布局需要有效的容器尺寸，当前 viewSize=%.0fx%.0f，跳过布局",
+				viewWidth, viewHeight)
+			return
+		}
+	}
+
+	switch l.layout {
+	case ListLayoutTypeSingleColumn:
+		// 单列垂直布局
+		for i := 0; i < cnt; i++ {
+			child := l.items[i]
+			if child == nil {
+				continue
+			}
+			if l.foldInvisible && !child.Visible() {
+				continue
+			}
+
+			if curY != 0 {
+				curY += float64(l.lineGap)
+			}
+			child.SetPosition(child.X(), curY)
+			if l.autoResizeItem {
+				child.SetSize(viewWidth, child.Height())
+			}
+			curY += math.Ceil(child.Height())
+			if child.Width() > maxWidth {
+				maxWidth = child.Width()
+			}
+		}
+		ch = curY
+		cw = math.Ceil(maxWidth)
+
+	case ListLayoutTypeSingleRow:
+		// 单行水平布局
+		for i := 0; i < cnt; i++ {
+			child := l.items[i]
+			if child == nil {
+				continue
+			}
+			if l.foldInvisible && !child.Visible() {
+				continue
+			}
+
+			if curX != 0 {
+				curX += float64(l.columnGap)
+			}
+			child.SetPosition(curX, child.Y())
+			if l.autoResizeItem {
+				child.SetSize(child.Width(), viewHeight)
+			}
+			curX += math.Ceil(child.Width())
+			if child.Height() > maxHeight {
+				maxHeight = child.Height()
+			}
+		}
+		cw = curX
+		ch = math.Ceil(maxHeight)
+
+	case ListLayoutTypeFlowHorizontal:
+		// 多列流动布局（水平方向）
+		// 对应 TypeScript: else 分支 (GList.ts:2044-2071)
+		for i := 0; i < cnt; i++ {
+			child := l.items[i]
+			if child == nil {
+				continue
+			}
+			if l.foldInvisible && !child.Visible() {
+				continue
+			}
+
+			if curX != 0 {
+				curX += float64(l.columnGap)
+			}
+
+			// 检查是否需要换行
+			// TypeScript: if (this._columnCount != 0 && j >= this._columnCount
+			//             || this._columnCount == 0 && curX + child.width > viewWidth && maxHeight != 0)
+			willWrap := false
+			if l.columnCount != 0 && j >= l.columnCount {
+				willWrap = true
+			} else if l.columnCount == 0 && curX+child.Width() > viewWidth && maxHeight != 0 {
+				willWrap = true
+			}
+
+			if willWrap {
+				// 换行
+				curX = 0
+				curY += math.Ceil(maxHeight) + float64(l.lineGap)
+				maxHeight = 0
+				j = 0
+			}
+
+			child.SetPosition(curX, curY)
+			curX += math.Ceil(child.Width())
+			if curX > maxWidth {
+				maxWidth = curX
+			}
+			if child.Height() > maxHeight {
+				maxHeight = child.Height()
+			}
+			j++
+		}
+		ch = curY + math.Ceil(maxHeight)
+		cw = math.Ceil(maxWidth)
+
+	case ListLayoutTypeFlowVertical:
+		// 多行流动布局（垂直方向）
+		// 对应 TypeScript: else 分支 (GList.ts:2113-2139)
+		for i := 0; i < cnt; i++ {
+			child := l.items[i]
+			if child == nil {
+				continue
+			}
+			if l.foldInvisible && !child.Visible() {
+				continue
+			}
+
+			if curY != 0 {
+				curY += float64(l.lineGap)
+			}
+
+			// 检查是否需要换列
+			// TypeScript: if (this._lineCount != 0 && j >= this._lineCount
+			//             || this._lineCount == 0 && curY + child.height > viewHeight && maxWidth != 0)
+			if l.lineCount != 0 && j >= l.lineCount ||
+				l.lineCount == 0 && curY+child.Height() > viewHeight && maxWidth != 0 {
+				// 换列
+				curY = 0
+				curX += math.Ceil(maxWidth) + float64(l.columnGap)
+				maxWidth = 0
+				j = 0
+			}
+
+			child.SetPosition(curX, curY)
+			curY += math.Ceil(child.Height())
+			if curY > maxHeight {
+				maxHeight = curY
+			}
+			if child.Width() > maxWidth {
+				maxWidth = child.Width()
+			}
+			j++
+		}
+		cw = curX + math.Ceil(maxWidth)
+		ch = math.Ceil(maxHeight)
+
+	case ListLayoutTypePagination:
+		// 分页布局
+		// 简化处理，暂时按照流动布局处理
+		for i := 0; i < cnt; i++ {
+			child := l.items[i]
+			if child == nil {
+				continue
+			}
+			if l.foldInvisible && !child.Visible() {
+				continue
+			}
+
+			if curX != 0 {
+				curX += float64(l.columnGap)
+			}
+
+			if l.columnCount != 0 && j >= l.columnCount {
+				curX = 0
+				curY += math.Ceil(maxHeight) + float64(l.lineGap)
+				maxHeight = 0
+				j = 0
+			}
+
+			child.SetPosition(curX, curY)
+			curX += math.Ceil(child.Width())
+			if curX > maxWidth {
+				maxWidth = curX
+			}
+			if child.Height() > maxHeight {
+				maxHeight = child.Height()
+			}
+			j++
+		}
+		ch = curY + math.Ceil(maxHeight)
+		cw = math.Ceil(maxWidth)
+	}
+
+	l.setBounds(0, 0, cw, ch)
+}
+
+// setBounds 设置列表内容边界
+// 对应 TypeScript 版本的 GComponent.setBounds() 方法
+func (l *GList) setBounds(ax, ay, aw, ah float64) {
+	if l == nil {
+		return
+	}
+
+	// 如果有滚动面板，更新内容尺寸
+	if pane := l.GComponent.ScrollPane(); pane != nil {
+		pane.SetContentSize(ax+aw, ay+ah)
+	}
 }

@@ -795,7 +795,10 @@ func (g *GObject) ApplyComponentChild(child *assets.ComponentChild) {
 		g.SetName(child.Name)
 	}
 	g.SetPosition(float64(child.X), float64(child.Y))
-	if child.Width >= 0 && child.Height >= 0 {
+	// 对应 TypeScript 版本 GObject.ts:998-1001
+	// 只有当buffer中明确设置了尺寸时才调用SetSize
+	// 避免对自动尺寸组件调用SetSize(0, 0)
+	if child.Width > 0 || child.Height > 0 {
 		g.SetSize(float64(child.Width), float64(child.Height))
 	}
 	g.SetMinSize(float64(child.MinWidth), float64(child.MinHeight))
