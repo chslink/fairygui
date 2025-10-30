@@ -466,13 +466,19 @@ func (t *GTextField) UpdateLayoutMetrics(layoutWidth, layoutHeight, textWidth, t
 }
 
 // SetupBeforeAdd populates text styling metadata from the component buffer.
-func (t *GTextField) SetupBeforeAdd(_ *SetupContext, buf *utils.ByteBuffer) {
+// 对应 TypeScript 版本 GTextField.setup_beforeAdd
+func (t *GTextField) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	if t == nil || buf == nil {
 		return
 	}
+
+	// 首先调用父类处理基础属性（位置、尺寸、旋转等）
+	t.GObject.SetupBeforeAdd(buf, beginPos)
+
+	// 然后处理GTextField特定属性（font, fontSize, color等）
 	saved := buf.Pos()
 	defer func() { _ = buf.SetPos(saved) }()
-	if !buf.Seek(0, 5) {
+	if !buf.Seek(beginPos, 5) {
 		return
 	}
 	if font := buf.ReadS(); font != nil && *font != "" {

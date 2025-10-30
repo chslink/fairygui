@@ -302,13 +302,18 @@ func (m *GMovieClip) SetPlaySettings(start, end, times, endAt int, handler PlayE
 }
 
 // SetupBeforeAdd applies serialized configuration from the component buffer.
-func (m *GMovieClip) SetupBeforeAdd(_ *SetupContext, buf *utils.ByteBuffer) {
+func (m *GMovieClip) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	if m == nil || buf == nil {
 		return
 	}
+
+	// 首先调用父类GObject处理基础属性
+	m.GObject.SetupBeforeAdd(buf, beginPos)
+
+	// 然后处理GMovieClip特定属性（block 5）
 	saved := buf.Pos()
 	defer func() { _ = buf.SetPos(saved) }()
-	if !buf.Seek(0, 5) {
+	if !buf.Seek(beginPos, 5) {
 		return
 	}
 	if buf.ReadBool() {

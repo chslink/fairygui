@@ -335,6 +335,23 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		}
 		return setupCtx
 	}
+
+	// 通用的 SetupBeforeAdd/AfterAdd 调用函数
+	callSetupBeforeAdd := func(widget interface{}) {
+		if sub != nil {
+			if before, ok := widget.(widgets.BeforeAdder); ok {
+				before.SetupBeforeAdd(sub, 0)
+			}
+		}
+	}
+	callSetupAfterAdd := func(widget interface{}) {
+		if sub != nil {
+			if after, ok := widget.(widgets.AfterAdder); ok {
+				after.SetupAfterAdd(ensureCtx(), sub)
+			}
+		}
+	}
+
 	var obj *core.GObject
 	switch widget := w.(type) {
 	case *widgets.GImage:
@@ -344,11 +361,8 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		}
 		widget.SetPackageItem(resolvedItem)
 		obj.SetData(widget)
-		if sub != nil {
-			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
-				before.SetupBeforeAdd(ensureCtx(), sub)
-			}
-		}
+		callSetupBeforeAdd(widget)
+
 	case *widgets.GMovieClip:
 		obj = widget.GObject
 		if resolvedItem != nil && resolvedItem.Type == assets.PackageItemTypeMovieClip {
@@ -362,118 +376,37 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			widget.SetPackageItem(resolvedItem)
 		}
 		obj.SetData(widget)
-		if sub != nil {
-			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
-				before.SetupBeforeAdd(ensureCtx(), sub)
-			}
-		}
+		callSetupBeforeAdd(widget)
+
 	case *widgets.GRichTextField:
-		// 富文本必须在 GTextField 之前处理，因为它嵌入了 GTextField
 		obj = widget.GObject()
-		widget.SetText(child.Text)
-		if sub != nil {
-			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
-				before.SetupBeforeAdd(ensureCtx(), sub)
-			}
-		}
-		// 关键：保持 Data 指向 GRichTextField 实例，不要覆盖
 		obj.SetData(widget)
+		callSetupBeforeAdd(widget)
+
 	case *widgets.GTextField:
 		obj = widget.GObject
-		widget.SetText(child.Text)
-		if sub != nil {
-			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
-				before.SetupBeforeAdd(ensureCtx(), sub)
-			}
-		}
 		obj.SetData(widget)
+		callSetupBeforeAdd(widget)
+
 	case *widgets.GTextInput:
 		obj = widget.GObject
-		widget.SetText(child.Text)
-		if sub != nil {
-			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
-				before.SetupBeforeAdd(ensureCtx(), sub)
-			}
-		}
 		obj.SetData(widget)
+		callSetupBeforeAdd(widget)
+
 	case *widgets.GButton:
+		obj = widget.GComponent.GObject
+		obj.SetData(widget)
 		if resolvedItem != nil {
 			widget.SetPackageItem(resolvedItem)
 			f.applyButtonTemplate(ctx, widget, pkg, owner, resolvedItem)
 		}
-		obj = widget.GComponent.GObject
-		if obj != nil && (obj.Width() == 0 || obj.Height() == 0) {
-			if tpl := widget.TemplateComponent(); tpl != nil {
-				width := tpl.Width()
-				height := tpl.Height()
-				if width <= 0 {
-					width = tpl.GObject.Width()
-				}
-				if height <= 0 {
-					height = tpl.GObject.Height()
-				}
-				if width <= 0 {
-					width = obj.Width()
-				}
-				if height <= 0 {
-					height = obj.Height()
-				}
-				if width > 0 || height > 0 {
-					obj.SetSize(width, height)
-				}
-			} else if resolvedItem != nil && resolvedItem.Component != nil {
-				width := float64(resolvedItem.Component.InitWidth)
-				height := float64(resolvedItem.Component.InitHeight)
-				if width <= 0 {
-					width = float64(resolvedItem.Component.SourceWidth)
-				}
-				if height <= 0 {
-					height = float64(resolvedItem.Component.SourceHeight)
-				}
-				if width <= 0 {
-					width = obj.Width()
-				}
-				if height <= 0 {
-					height = obj.Height()
-				}
-				if width > 0 || height > 0 {
-					obj.SetSize(width, height)
-				}
-			}
-		}
-		resource := child.Src
-		if resource == "" {
-			resource = child.Data
-		}
-		widget.SetResource(resource)
-		if child.Text != "" {
-			widget.SetTitle(child.Text)
-		}
-		if child.Icon != "" {
-			widget.SetIcon(child.Icon)
-			if iconItem := f.resolveIcon(ctx, pkg, child.Icon); iconItem != nil {
-				widget.SetIconItem(iconItem)
-			}
-		}
-		if sub != nil {
-			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
-				after.SetupAfterAdd(ensureCtx(), sub)
-			}
-		}
-		obj.SetData(widget)
+		callSetupBeforeAdd(widget)
+		callSetupAfterAdd(widget)
+
 	case *widgets.GLoader:
 		obj = widget.GObject
 		obj.SetData(widget)
-		if child.Src != "" {
-			widget.SetURL(child.Src)
-		}
-		autoSize := child.Width < 0 || child.Height < 0
-		widget.SetAutoSize(autoSize)
-		if sub != nil {
-			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
-				before.SetupBeforeAdd(ensureCtx(), sub)
-			}
-		}
+		callSetupBeforeAdd(widget)
 		if resolvedItem == nil {
 			resolvedItem = f.resolveIcon(ctx, pkg, widget.URL())
 		}
@@ -481,64 +414,33 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			setupCtx.ResolvedItem = resolvedItem
 		}
 		f.assignLoaderPackage(ctx, widget, pkg, resolvedItem)
+
 	case *widgets.GLabel:
 		obj = widget.GComponent.GObject
-		widget.SetTitle(child.Text)
-		widget.SetIcon(child.Icon)
-		if iconItem := f.resolveIcon(ctx, pkg, child.Icon); iconItem != nil {
-			widget.SetIconItem(iconItem)
-		}
-		resource := child.Src
-		if resource == "" {
-			resource = child.Data
-		}
-		widget.SetResource(resource)
 		obj.SetData(widget)
 		if resolvedItem != nil {
 			widget.SetPackageItem(resolvedItem)
 		}
 		f.applyLabelTemplate(ctx, widget, pkg, owner, resolvedItem)
-		if sub != nil {
-			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
-				after.SetupAfterAdd(ensureCtx(), sub)
-			}
-		}
+		callSetupAfterAdd(widget)
+
 	case *widgets.GList:
 		obj = widget.GComponent.GObject
-		widget.SetResource(child.Data)
-		widget.SetDefaultItem(child.Data)
-		widget.SetPackageItem(resolvedItem)
 		obj.SetData(widget)
-
-		// 关键修复：应用基础属性（尺寸、位置等）
-		// 对应 TypeScript 版本的 super.setup_beforeAdd 调用
-		obj.ApplyComponentChild(child)
-
+		widget.SetPackageItem(resolvedItem)
 		// 为虚拟列表设置对象创建器
-		// 这样虚拟列表可以动态创建列表项
-		creator := &FactoryObjectCreator{
+		widget.SetObjectCreator(&FactoryObjectCreator{
 			factory: f,
 			pkg:     pkg,
 			ctx:     ctx,
-		}
-		widget.SetObjectCreator(creator)
-
-		if sub != nil {
-			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
-				before.SetupBeforeAdd(ensureCtx(), sub)
-			}
-		}
-		if sub != nil {
-			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
-				after.SetupAfterAdd(ensureCtx(), sub)
-			}
-		}
-
+		})
+		callSetupBeforeAdd(widget)
+		callSetupAfterAdd(widget)
 		// SetupBeforeAdd会创建ScrollPane，现在创建滚动条
-		// 对应 TypeScript 版本 ScrollPane.ts:149-178 (构造函数中创建滚动条)
 		if pane := widget.GComponent.ScrollPane(); pane != nil {
 			f.setupScrollBars(ctx, pkg, widget.GComponent, pane)
 		}
+
 	case *widgets.GProgressBar:
 		obj = widget.GComponent.GObject
 		obj.SetData(widget)
@@ -546,11 +448,8 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			widget.SetPackageItem(resolvedItem)
 		}
 		f.applyProgressBarTemplate(ctx, widget, pkg, owner, resolvedItem)
-		if sub != nil {
-			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
-				after.SetupAfterAdd(ensureCtx(), sub)
-			}
-		}
+		callSetupAfterAdd(widget)
+
 	case *widgets.GSlider:
 		obj = widget.GComponent.GObject
 		obj.SetData(widget)
@@ -558,11 +457,8 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			widget.SetPackageItem(resolvedItem)
 		}
 		f.applySliderTemplate(ctx, widget, pkg, owner, resolvedItem)
-		if sub != nil {
-			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
-				after.SetupAfterAdd(ensureCtx(), sub)
-			}
-		}
+		callSetupAfterAdd(widget)
+
 	case *widgets.GScrollBar:
 		obj = widget.GComponent.GObject
 		obj.SetData(widget)
@@ -570,68 +466,40 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			widget.SetPackageItem(resolvedItem)
 		}
 		f.applyScrollBarTemplate(ctx, widget, pkg, owner, resolvedItem)
+
 	case *widgets.GTree:
 		obj = widget.GComponent.GObject
 		obj.SetData(widget)
-		resource := child.Src
-		if resource == "" {
-			resource = child.Data
-		}
-		widget.SetResource(resource)
 		if resolvedItem != nil {
 			widget.SetPackageItem(resolvedItem)
 		}
+		callSetupBeforeAdd(widget)
 		if sub != nil {
-			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
-				before.SetupBeforeAdd(ensureCtx(), sub)
-			}
 			f.populateTree(ctx, widget, pkg, owner, child, sub)
-			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
-				after.SetupAfterAdd(ensureCtx(), sub)
-			}
 		}
+		callSetupAfterAdd(widget)
+
 	case *widgets.GComboBox:
 		obj = widget.GComponent.GObject
 		obj.SetData(widget)
-		resource := child.Src
-		if resource == "" {
-			resource = child.Data
-		}
-		widget.SetResource(resource)
 		if resolvedItem != nil {
 			widget.SetPackageItem(resolvedItem)
 		}
 		f.applyComboBoxTemplate(ctx, widget, pkg, owner, resolvedItem)
-		if sub != nil {
-			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
-				after.SetupAfterAdd(ensureCtx(), sub)
-			}
-		}
+		callSetupAfterAdd(widget)
+
 	case *widgets.GGroup:
 		obj = widget.GObject
-		if sub != nil {
-			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
-				before.SetupBeforeAdd(ensureCtx(), sub)
-			}
-		}
-		if sub != nil {
-			if after, ok := interface{}(widget).(widgets.AfterAdder); ok {
-				after.SetupAfterAdd(ensureCtx(), sub)
-			}
-		}
+		callSetupBeforeAdd(widget)
+		callSetupAfterAdd(widget)
+
 	case *widgets.GGraph:
 		obj = widget.GObject
 		obj.SetData(widget)
-		if sub != nil {
-			if before, ok := interface{}(widget).(widgets.BeforeAdder); ok {
-				before.SetupBeforeAdd(ensureCtx(), sub)
-			}
-		}
+		callSetupBeforeAdd(widget)
+
 	default:
 		obj = core.NewGObject()
-	}
-	if obj != nil {
-		obj.ApplyComponentChild(child)
 	}
 	rid := child.ID
 	if resolvedItem != nil && resolvedItem.ID != "" {

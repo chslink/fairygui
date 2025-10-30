@@ -810,98 +810,104 @@ func (l *GList) FoldInvisibleItems() bool {
 }
 
 // SetupBeforeAdd 解析列表加入父节点前的配置。
-func (l *GList) SetupBeforeAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
+// 对应 TypeScript 版本 GList.setup_beforeAdd (GList.ts:2241-2282)
+func (l *GList) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	if l == nil || buf == nil {
 		return
 	}
+
+	// 首先调用父类GComponent处理组件和基础属性
+	// TypeScript: super.setup_beforeAdd(buffer, beginPos);
+	l.GComponent.SetupBeforeAdd(buf, beginPos, nil)
+
+	// 然后处理GList特定属性（block 5）
 	saved := buf.Pos()
 	defer func() { _ = buf.SetPos(saved) }()
-	if !buf.Seek(0, 5) || buf.Remaining() <= 0 {
+	if !buf.Seek(beginPos, 5) || buf.Remaining() <= 0 {
 		return
 	}
+
+	// TypeScript: this._layout = buffer.readByte();
 	l.layout = clampListLayout(ListLayoutType(buf.ReadByte()))
-	if buf.Remaining() > 0 {
-		mode := ListSelectionMode(buf.ReadByte())
-		if mode < ListSelectionModeSingle || mode > ListSelectionModeNone {
-			mode = ListSelectionModeSingle
-		}
-		l.SetSelectionMode(mode)
+
+	// TypeScript: this._selectionMode = buffer.readByte();
+	mode := ListSelectionMode(buf.ReadByte())
+	if mode < ListSelectionModeSingle || mode > ListSelectionModeNone {
+		mode = ListSelectionModeSingle
 	}
-	if buf.Remaining() > 0 {
-		l.align = mapListAlign(buf.ReadByte())
+	l.SetSelectionMode(mode)
+
+	// TypeScript: i1 = buffer.readByte(); this._align = ...
+	l.align = mapListAlign(buf.ReadByte())
+
+	// TypeScript: i1 = buffer.readByte(); this._verticalAlign = ...
+	l.verticalAlign = mapListVerticalAlign(buf.ReadByte())
+
+	// TypeScript: this._lineGap = buffer.getInt16();
+	l.lineGap = int(buf.ReadInt16())
+
+	// TypeScript: this._columnGap = buffer.getInt16();
+	l.columnGap = int(buf.ReadInt16())
+
+	// TypeScript: this._lineCount = buffer.getInt16();
+	l.lineCount = int(buf.ReadInt16())
+
+	// TypeScript: this._columnCount = buffer.getInt16();
+	l.columnCount = int(buf.ReadInt16())
+
+	// TypeScript: this._autoResizeItem = buffer.readBool();
+	l.autoResizeItem = buf.ReadBool()
+
+	// TypeScript: this._childrenRenderOrder = buffer.readByte();
+	l.childrenOrder = mapChildrenRenderOrder(buf.ReadByte())
+
+	// TypeScript: this._apexIndex = buffer.getInt16();
+	l.apexIndex = int(buf.ReadInt16())
+
+	// TypeScript: if (buffer.readBool()) { ... }
+	if buf.ReadBool() {
+		l.margin.Top = int(buf.ReadInt32())
+		l.margin.Bottom = int(buf.ReadInt32())
+		l.margin.Left = int(buf.ReadInt32())
+		l.margin.Right = int(buf.ReadInt32())
 	}
-	if buf.Remaining() > 0 {
-		l.verticalAlign = mapListVerticalAlign(buf.ReadByte())
-	}
-	if buf.Remaining() >= 2 {
-		l.lineGap = int(buf.ReadInt16())
-	}
-	if buf.Remaining() >= 2 {
-		l.columnGap = int(buf.ReadInt16())
-	}
-	if buf.Remaining() >= 2 {
-		l.lineCount = int(buf.ReadInt16())
-	}
-	if buf.Remaining() >= 2 {
-		l.columnCount = int(buf.ReadInt16())
-	}
-	if buf.Remaining() > 0 {
-		l.autoResizeItem = buf.ReadBool()
-	}
-	if buf.Remaining() > 0 {
-		l.childrenOrder = mapChildrenRenderOrder(buf.ReadByte())
-	}
-	if buf.Remaining() >= 2 {
-		l.apexIndex = int(buf.ReadInt16())
-	}
-	if buf.Remaining() > 0 {
-		if buf.ReadBool() {
-			if buf.Remaining() >= 16 {
-				l.margin.Top = int(buf.ReadInt32())
-				l.margin.Bottom = int(buf.ReadInt32())
-				l.margin.Left = int(buf.ReadInt32())
-				l.margin.Right = int(buf.ReadInt32())
-			}
-		} else {
-			l.margin = ListMargin{}
-		}
-	}
-	if buf.Remaining() > 0 {
-		l.overflow = assets.OverflowType(buf.ReadByte())
-	} else {
-		l.overflow = assets.OverflowTypeVisible
-	}
-	if l.overflow == assets.OverflowTypeScroll {
+
+	// TypeScript: var overflow: number = buffer.readByte();
+	overflow := assets.OverflowType(buf.ReadByte())
+	l.overflow = overflow
+
+	// TypeScript: if (overflow == OverflowType.Scroll) { setupScroll(buffer); }
+	if overflow == assets.OverflowTypeScroll {
 		savedPos := buf.Pos()
-		if buf.Seek(0, 7) {
+		if buf.Seek(beginPos, 7) {
 			l.GComponent.SetupScroll(buf)
 		}
 		_ = buf.SetPos(savedPos)
 	}
-	if buf.Remaining() > 0 && buf.ReadBool() {
-		if buf.Remaining() >= 8 {
-			_ = buf.Skip(8)
-		}
+
+	// TypeScript: if (buffer.readBool()) buffer.skip(8); //clipSoftness
+	if buf.ReadBool() && buf.Remaining() >= 8 {
+		_ = buf.Skip(8)
 	}
+
+	// TypeScript: if (buffer.version >= 2) { ... }
 	if buf.Version >= 2 {
-		if buf.Remaining() > 0 {
-			l.scrollToView = buf.ReadBool()
-		}
-		if buf.Remaining() > 0 {
-			l.foldInvisible = buf.ReadBool()
-		}
+		l.scrollToView = buf.ReadBool()
+		l.foldInvisible = buf.ReadBool()
 	}
-	if !buf.Seek(0, 8) {
+
+	// 读取 defaultItem (block 8)
+	if !buf.Seek(beginPos, 8) {
 		return
 	}
 	if def := buf.ReadS(); def != nil && *def != "" {
 		l.SetDefaultItem(*def)
 	}
-	if buf.Remaining() < 2 {
-		return
+
+	// 读取并创建列表项
+	if buf.Remaining() >= 2 {
+		l.readItems(buf)
 	}
-	// 读取并创建列表项 - 这是关键缺失功能
-	l.readItems(buf)
 }
 
 // SetupAfterAdd 在组件加入父对象后应用控制器索引等设置。

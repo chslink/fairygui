@@ -66,19 +66,25 @@ func NewTextInput() *GTextInput {
 }
 
 // SetupBeforeAdd 解析输入框额外配置。
-func (t *GTextInput) SetupBeforeAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
+// 对应 TypeScript 版本 GTextInput.setup_beforeAdd
+func (t *GTextInput) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	if t == nil {
 		return
 	}
+
+	// 首先调用父类GTextField处理文本相关属性
 	if t.GTextField != nil {
-		t.GTextField.SetupBeforeAdd(ctx, buf)
+		t.GTextField.SetupBeforeAdd(buf, beginPos)
 	}
+
 	if buf == nil {
 		return
 	}
+
+	// 然后处理GTextInput特定属性（prompt, restrict, maxLength等）
 	saved := buf.Pos()
 	defer func() { _ = buf.SetPos(saved) }()
-	if !buf.Seek(0, 4) {
+	if !buf.Seek(beginPos, 4) {
 		return
 	}
 	if prompt := buf.ReadS(); prompt != nil {

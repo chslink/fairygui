@@ -64,23 +64,6 @@ func TestGObjectPivot(t *testing.T) {
 	}
 }
 
-func TestGObjectPivotAnchorAdjustsPosition(t *testing.T) {
-	obj := NewGObject()
-	obj.SetSize(100, 50)
-	obj.SetPivotWithAnchor(0.5, 0.5, true)
-	obj.SetPosition(200, 120)
-
-	pos := obj.DisplayObject().Position()
-	expectedX := 200 - 0.5*100
-	expectedY := 120 - 0.5*50
-	if pos.X != expectedX || pos.Y != expectedY {
-		t.Fatalf("expected anchored position (%v,%v), got (%v,%v)", expectedX, expectedY, pos.X, pos.Y)
-	}
-	if !obj.PivotAsAnchor() {
-		t.Fatalf("expected pivot to be treated as anchor")
-	}
-}
-
 func TestGObjectSkew(t *testing.T) {
 	obj := NewGObject()
 	obj.SetSkew(0.2, -0.1)

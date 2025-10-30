@@ -505,10 +505,17 @@ func (c *GComponent) HitTest() HitTest {
 }
 
 // SetupBeforeAdd parses component-level scroll/mask/overflow metadata.
+// 先调用父类处理基础属性，然后处理组件特定属性（mask, hitTest等）
 func (c *GComponent) SetupBeforeAdd(buf *utils.ByteBuffer, start int, resolver MaskResolver) {
 	if c == nil || buf == nil || start < 0 {
 		return
 	}
+
+	// 首先调用父类GObject.SetupBeforeAdd处理基础属性（位置、尺寸、旋转等）
+	// 这对应TypeScript版本中隐式的继承链调用
+	c.GObject.SetupBeforeAdd(buf, start)
+
+	// 然后处理组件特定属性（mask, hitTest等）
 	saved := buf.Pos()
 	defer buf.SetPos(saved)
 	if !buf.Seek(start, 4) {

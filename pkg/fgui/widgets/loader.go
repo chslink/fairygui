@@ -367,13 +367,18 @@ func (l *GLoader) ContentSize() (float64, float64) {
 }
 
 // SetupBeforeAdd reads loader configuration from the component buffer.
-func (l *GLoader) SetupBeforeAdd(_ *SetupContext, buf *utils.ByteBuffer) {
+func (l *GLoader) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	if l == nil || buf == nil {
 		return
 	}
+
+	// 首先调用父类GObject处理基础属性
+	l.GObject.SetupBeforeAdd(buf, beginPos)
+
+	// 然后处理GLoader特定属性（block 5）
 	saved := buf.Pos()
 	defer func() { _ = buf.SetPos(saved) }()
-	if !buf.Seek(0, 5) {
+	if !buf.Seek(beginPos, 5) {
 		return
 	}
 	if url := buf.ReadS(); url != nil && *url != "" {

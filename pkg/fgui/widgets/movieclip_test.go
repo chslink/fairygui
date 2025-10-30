@@ -111,7 +111,7 @@ func TestGMovieClipSetupBeforeAdd(t *testing.T) {
 	data[pos] = 0
 
 	buf := utils.NewByteBuffer(data)
-	clip.SetupBeforeAdd(nil, buf)
+	clip.SetupBeforeAdd(buf, 0)
 	if clip.Color() != "#123456" {
 		t.Fatalf("expected color #123456, got %q", clip.Color())
 	}

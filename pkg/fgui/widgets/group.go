@@ -77,13 +77,18 @@ func (g *GGroup) MainGridMinSize() int {
 }
 
 // SetupBeforeAdd 解析组在加入父节点前的配置。
-func (g *GGroup) SetupBeforeAdd(_ *SetupContext, buf *utils.ByteBuffer) {
+func (g *GGroup) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	if g == nil || buf == nil {
 		return
 	}
+
+	// 首先调用父类GObject处理基础属性
+	g.GObject.SetupBeforeAdd(buf, beginPos)
+
+	// 然后处理GGroup特定属性（block 5）
 	saved := buf.Pos()
 	defer func() { _ = buf.SetPos(saved) }()
-	if !buf.Seek(0, 5) || buf.Remaining() <= 0 {
+	if !buf.Seek(beginPos, 5) || buf.Remaining() <= 0 {
 		return
 	}
 	g.layout = clampGroupLayout(GroupLayoutType(buf.ReadByte()))

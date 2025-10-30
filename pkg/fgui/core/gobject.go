@@ -786,6 +786,134 @@ func (g *GObject) CustomData() string {
 	return g.customData
 }
 
+// SetupBeforeAdd 从buffer读取并应用基础属性
+// 完全对应 TypeScript 版本 GObject.setup_beforeAdd (GObject.ts:985-1056)
+// 这是组件构建的核心方法，在第一次添加到显示列表前调用
+func (g *GObject) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
+	if g == nil || buf == nil {
+		return
+	}
+
+	// 保存当前位置，函数结束时恢复（避免影响后续读取）
+	saved := buf.Pos()
+	defer func() {
+		_ = buf.SetPos(saved)
+	}()
+
+	// ts: buffer.seek(beginPos, 0); buffer.skip(5);
+	if !buf.Seek(beginPos, 0) {
+		return
+	}
+	if err := buf.Skip(5); err != nil {
+		return
+	}
+
+	// ts: this._id = buffer.readS(); this._name = buffer.readS();
+	if id := buf.ReadS(); id != nil {
+		g.resourceID = *id
+	} else {
+		g.resourceID = ""
+	}
+	if name := buf.ReadS(); name != nil {
+		g.name = *name
+	} else {
+		g.name = ""
+	}
+
+	// ts: f1 = buffer.getInt32(); f2 = buffer.getInt32(); this.setXY(f1, f2);
+	x := float64(buf.ReadInt32())
+	y := float64(buf.ReadInt32())
+	g.SetPosition(x, y)
+
+	// ts: if (buffer.readBool()) { this.initWidth = ...; this.setSize(...); }
+	if buf.ReadBool() {
+		g.initWidth = float64(buf.ReadInt32())
+		g.initHeight = float64(buf.ReadInt32())
+		g.SetSize(g.initWidth, g.initHeight)
+	}
+
+	// ts: if (buffer.readBool()) { this.minWidth = ...; }
+	if buf.ReadBool() {
+		minW := float64(buf.ReadInt32())
+		maxW := float64(buf.ReadInt32())
+		minH := float64(buf.ReadInt32())
+		maxH := float64(buf.ReadInt32())
+		g.SetMinSize(minW, minH)
+		g.SetMaxSize(maxW, maxH)
+	}
+
+	// ts: if (buffer.readBool()) { this.setScale(f1, f2); }
+	if buf.ReadBool() {
+		scaleX := float64(buf.ReadFloat32())
+		scaleY := float64(buf.ReadFloat32())
+		g.SetScale(scaleX, scaleY)
+	}
+
+	// ts: if (buffer.readBool()) { this.setSkew(f1, f2); }
+	if buf.ReadBool() {
+		skewX := float64(buf.ReadFloat32())
+		skewY := float64(buf.ReadFloat32())
+		g.SetSkew(skewX, skewY)
+	}
+
+	// ts: if (buffer.readBool()) { this.setPivot(f1, f2, buffer.readBool()); }
+	if buf.ReadBool() {
+		pivotX := float64(buf.ReadFloat32())
+		pivotY := float64(buf.ReadFloat32())
+		asAnchor := buf.ReadBool()
+		g.SetPivotWithAnchor(pivotX, pivotY, asAnchor)
+	}
+
+	// ts: f1 = buffer.getFloat32(); if (f1 != 1) this.alpha = f1;
+	alpha := float64(buf.ReadFloat32())
+	if alpha != 1.0 {
+		g.SetAlpha(alpha)
+	}
+
+	// ts: f1 = buffer.getFloat32(); if (f1 != 0) this.rotation = f1;
+	rotation := float64(buf.ReadFloat32())
+	if rotation != 0 {
+		g.SetRotation(rotation)
+	}
+
+	// ts: if (!buffer.readBool()) this.visible = false;
+	if !buf.ReadBool() {
+		g.SetVisible(false)
+	}
+
+	// ts: if (!buffer.readBool()) this.touchable = false;
+	if !buf.ReadBool() {
+		g.SetTouchable(false)
+	}
+
+	// ts: if (buffer.readBool()) this.grayed = true;
+	if buf.ReadBool() {
+		g.SetGrayed(true)
+	}
+
+	// ts: var bm = buffer.readByte(); if (BlendMode[bm]) this.blendMode = BlendMode[bm];
+	bm := buf.ReadByte()
+	if bm != 0 {
+		g.SetBlendMode(blendModeFromByte(int(bm)))
+	}
+
+	// ts: var filter = buffer.readByte(); if (filter == 1) { ... }
+	filter := int(buf.ReadByte())
+	if filter == 1 {
+		r := buf.ReadFloat32()
+		gr := buf.ReadFloat32()
+		b := buf.ReadFloat32()
+		a := buf.ReadFloat32()
+		g.colorFilter = [4]float64{float64(r), float64(gr), float64(b), float64(a)}
+		g.colorFilterEnabled = true
+	}
+
+	// ts: var str = buffer.readS(); if (str != null) this.data = str;
+	if customData := buf.ReadS(); customData != nil {
+		g.SetCustomData(*customData)
+	}
+}
+
 // ApplyComponentChild copies common transform/appearance data from component child metadata.
 func (g *GObject) ApplyComponentChild(child *assets.ComponentChild) {
 	if g == nil || child == nil {

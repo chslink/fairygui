@@ -213,7 +213,71 @@ func (b *GButton) ChangeStateOnClick() bool {
 	return b.changeStateOnClick
 }
 
-// SetupAfterAdd applies button instance configuration encoded in the component buffer.
+// SetupBeforeAdd parses button-specific properties from the component buffer.
+// 对应 TypeScript 版本 GButton.setup_afterAdd 中不依赖其他对象的部分
+func (b *GButton) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
+	if b == nil || buf == nil {
+		return
+	}
+
+	// 首先调用父类GComponent处理组件和基础属性
+	b.GComponent.SetupBeforeAdd(buf, beginPos, nil)
+
+	// 然后处理GButton特定属性
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+	if !buf.Seek(beginPos, 6) || buf.Remaining() <= 0 {
+		return
+	}
+
+	// TypeScript: if (buffer.readByte() != this.packageItem.objectType) return;
+	// 跳过 objectType 检查（在 builder 中已验证）
+	_ = buf.ReadByte()
+
+	// 读取不依赖其他对象的属性
+	if title := buf.ReadS(); title != nil && *title != "" {
+		b.SetTitle(*title)
+	}
+	if selectedTitle := buf.ReadS(); selectedTitle != nil && *selectedTitle != "" {
+		b.SetSelectedTitle(*selectedTitle)
+	}
+	if icon := buf.ReadS(); icon != nil && *icon != "" {
+		b.SetIcon(*icon)
+	}
+	if selectedIcon := buf.ReadS(); selectedIcon != nil && *selectedIcon != "" {
+		b.SetSelectedIcon(*selectedIcon)
+	}
+	if buf.ReadBool() {
+		if buf.Remaining() >= 4 {
+			if color := buf.ReadColorString(true); color != "" {
+				b.SetTitleColor(color)
+			}
+		}
+	}
+	if size := buf.ReadInt32(); size != 0 {
+		b.SetTitleFontSize(int(size))
+	}
+
+	// relatedController 依赖父组件的 Controllers()，跳过这里的读取
+	// 在 SetupAfterAdd 中处理
+	_ = buf.ReadInt16() // skip controller index
+	_ = buf.ReadS()     // skip relatedPageId
+
+	if sound := buf.ReadS(); sound != nil && *sound != "" {
+		b.SetSound(*sound)
+	}
+	if buf.ReadBool() {
+		if vol := buf.ReadFloat32(); buf.Remaining() >= 0 {
+			b.SetSoundVolumeScale(float64(vol))
+		}
+	}
+	if selected := buf.ReadBool(); buf.Remaining() >= 0 {
+		b.SetSelected(selected)
+	}
+}
+
+// SetupAfterAdd applies button configuration that depends on other objects.
+// 对应 TypeScript 版本 GButton.setup_afterAdd 中依赖其他对象的部分
 func (b *GButton) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	if b == nil || buf == nil || ctx == nil || ctx.Child == nil {
 		return
@@ -223,87 +287,27 @@ func (b *GButton) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	if !buf.Seek(0, 6) || buf.Remaining() <= 0 {
 		return
 	}
-	objType := assets.ObjectType(buf.ReadByte())
-	childType := ctx.Child.Type
-	if objType != childType {
-		if ctx.ResolvedItem != nil && objType == ctx.ResolvedItem.ObjectType {
-			// Allowed: specialised component (e.g., template button).
-		} else if childType != assets.ObjectTypeComponent {
-			return
-		}
-	}
-	readS := func() *string {
-		if buf.Remaining() < 2 {
-			return nil
-		}
-		return buf.ReadS()
-	}
-	readBool := func() (bool, bool) {
-		if buf.Remaining() < 1 {
-			return false, false
-		}
-		return buf.ReadBool(), true
-	}
-	readInt16 := func() (int16, bool) {
-		if buf.Remaining() < 2 {
-			return 0, false
-		}
-		return buf.ReadInt16(), true
-	}
-	readInt32 := func() (int32, bool) {
-		if buf.Remaining() < 4 {
-			return 0, false
-		}
-		return buf.ReadInt32(), true
-	}
-	readFloat32 := func() (float32, bool) {
-		if buf.Remaining() < 4 {
-			return 0, false
-		}
-		return buf.ReadFloat32(), true
-	}
 
-	if title := readS(); title != nil && *title != "" {
-		b.SetTitle(*title)
+	// 跳过已在 SetupBeforeAdd 中读取的属性
+	_ = buf.ReadByte()                            // objectType
+	_ = buf.ReadS()                               // title
+	_ = buf.ReadS()                               // selectedTitle
+	_ = buf.ReadS()                               // icon
+	_ = buf.ReadS()                               // selectedIcon
+	if buf.ReadBool() && buf.Remaining() >= 4 {   // hasColor
+		_ = buf.ReadColorString(true)             // titleColor
 	}
-	if selectedTitle := readS(); selectedTitle != nil && *selectedTitle != "" {
-		b.SetSelectedTitle(*selectedTitle)
-	}
-	if icon := readS(); icon != nil && *icon != "" {
-		b.SetIcon(*icon)
-	}
-	if selectedIcon := readS(); selectedIcon != nil && *selectedIcon != "" {
-		b.SetSelectedIcon(*selectedIcon)
-	}
-	if hasColor, ok := readBool(); ok && hasColor {
-		if buf.Remaining() >= 4 {
-			if color := buf.ReadColorString(true); color != "" {
-				b.SetTitleColor(color)
-			}
-		}
-	}
-	if size, ok := readInt32(); ok && size != 0 {
-		b.SetTitleFontSize(int(size))
-	}
-	if idx, ok := readInt16(); ok && idx >= 0 && ctx.Parent != nil {
+	_ = buf.ReadInt32()                           // titleFontSize
+
+	// 读取依赖父组件的属性
+	if idx := buf.ReadInt16(); idx >= 0 && ctx.Parent != nil {
 		controllers := ctx.Parent.Controllers()
 		if int(idx) < len(controllers) {
 			b.SetRelatedController(controllers[idx])
 		}
 	}
-	if page := readS(); page != nil {
+	if page := buf.ReadS(); page != nil {
 		b.SetRelatedPageID(*page)
-	}
-	if sound := readS(); sound != nil && *sound != "" {
-		b.SetSound(*sound)
-	}
-	if hasVolume, ok := readBool(); ok && hasVolume {
-		if vol, ok := readFloat32(); ok {
-			b.SetSoundVolumeScale(float64(vol))
-		}
-	}
-	if selected, ok := readBool(); ok {
-		b.SetSelected(selected)
 	}
 }
 

@@ -155,7 +155,7 @@ func TestGTextInputSetupBeforeAdd(t *testing.T) {
 	}
 
 	input := NewTextInput()
-	input.SetupBeforeAdd(nil, buf)
+	input.SetupBeforeAdd(buf, 0)
 
 	if input.PromptText() != "${prompt}" {
 		t.Fatalf("expected prompt ${prompt}, got %q", input.PromptText())

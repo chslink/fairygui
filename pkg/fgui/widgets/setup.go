@@ -17,8 +17,9 @@ type SetupContext struct {
 }
 
 // BeforeAdder widgets mirror FairyGUI setup_beforeAdd.
+// 对应 TypeScript 版本的 setup_beforeAdd(buffer: ByteBuffer, beginPos: number) 方法
 type BeforeAdder interface {
-	SetupBeforeAdd(ctx *SetupContext, buf *utils.ByteBuffer)
+	SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int)
 }
 
 // AfterAdder widgets mirror FairyGUI setup_afterAdd.

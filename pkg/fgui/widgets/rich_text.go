@@ -89,11 +89,12 @@ func (r *GRichTextField) WidthAutoSize() bool {
 }
 
 // SetupBeforeAdd implements PackageItem interface for rich text specific setup.
-func (r *GRichTextField) SetupBeforeAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
-	// Call parent setup first
-	r.GTextField.SetupBeforeAdd(ctx, buf)
+// 对应 TypeScript 版本 GRichTextField.setup_beforeAdd
+func (r *GRichTextField) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
+	// 首先调用父类GTextField处理文本相关属性
+	r.GTextField.SetupBeforeAdd(buf, beginPos)
 
-	// Rich text specific setup
+	// 富文本特定设置
 	r.htmlEnabled = true // Always enabled for rich text
 	r.SetUBBEnabled(true)
 }

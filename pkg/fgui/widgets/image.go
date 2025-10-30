@@ -214,13 +214,19 @@ func (i *GImage) flipOffsetY() float64 {
 }
 
 // SetupBeforeAdd parses image-specific metadata from the component buffer.
-func (i *GImage) SetupBeforeAdd(_ *SetupContext, buf *utils.ByteBuffer) {
+// 对应 TypeScript 版本 GImage.setup_beforeAdd
+func (i *GImage) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	if i == nil || buf == nil {
 		return
 	}
+
+	// 首先调用父类处理基础属性（位置、尺寸、旋转等）
+	i.GObject.SetupBeforeAdd(buf, beginPos)
+
+	// 然后处理GImage特定属性（color, flip, fillMethod等）
 	saved := buf.Pos()
 	defer func() { _ = buf.SetPos(saved) }()
-	if !buf.Seek(0, 5) || buf.Remaining() <= 0 {
+	if !buf.Seek(beginPos, 5) || buf.Remaining() <= 0 {
 		return
 	}
 	if buf.ReadBool() && buf.Remaining() >= 4 {
