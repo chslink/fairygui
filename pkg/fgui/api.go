@@ -1,14 +1,18 @@
 package fgui
 
 import (
+	"context"
 	"time"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
+	"github.com/chslink/fairygui/pkg/fgui/assets"
+	"github.com/chslink/fairygui/pkg/fgui/builder"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 )
 
 // Public aliases to mirror the TypeScript API surface.
 type (
+	// Core types
 	Stage          = laya.Stage
 	Scheduler      = laya.Scheduler
 	MouseState     = laya.MouseState
@@ -25,6 +29,13 @@ type (
 	GComponent     = core.GComponent
 	GObject        = core.GObject
 	PopupDirection = core.PopupDirection
+
+	// Asset types
+	Package        = assets.Package
+	PackageItem    = assets.PackageItem
+	Loader         = assets.Loader
+	FileLoader     = assets.FileLoader
+	ResourceType   = assets.ResourceType
 )
 
 const (
@@ -34,6 +45,11 @@ const (
 	PopupDirectionUp = core.PopupDirectionUp
 	// PopupDirectionDown positions the popup below the target.
 	PopupDirectionDown = core.PopupDirectionDown
+
+	// Resource type constants
+	ResourceBinary = assets.ResourceBinary
+	ResourceImage  = assets.ResourceImage
+	ResourceSound  = assets.ResourceSound
 )
 
 // NewStage constructs a compat stage suitable for attaching to the root.
@@ -121,4 +137,81 @@ func Resize(width, height int) {
 // ContentScale reports the current content scale level.
 func ContentScale() int {
 	return core.ContentScaleLevel
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Factory & Builder API
+// ────────────────────────────────────────────────────────────────────────────
+
+// Factory builds runtime components from parsed package metadata.
+// This is the primary entry point for creating FairyGUI UI from .fui packages.
+type Factory = builder.Factory
+
+// AtlasResolver loads textures and sprites for rendering.
+// Build-tagged implementations typically live in the render package.
+type AtlasResolver = builder.AtlasResolver
+
+// PackageResolver resolves cross-package dependencies by ID or name.
+type PackageResolver = builder.PackageResolver
+
+// NewFactory creates a new factory for building UI components.
+//
+// Parameters:
+//   - resolver: Handles texture/sprite loading (can be nil for logic-only builds)
+//   - pkgResolver: Resolves cross-package dependencies (can be nil for single-package apps)
+//
+// Example:
+//   factory := fgui.NewFactory(atlasManager, nil)
+//   factory.RegisterPackage(pkg)
+//   component, err := factory.BuildComponent(ctx, pkg, item)
+func NewFactory(resolver AtlasResolver, pkgResolver PackageResolver) *Factory {
+	return builder.NewFactory(resolver, pkgResolver)
+}
+
+// NewFactoryWithLoader creates a factory with automatic dependency resolution.
+// The loader will be used to load dependent packages on-demand.
+//
+// Parameters:
+//   - resolver: Handles texture/sprite loading
+//   - loader: Asset loader for automatic dependency resolution
+//
+// Example:
+//   loader := assets.NewFileLoader("./assets")
+//   factory := fgui.NewFactoryWithLoader(atlasManager, loader)
+func NewFactoryWithLoader(resolver AtlasResolver, loader assets.Loader) *Factory {
+	return builder.NewFactoryWithLoader(resolver, loader)
+}
+
+// BuildComponent is a convenience wrapper for Factory.BuildComponent.
+// Requires a factory to be created first via NewFactory or NewFactoryWithLoader.
+func BuildComponent(ctx context.Context, factory *Factory, pkg *assets.Package, item *assets.PackageItem) (*core.GComponent, error) {
+	return factory.BuildComponent(ctx, pkg, item)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Asset Loading API
+// ────────────────────────────────────────────────────────────────────────────
+
+// ParsePackage parses a FairyGUI package from raw bytes.
+//
+// Parameters:
+//   - data: Raw .fui file bytes
+//   - resKey: Resource key for the package (typically the file path without extension)
+//
+// Example:
+//   data, _ := os.ReadFile("assets/MainMenu.fui")
+//   pkg, err := fgui.ParsePackage(data, "assets/MainMenu")
+func ParsePackage(data []byte, resKey string) (*assets.Package, error) {
+	return assets.ParsePackage(data, resKey)
+}
+
+// NewFileLoader creates a loader that reads assets from the filesystem.
+//
+// Parameters:
+//   - root: Root directory containing .fui files
+//
+// Example:
+//   loader := fgui.NewFileLoader("./assets")
+func NewFileLoader(root string) *assets.FileLoader {
+	return assets.NewFileLoader(root)
 }

@@ -162,3 +162,31 @@
 1. 覆盖 MovieClip `flip`/`fill` 相关逻辑，确认 Loader/Transition 对 MovieClip 的 gear 与动画指令是否需要额外对齐。
 2. 在 demo Basics/Basics 的 MovieClip 场景验证翻转、重复延迟与颜色覆盖是否与 Laya 一致（需 GUI 环境运行反馈）。
 3. 为 `AtlasManager` 增补帧级缓存驱逐与九宫格/平铺路径共享逻辑，避免重复裁剪造成 GPU 纹理副本激增。
+
+### Architectural Refactoring (2025-10-30 下午)
+- [x] **完全重构 SetupBeforeAdd 架构**：将所有 widget 的属性设置统一为 `SetupBeforeAdd(buf, beginPos)` 单一入口，完全对齐 TypeScript 版本。
+  - Phase 1: 实现 `GObject.SetupBeforeAdd` 逐行对应 TS，添加完整的继承链调用
+  - Phase 2: 迁移所有 11 个 widget (GImage/GTextField/GButton/GList/GTree/GMovieClip/GGraph/GGroup/GLoader 等)
+  - Phase 3: 重构 Builder，移除所有 `ApplyComponentChild` 调用和冗余属性设置器（~300 行代码简化）
+  - Phase 4: 测试验证，所有使用真实 .fui 文件的测试通过
+- [x] **Builder 代码大幅简化**：引入 `callSetupBeforeAdd`/`callSetupAfterAdd` 辅助函数消除重复，移除手动属性设置器（SetText/SetTitle/SetIcon/SetURL/SetResource/SetDefaultItem 等），保留核心逻辑（模板构建、对象创建器、滚动条设置）。
+- [x] **API 提升到顶层包**：将 `builder.Factory` 提升为 `fgui.Factory`，作为主 API 入口。
+  - 创建 `pkg/fgui/api.go` 统一 API 门面
+  - 导出所有关键类型（Core/Assets/Builder/Constants）
+  - 添加便捷函数（NewFactory/NewFactoryWithLoader/ParsePackage/NewFileLoader）
+  - 完全向后兼容（使用 Go 类型别名，零开销）
+  - 更新 demo 和文档使用新 API
+- [x] **文档完善**：创建 API 迁移指南 (`docs/api-migration.md`)，更新 `CLAUDE.md` 架构说明，添加完整示例代码。
+
+**架构收益**：
+- ✅ 消除了旧架构的双重属性设置问题（ApplyComponentChild + 手动设置 + SetupBeforeAdd）
+- ✅ 100% 对齐 TypeScript 版本的单一数据源架构
+- ✅ Builder 代码减少 ~300 行，可维护性大幅提升
+- ✅ 提供清晰的 API 分层（内部实现 vs 公开门面），避免循环依赖
+- ✅ 简化导入，单一 `import "pkg/fgui"` 即可访问所有功能
+
+### Upcoming Focus（2025-10-30 晚）
+1. 修复 widgets 包剩余的 2 个测试失败（TestListSelectionOnClick/TestListSetVirtualPreservesEventListeners），排查鼠标事件处理逻辑。
+2. 修复 render 包测试失败（TestRenderMovieClipWidgetUsesSourceSize），检查 MovieClip 源尺寸计算。
+3. 在 demo/scenes 中验证所有场景使用新 API 后的行为一致性。
+4. 考虑是否需要为 `fgui` 包添加更多便捷函数（如 CreateObject 等）以进一步简化 API。

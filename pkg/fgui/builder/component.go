@@ -277,9 +277,14 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 
 	f.setupRelations(item, root)
 	f.setupGears(item, root)
-	root.GObject.SetupAfterAdd(root, item.RawData, 0)
-	setupResolver := componentSetupResolver{component: root, item: item}
-	root.SetupAfterAdd(item.RawData, 0, setupResolver, setupResolver)
+
+	// 注意：根组件不需要调用 SetupBeforeAdd，因为：
+	// 1. 根组件的尺寸、pivot 等已经从 ComponentData 设置
+	// 2. 根组件的 alpha、rotation 应该保持默认值（1.0, 0）
+	// 3. SetupBeforeAdd 会错误地从 RawData Section 0 读取 ComponentData 元数据，而不是 GObject 基础属性
+	//
+	// 只设置 transitions（从 RawData Section 5 读取）
+	root.SetupTransitions(item.RawData, 0)
 
 	f.finalizeComponentSize(root)
 
@@ -740,6 +745,13 @@ func (f *Factory) applyButtonTemplate(ctx context.Context, widget *widgets.GButt
 			widget.SetButtonController(ctrl)
 		} else if ctrl := template.ControllerByName("Button"); ctrl != nil {
 			widget.SetButtonController(ctrl)
+		}
+
+		// 修复：如果按钮尺寸为0，从模板继承尺寸
+		// 对应 TypeScript 版本中模板组件的尺寸会自动影响按钮尺寸
+		// 参考 Button10.xml: <component size="163,69" extention="Button">
+		if widget.GComponent.GObject.Width() == 0 || widget.GComponent.GObject.Height() == 0 {
+			widget.GComponent.GObject.SetSize(template.GObject.Width(), template.GObject.Height())
 		}
 	} else if item.Component != nil && len(widget.Controllers()) == 0 {
 		for _, ctrlData := range item.Component.Controllers {

@@ -86,8 +86,6 @@ func parseBitmapFont(item *PackageItem) (*BitmapFont, error) {
 	font.AutoScale = buf.ReadBool()
 	_ = buf.ReadBool() // has channel
 
-	log.Printf("📖 解析位图字体 %s: TTF=%v, Tint=%v, AutoScale=%v", item.Name, font.TTF, font.Tint, font.AutoScale)
-
 	fontSizeRaw := int32(buf.ReadInt32())
 	headerAdvanceRaw := int32(buf.ReadInt32())
 	lineHeightRaw := int32(buf.ReadInt32())
@@ -120,9 +118,6 @@ func parseBitmapFont(item *PackageItem) (*BitmapFont, error) {
 		height := int(buf.ReadInt32())
 		advance := int(buf.ReadInt32())
 		_ = buf.ReadByte() // channel
-
-		log.Printf("  字符 U+%04X: imgID=%q, bx=%d, by=%d, offset=(%.1f,%.1f), size=(%d,%d), advance=%d",
-			r, imgID, bx, by, offsetX, offsetY, width, height, advance)
 
 		// 参考 LayaAir UIPackage.ts:783-804 的逻辑
 		// 根据是否使用 atlas 纹理决定如何处理字形

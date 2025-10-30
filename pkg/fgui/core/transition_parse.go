@@ -2,7 +2,8 @@ package core
 
 import "github.com/chslink/fairygui/pkg/fgui/utils"
 
-func (c *GComponent) setupTransitions(buf *utils.ByteBuffer, start int) {
+// SetupTransitions 从 buffer 中解析 transition 数据并添加到组件中
+func (c *GComponent) SetupTransitions(buf *utils.ByteBuffer, start int) {
 	if c == nil || buf == nil || start < 0 {
 		return
 	}

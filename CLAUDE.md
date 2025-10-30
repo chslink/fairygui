@@ -79,6 +79,28 @@ FGUI_DEBUG_NINESLICE_OVERLAY=1 go run ./cmd/nineslice-demo
 
 ## 代码架构
 
+### API 入口
+
+**推荐使用 `pkg/fgui` 作为主 API 入口：**
+
+```go
+import "github.com/chslink/fairygui/pkg/fgui"
+
+// 所有核心类型都可从 fgui 包访问
+factory := fgui.NewFactory(atlasManager, nil)
+loader := fgui.NewFileLoader("./assets")
+pkg, _ := fgui.ParsePackage(data, "assets/Main")
+root := fgui.Root()
+```
+
+`pkg/fgui/api.go` 导出了所有关键类型：
+- Core: `GRoot`, `GComponent`, `GObject`, `Stage`
+- Assets: `Package`, `PackageItem`, `Loader`, `FileLoader`
+- Builder: `Factory`, `AtlasResolver`, `PackageResolver`
+- Constants: `ResourceBinary`, `ResourceImage`, `ResourceSound`
+
+**向后兼容**：子包（如 `pkg/fgui/builder`）仍然可用，但推荐使用统一的 `fgui` 入口。
+
 ### 分层结构
 
 **应用层** (`cmd/*`, `demo/`)

@@ -565,7 +565,7 @@ func (c *GComponent) SetupAfterAdd(buf *utils.ByteBuffer, start int, resolver Ma
 		}
 		pixelResolver.Configure(c, hit, data)
 	}
-	c.setupTransitions(buf, start)
+	c.SetupTransitions(buf, start)
 }
 
 // getInsertPosForSortingChild finds the correct insertion position for a child with sortingOrder > 0.

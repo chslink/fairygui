@@ -309,6 +309,15 @@ func (b *GButton) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	if page := buf.ReadS(); page != nil {
 		b.SetRelatedPageID(*page)
 	}
+
+	// 修复：重新确保按钮的交互属性正确
+	// SetupBeforeAdd 调用了 GComponent.SetupBeforeAdd，它会读取 opaque 并可能设置 MouseThrough=true
+	// 这会覆盖按钮初始化时的 MouseThrough=false 设置，导致按钮不可点击
+	// 参考 TypeScript 版本：GButton 始终可以接收点击事件
+	b.GComponent.GObject.SetTouchable(true)
+	if sprite := b.GComponent.GObject.DisplayObject(); sprite != nil {
+		sprite.SetMouseThrough(false)
+	}
 }
 
 // SetChangeStateOnClick updates whether the button should toggle on click.
