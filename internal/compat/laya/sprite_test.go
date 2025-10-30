@@ -140,7 +140,7 @@ func TestSpritePivotRotationBounds(t *testing.T) {
 	sprite.SetSize(100, 50)
 	sprite.SetPivotWithAnchor(0.5, 0.5, true)
 	sprite.SetPosition(200, 300)
-	sprite.SetRotation(math.Pi / 2) // 90 degrees
+	sprite.SetRotation(90) // 90 degrees (FairyGUI uses degrees, not radians)
 
 	// 当pivotAsAnchor=true时，SetPosition的语义是"pivot点在全局(200,300)"
 	centerGlobal := sprite.LocalToGlobal(laya.Point{X: 50, Y: 25})
@@ -286,13 +286,15 @@ func TestSpritePivotAnchorPosition(t *testing.T) {
 	sprite := laya.NewSprite()
 	sprite.SetSize(120, 80)
 	sprite.SetScale(1.4, 0.8)
-	sprite.SetSkew(0.2, -0.1)
-	sprite.SetRotation(0.35)
+	// FairyGUI uses degrees: 0.2 rad ≈ 11.46°, -0.1 rad ≈ -5.73°
+	sprite.SetSkew(11.459, -5.730)
+	// FairyGUI uses degrees: 0.35 rad ≈ 20.05°
+	sprite.SetRotation(20.054)
 	sprite.SetPivotWithAnchor(0.3, 0.6, true)
 
 	sprite.SetPosition(200, 150)
 
-	offX, offY := expectedPivotOffset(120, 80, 0.3, 0.6, 0.35, 0.2, -0.1, 1.4, 0.8)
+	offX, offY := expectedPivotOffset(120, 80, 0.3, 0.6, 20.054, 11.459, -5.730, 1.4, 0.8)
 	wantX := 200 + offX
 	wantY := 150 + offY
 	got := sprite.Position()
@@ -309,7 +311,7 @@ func TestSpritePivotAnchorPosition(t *testing.T) {
 	}
 
 	sprite.SetSize(90, 40)
-	offX, offY = expectedPivotOffset(90, 40, 0.3, 0.6, 0.35, 0.2, -0.1, 1.4, 0.8)
+	offX, offY = expectedPivotOffset(90, 40, 0.3, 0.6, 20.054, 11.459, -5.730, 1.4, 0.8)
 	got = sprite.Position()
 	wantX = 210 + offX
 	wantY = 130 + offY
@@ -322,8 +324,10 @@ func TestSpritePivotWithoutAnchor(t *testing.T) {
 	sprite := laya.NewSprite()
 	sprite.SetSize(100, 60)
 	sprite.SetScale(1.2, 0.9)
-	sprite.SetRotation(0.25)
-	sprite.SetSkew(-0.05, 0.1)
+	// FairyGUI uses degrees: 0.25 rad ≈ 14.32°
+	sprite.SetRotation(14.324)
+	// FairyGUI uses degrees: -0.05 rad ≈ -2.86°, 0.1 rad ≈ 5.73°
+	sprite.SetSkew(-2.865, 5.730)
 
 	sprite.SetPivotWithAnchor(0.4, 0.2, false)
 	sprite.SetPosition(80, 40)
@@ -363,10 +367,15 @@ func expectedPivotOffset(width, height, pivotX, pivotY, rotation, skewX, skewY, 
 	px := pivotX * width
 	py := pivotY * height
 
-	cosY := math.Cos(rotation + skewY)
-	sinY := math.Sin(rotation + skewY)
-	cosX := math.Cos(rotation - skewX)  // 恢复减法
-	sinX := math.Sin(rotation - skewX)  // 恢复减法
+	// 将角度转换为弧度（FairyGUI 使用角度）
+	rotRad := rotation * math.Pi / 180.0
+	skewXRad := skewX * math.Pi / 180.0
+	skewYRad := skewY * math.Pi / 180.0
+
+	cosY := math.Cos(rotRad + skewYRad)
+	sinY := math.Sin(rotRad + skewYRad)
+	cosX := math.Cos(rotRad - skewXRad)  // 恢复减法
+	sinX := math.Sin(rotRad - skewXRad)  // 恢复减法
 
 	a := cosY * scaleX
 	b := sinY * scaleX

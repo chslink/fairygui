@@ -5,15 +5,15 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/chslink/fairygui/pkg/fgui"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
-	"github.com/chslink/fairygui/pkg/fgui/builder"
 	"github.com/chslink/fairygui/pkg/fgui/render"
 )
 
 // Environment gathers shared services needed by demo scenes.
 type Environment struct {
 	Loader  assets.Loader
-	Factory *builder.Factory
+	Factory *fgui.Factory
 	Atlas   *render.AtlasManager
 
 	mu       sync.Mutex
@@ -21,7 +21,7 @@ type Environment struct {
 }
 
 // NewEnvironment wires the shared loader/factory/atlas trio used by scenes.
-func NewEnvironment(loader assets.Loader, factory *builder.Factory, atlas *render.AtlasManager) *Environment {
+func NewEnvironment(loader assets.Loader, factory *fgui.Factory, atlas *render.AtlasManager) *Environment {
 	return &Environment{
 		Loader:   loader,
 		Factory:  factory,

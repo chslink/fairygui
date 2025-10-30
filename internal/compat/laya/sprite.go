@@ -348,22 +348,22 @@ func (s *Sprite) Scale() (float64, float64) {
 	return s.scaleX, s.scaleY
 }
 
-// SetRotation sets the rotation in radians.
-func (s *Sprite) SetRotation(radians float64) {
-	if s.rotation == radians {
+// SetRotation sets the rotation in degrees (FairyGUI uses degrees, not radians).
+func (s *Sprite) SetRotation(degrees float64) {
+	if s.rotation == degrees {
 		return
 	}
-	s.rotation = radians
+	s.rotation = degrees
 	s.updatePivotOffset()
 	s.applyPivotOffset(true)
 }
 
-// Rotation returns the rotation in radians.
+// Rotation returns the rotation in degrees (FairyGUI uses degrees, not radians).
 func (s *Sprite) Rotation() float64 {
 	return s.rotation
 }
 
-// SetSkew updates the skew factors (in radians) on both axes.
+// SetSkew updates the skew factors in degrees (FairyGUI uses degrees, not radians).
 func (s *Sprite) SetSkew(sx, sy float64) {
 	if s.skewX == sx && s.skewY == sy {
 		return
@@ -374,7 +374,7 @@ func (s *Sprite) SetSkew(sx, sy float64) {
 	s.applyPivotOffset(true)
 }
 
-// Skew returns the skew factors.
+// Skew returns the skew factors in degrees (FairyGUI uses degrees, not radians).
 func (s *Sprite) Skew() (float64, float64) {
 	return s.skewX, s.skewY
 }
@@ -440,10 +440,15 @@ func (s *Sprite) updatePivotOffset() {
 	px := s.pivot.X * s.width
 	py := s.pivot.Y * s.height
 
-	cosY := math.Cos(s.rotation + s.skewY)
-	sinY := math.Sin(s.rotation + s.skewY)
-	cosX := math.Cos(s.rotation - s.skewX)  // 恢复减法
-	sinX := math.Sin(s.rotation - s.skewX)  // 恢复减法
+	// 将角度转换为弧度（FairyGUI 存储角度，math.Cos/Sin 需要弧度）
+	rotRad := s.rotation * math.Pi / 180.0
+	skewXRad := s.skewX * math.Pi / 180.0
+	skewYRad := s.skewY * math.Pi / 180.0
+
+	cosY := math.Cos(rotRad + skewYRad)
+	sinY := math.Sin(rotRad + skewYRad)
+	cosX := math.Cos(rotRad - skewXRad)  // 恢复减法
+	sinX := math.Sin(rotRad - skewXRad)  // 恢复减法
 
 	a := cosY * s.scaleX
 	b := sinY * s.scaleX
@@ -505,14 +510,16 @@ func (s *Sprite) Bounds() Rect {
 func (s *Sprite) localMatrix() Matrix {
 	pivotX := s.pivot.X * s.width
 	pivotY := s.pivot.Y * s.height
-	rot := s.rotation
-	skewX := s.skewX
-	skewY := s.skewY
 
-	cosY := math.Cos(rot + skewY)
-	sinY := math.Sin(rot + skewY)
-	cosX := math.Cos(rot - skewX)  // 恢复减法
-	sinX := math.Sin(rot - skewX)  // 恢复减法
+	// 将角度转换为弧度（FairyGUI 存储角度，math.Cos/Sin 需要弧度）
+	rotRad := s.rotation * math.Pi / 180.0
+	skewXRad := s.skewX * math.Pi / 180.0
+	skewYRad := s.skewY * math.Pi / 180.0
+
+	cosY := math.Cos(rotRad + skewYRad)
+	sinY := math.Sin(rotRad + skewYRad)
+	cosX := math.Cos(rotRad - skewXRad)  // 恢复减法
+	sinX := math.Sin(rotRad - skewXRad)  // 恢复减法
 
 	a := cosY * s.scaleX
 	b := sinY * s.scaleX

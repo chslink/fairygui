@@ -15,8 +15,6 @@ import (
 	"github.com/chslink/fairygui/demo/scenes"
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui"
-	"github.com/chslink/fairygui/pkg/fgui/assets"
-	"github.com/chslink/fairygui/pkg/fgui/builder"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/render"
 )
@@ -59,10 +57,10 @@ type game struct {
 
 func newGame(ctx context.Context) (*game, error) {
 	assetsDir := filepath.Join("demo", "assets")
-	loader := assets.NewFileLoader(assetsDir)
+	loader := fgui.NewFileLoader(assetsDir)
 
 	atlas := render.NewAtlasManager(loader)
-	factory := builder.NewFactoryWithLoader(atlas, loader)
+	factory := fgui.NewFactoryWithLoader(atlas, loader)
 	env := scenes.NewEnvironment(loader, factory, atlas)
 	manager, err := scenes.NewManager(ctx, env)
 	if err != nil {

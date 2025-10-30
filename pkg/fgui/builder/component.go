@@ -585,6 +585,12 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 	obj.SetSourceSize(initW, initH)
 	obj.SetInitSize(initW, initH)
 
+	// 设置基础属性
+	if child.Name != "" {
+		obj.SetName(child.Name)
+	}
+	obj.SetPosition(float64(child.X), float64(child.Y))
+
 	return obj
 }
 

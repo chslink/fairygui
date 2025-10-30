@@ -246,21 +246,24 @@ func (g *GObject) Scale() (float64, float64) {
 	return g.scaleX, g.scaleY
 }
 
-// SetRotation stores the rotation in radians and mirrors it to the sprite.
-func (g *GObject) SetRotation(radians float64) {
-	g.rotation = radians
+// SetRotation stores the rotation in degrees and mirrors it to the sprite.
+// Note: FairyGUI uses degrees, not radians (consistent with TypeScript version).
+func (g *GObject) SetRotation(degrees float64) {
+	g.rotation = degrees
 	if g.display != nil {
-		g.display.SetRotation(radians)
+		g.display.SetRotation(degrees)
 	}
 	g.refreshTransform()
 }
 
-// Rotation returns the current rotation in radians.
+// Rotation returns the current rotation in degrees.
+// Note: FairyGUI uses degrees, not radians (consistent with TypeScript version).
 func (g *GObject) Rotation() float64 {
 	return g.rotation
 }
 
-// SetSkew updates skew factors (in radians).
+// SetSkew updates skew factors in degrees (FairyGUI uses degrees, not radians).
+// Note: Consistent with TypeScript version, skew values are in degrees.
 func (g *GObject) SetSkew(skewX, skewY float64) {
 	g.skewX = skewX
 	g.skewY = skewY
@@ -270,7 +273,8 @@ func (g *GObject) SetSkew(skewX, skewY float64) {
 	g.refreshTransform()
 }
 
-// Skew returns the skew factors.
+// Skew returns the skew factors in degrees.
+// Note: FairyGUI uses degrees, not radians (consistent with TypeScript version).
 func (g *GObject) Skew() (float64, float64) {
 	return g.skewX, g.skewY
 }

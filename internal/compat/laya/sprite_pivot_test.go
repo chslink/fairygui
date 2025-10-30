@@ -107,7 +107,7 @@ func TestTopLeftCornerAfterRotation(t *testing.T) {
 	sprite.SetSize(100, 50)
 	sprite.SetPivotWithAnchor(0.5, 0.5, false) // 中心轴
 	sprite.SetPosition(200, 300)
-	sprite.SetRotation(math.Pi / 2) // 90 degrees
+	sprite.SetRotation(90) // 90 degrees (FairyGUI uses degrees, not radians)
 
 	// 旋转前左上角在局部坐标 (0, 0)
 	// 旋转后左上角应该移动

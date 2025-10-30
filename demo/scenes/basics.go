@@ -139,10 +139,12 @@ func (d *BasicsDemo) attachDemoButton(obj *core.GObject) {
 	if btnName == "" {
 		return
 	}
+	log.Printf("[basics] attach demo button %s", btnName)
 	if sprite := obj.DisplayObject(); sprite != nil {
 		d.mainButtons = append(d.mainButtons, obj)
 		scene := btnName
 		sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			log.Printf("[basics] click demo button %s", btnName)
 			d.runDemo(scene)
 		})
 	}
@@ -152,11 +154,11 @@ func (d *BasicsDemo) runDemo(kind string) {
 	if d.controller == nil || d.container == nil {
 		return
 	}
+
 	d.stopProgressLoop()
 
 	info := d.ensureDemo(kind)
 	if info == nil || info.component == nil {
-		log.Printf("[basics] demo %s not available", kind)
 		return
 	}
 
@@ -169,6 +171,7 @@ func (d *BasicsDemo) runDemo(kind string) {
 	d.container.AddChild(info.component.GObject)
 	d.setControllerIndex(1)
 	d.setMainButtonsVisible(false)
+
 	if d.backBtn != nil {
 		d.backBtn.SetVisible(true)
 	}
@@ -230,7 +233,7 @@ func (d *BasicsDemo) initButton(component *core.GComponent) {
 	}
 	// 参考 TypeScript 原版：BasicsDemo.ts playButton()
 	// 只给 n34 添加简单的点击事件
-	target := component.ChildByName("n34")
+	target := component.ChildByName("btn_Button")
 	if target != nil {
 		if sprite := target.DisplayObject(); sprite != nil {
 			sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
@@ -1361,4 +1364,3 @@ func listItemTitle(list *widgets.GList, index int) string {
 	}
 	return fmt.Sprintf("#%d", index+1)
 }
-
