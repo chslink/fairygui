@@ -547,13 +547,15 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 			// list is a composite widget; no additional handling yet.
 		case *core.GComponent, nil:
 			if nested, nestedItem := f.buildNestedComponent(ctx, pkg, owner, child); nested != nil {
-				obj.SetData(nested)
+				// 关键修复：对于嵌套组件，直接使用 nested 的 GObject
+				// 而不是创建新的 GObject 并把 nested 存储在 Data 中
+				// 这确保 DisplayObject 层级正确连接
+				obj = nested.GObject
 				if nestedItem != nil {
 					resolvedItem = nestedItem
 				}
-				if (child.Width < 0 || child.Height < 0) && nested.Width() > 0 && nested.Height() > 0 {
-					obj.SetSize(nested.Width(), nested.Height())
-				}
+				// 注意：nested 已经有正确的尺寸，但如果 child 指定了尺寸覆盖，
+				// 后面的代码会处理（第573-590行）
 			}
 		default:
 			// unsupported widget types fall back to existing behaviour.
@@ -585,7 +587,9 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 	obj.SetSourceSize(initW, initH)
 	obj.SetInitSize(initW, initH)
 
-	// 设置基础属性
+	// 设置基础属性（对应 TypeScript 版本 constructFromResource2）
+	// 参考 GComponent.ts:1024: this.setSize(this.sourceWidth, this.sourceHeight);
+	obj.SetSize(initW, initH)
 	if child.Name != "" {
 		obj.SetName(child.Name)
 	}

@@ -136,7 +136,8 @@ func (g *GearXY) Apply() {
 		return
 	}
 	g.ensureInit()
-	val := g.valueForPage(g.pageID())
+	pageID := g.pageID()
+	val := g.valueForPage(pageID)
 	x := val.X
 	y := val.Y
 	if g.positionsInPercent {
