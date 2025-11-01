@@ -320,15 +320,51 @@ func (g *GObject) Alpha() float64 {
 
 // SetVisible toggles visibility.
 func (g *GObject) SetVisible(visible bool) {
+	if g.visible == visible {
+		return
+	}
 	g.visible = visible
-	if g.display != nil {
-		g.display.SetVisible(visible)
+	// 检查 data 是否实现了自定义的 HandleVisibleChanged
+	// 这样可以让 GGroup 等子类覆盖行为
+	if handler, ok := g.data.(interface{ HandleVisibleChanged() }); ok {
+		handler.HandleVisibleChanged()
+	} else {
+		g.HandleVisibleChanged()
 	}
 }
 
 // Visible reports whether the object is visible.
 func (g *GObject) Visible() bool {
 	return g.visible
+}
+
+// HandleVisibleChanged 更新 displayObject 的可见性
+// 计算考虑了 group 的可见性：实际可见性 = 自己的 visible && (没有 group 或 group 的实际可见性)
+func (g *GObject) HandleVisibleChanged() {
+	if g == nil || g.display == nil {
+		return
+	}
+	// 计算实际可见性：自己的 visible && group 的可见性
+	actualVisible := g.visible
+	if actualVisible && g.group != nil {
+		// 递归计算 group 的实际可见性
+		actualVisible = g.group.visible && g.isGroupVisible(g.group)
+	}
+	g.display.SetVisible(actualVisible)
+}
+
+// isGroupVisible 递归检查 group 链的可见性
+func (g *GObject) isGroupVisible(group *GObject) bool {
+	if group == nil {
+		return true
+	}
+	if !group.visible {
+		return false
+	}
+	if group.group != nil {
+		return g.isGroupVisible(group.group)
+	}
+	return true
 }
 
 // Touchable returns whether the object reacts to user input.
@@ -1029,6 +1065,9 @@ func (g *GObject) SetGroup(group *GObject) {
 		return
 	}
 	g.group = group
+	// 设置 group 后，需要重新计算可见性
+	// 因为实际可见性 = 自己的 visible && group 的可见性
+	g.HandleVisibleChanged()
 }
 
 // Relations returns the relation set associated with this object.

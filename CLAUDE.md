@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **核心约束**：
 - Ebiten 提供帧驱动游戏循环和软件渲染原语
 - 需要兼容层模拟 LayaAir 的子集服务（sprite 层级、事件、定时器、资源加载）
-- 参考实现位于 `laya_src/fairygui`（上游 TypeScript 版本）
+- 参考实现位于 `laya_src/source`（上游 TypeScript 版本）
 
 ## 关键文档
 

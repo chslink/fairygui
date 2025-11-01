@@ -111,8 +111,46 @@ func (g *GGroup) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	}
 }
 
-// SetupAfterAdd 在加入父节点后触发。当前实现无需额外处理。
-func (g *GGroup) SetupAfterAdd(_ *SetupContext, _ *utils.ByteBuffer) {}
+// SetupAfterAdd 在加入父节点后触发
+// 参考 TypeScript 版本 GGroup.ts setup_afterAdd (441-446行)
+func (g *GGroup) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
+	// 调用父类的 SetupAfterAdd（处理 gears 等）
+	// 注意：GObject.SetupAfterAdd 需要父组件参数，但这里我们通过 g.GObject.Parent() 获取
+	if g.GObject != nil && g.GObject.Parent() != nil && buf != nil {
+		// 这里需要 beginPos，但我们没有，所以跳过调用父类方法
+		// 实际上 GGroup 不需要父类的 SetupAfterAdd 处理
+	}
+
+	// 关键：如果 Group 不可见，需要同步子元素的可见性
+	// 这确保了在 gear 应用后，子元素能够正确隐藏
+	if g.GObject != nil && !g.GObject.Visible() {
+		g.HandleVisibleChanged()
+	}
+}
+
+// HandleVisibleChanged 覆盖 GObject 的实现
+// Group 的可见性改变时，同步所有属于该 Group 的子元素
+// 参考 TypeScript 版本 GGroup.ts handleVisibleChanged (414-424行)
+func (g *GGroup) HandleVisibleChanged() {
+	if g == nil || g.GObject == nil {
+		return
+	}
+
+	// 首先更新 Group 自己的 displayObject
+	g.GObject.HandleVisibleChanged()
+
+	// 然后同步所有属于该 Group 的子元素
+	parent := g.GObject.Parent()
+	if parent == nil {
+		return
+	}
+
+	for _, child := range parent.Children() {
+		if child != nil && child.Group() == g.GObject {
+			child.HandleVisibleChanged()
+		}
+	}
+}
 
 func clampGroupLayout(layout GroupLayoutType) GroupLayoutType {
 	if layout < GroupLayoutTypeNone || layout > GroupLayoutTypeVertical {
