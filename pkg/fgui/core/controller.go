@@ -162,6 +162,28 @@ func (c *Controller) SetSelectedPageName(name string) {
 	c.SetSelectedIndex(target)
 }
 
+// SetOppositePageID switches to the opposite page for toggle-style behavior.
+// 参考 TypeScript 原版：Controller.ts oppositePageId setter
+// 如果传入的 pageID 在控制器页面列表中的索引 > 0，切换到 page 0
+// 否则，如果有多个页面，切换到 page 1
+func (c *Controller) SetOppositePageID(id string) {
+	if c == nil || len(c.PageIDs) == 0 {
+		return
+	}
+	index := -1
+	for idx, stored := range c.PageIDs {
+		if stored == id {
+			index = idx
+			break
+		}
+	}
+	if index > 0 {
+		c.SetSelectedIndex(0)
+	} else if len(c.PageIDs) > 1 {
+		c.SetSelectedIndex(1)
+	}
+}
+
 func (c *Controller) attach(parent *GComponent) {
 	if c == nil {
 		return

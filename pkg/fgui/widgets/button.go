@@ -649,8 +649,13 @@ func (b *GButton) syncRelatedController() {
 	if b.relatedController == nil || b.relatedPageID == "" {
 		return
 	}
+	// 参考 TypeScript 原版：GButton.ts set selected()
 	if b.selected {
+		// 选中时：切换到 relatedPageID 指定的页面
 		b.relatedController.SetSelectedPageID(b.relatedPageID)
+	} else if b.mode == ButtonModeCheck && b.relatedController.SelectedPageID() == b.relatedPageID {
+		// 取消选中时（Check 模式）：如果当前页面恰好是 relatedPageID，切换到相反的页面
+		b.relatedController.SetOppositePageID(b.relatedPageID)
 	}
 }
 
