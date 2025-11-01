@@ -275,8 +275,8 @@ func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextFi
 		shadowColorStr = field.ShadowColor()
 		shadowOffXVal, shadowOffYVal = field.ShadowOffset()
 	}
-	cacheKey := fmt.Sprintf("text_%s_%s_%s_%.0fx%.0f_%.1f_%.1f_%v_%v_%.1f_%s_%.1f_%s_%.1f_%.1f",
-		value, baseStyle.Font, baseStyle.Color,
+	cacheKey := fmt.Sprintf("text_%s_%s_%s_%d_%.0fx%.0f_%.1f_%.1f_%v_%v_%.1f_%s_%.1f_%s_%.1f_%.1f",
+		value, baseStyle.Font, baseStyle.Color, baseStyle.FontSize,
 		finalWidth, finalHeight, letterSpacing, leading,
 		align, valign,
 		strokeSizeVal, strokeColorStr,

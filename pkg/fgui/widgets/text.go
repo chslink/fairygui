@@ -167,7 +167,8 @@ func (t *GTextField) SetFontSize(size int) {
 	t.fontSize = size
 	// 参考 TypeScript 版本：设置 displayObject.fontSize 会触发重绘
 	// Go 版本需要手动标记 Sprite 需要重绘
-	if sprite := t.GObject.DisplayObject(); sprite != nil {
+	sprite := t.GObject.DisplayObject()
+	if sprite != nil {
 		sprite.Repaint()
 	}
 }
