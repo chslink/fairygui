@@ -32,14 +32,20 @@ func NewGearSize(owner Owner) *GearSize {
 	return g
 }
 
-// SetController wires the controller reference and refreshes cached state.
+// SetController wires the controller reference.
+// 参考 TypeScript 原版：GearBase.ts set controller()
+// 只调用 init()，不调用 updateState()
 func (g *GearSize) SetController(ctrl Controller) {
 	if g == nil {
 		return
 	}
+	if g.Controller() == ctrl {
+		return
+	}
 	g.Base.SetController(ctrl)
-	g.ensureInit()
-	g.UpdateState()
+	if ctrl != nil {
+		g.ensureInit()
+	}
 }
 
 // Setup initialises the gear from serialized data.
