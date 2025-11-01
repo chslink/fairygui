@@ -97,7 +97,13 @@ func NewText() *GTextField {
 
 // SetText updates the displayed text.
 func (t *GTextField) SetText(value string) {
+	if t.text == value {
+		return
+	}
 	t.text = value
+	if sprite := t.GObject.DisplayObject(); sprite != nil {
+		sprite.Repaint()
+	}
 }
 
 // Text returns the current text.
@@ -107,7 +113,13 @@ func (t *GTextField) Text() string {
 
 // SetColor updates the text colour stored on this widget.
 func (t *GTextField) SetColor(value string) {
+	if t.color == value {
+		return
+	}
 	t.color = value
+	if sprite := t.GObject.DisplayObject(); sprite != nil {
+		sprite.Repaint()
+	}
 }
 
 // Color returns the current text colour.
@@ -117,7 +129,13 @@ func (t *GTextField) Color() string {
 
 // SetFont stores the requested font face identifier.
 func (t *GTextField) SetFont(value string) {
+	if t.font == value {
+		return
+	}
 	t.font = value
+	if sprite := t.GObject.DisplayObject(); sprite != nil {
+		sprite.Repaint()
+	}
 }
 
 // Font returns the stored font identifier.
@@ -127,7 +145,13 @@ func (t *GTextField) Font() string {
 
 // SetOutlineColor stores the outline colour value.
 func (t *GTextField) SetOutlineColor(value string) {
+	if t.outlineColor == value {
+		return
+	}
 	t.outlineColor = value
+	if sprite := t.GObject.DisplayObject(); sprite != nil {
+		sprite.Repaint()
+	}
 }
 
 // OutlineColor returns the current outline colour.
@@ -137,7 +161,15 @@ func (t *GTextField) OutlineColor() string {
 
 // SetFontSize records the font size associated with the text.
 func (t *GTextField) SetFontSize(size int) {
+	if t.fontSize == size {
+		return
+	}
 	t.fontSize = size
+	// 参考 TypeScript 版本：设置 displayObject.fontSize 会触发重绘
+	// Go 版本需要手动标记 Sprite 需要重绘
+	if sprite := t.GObject.DisplayObject(); sprite != nil {
+		sprite.Repaint()
+	}
 }
 
 // FontSize returns the stored font size.
