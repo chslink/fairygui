@@ -1234,6 +1234,43 @@ func (g *GObject) HandleControllerChanged(ctrl *Controller) {
 		}
 	}
 	g.handlingController = false
+
+	// 在控制器改变后，需要重新计算 GearDisplay 和 GearDisplay2 的组合可见性
+	// 参考 TypeScript 版本 GObject.ts handleControllerChanged (899行)
+	g.CheckGearDisplay()
+}
+
+// CheckGearDisplay 计算 GearDisplay 和 GearDisplay2 的组合可见性
+// 参考 TypeScript 版本 GObject.ts checkGearDisplay (617-634行)
+func (g *GObject) CheckGearDisplay() {
+	if g == nil {
+		return
+	}
+	if g.handlingController {
+		return
+	}
+
+	// 1. 先获取 GearDisplay (index 0) 的 connected 状态
+	connected := true
+	if gearDisplay := g.gears[gears.IndexDisplay]; gearDisplay != nil {
+		if gd, ok := gearDisplay.(interface{ Connected() bool }); ok {
+			connected = gd.Connected()
+		}
+	}
+
+	// 2. 如果有 GearDisplay2 (index 8)，用它的 evaluate 方法计算最终可见性
+	if gearDisplay2 := g.gears[gears.IndexDisplay2]; gearDisplay2 != nil {
+		if gd2, ok := gearDisplay2.(interface{ Evaluate(bool) bool }); ok {
+			connected = gd2.Evaluate(connected)
+		}
+	}
+
+	// 3. 更新可见性（如果 connected 状态改变）
+	// 注意：这里直接设置 DisplayObject 的可见性，不通过 SetVisible
+	// 因为 SetVisible 会修改 g.visible 字段，而这里只是计算"实际可见性"
+	if g.display != nil && g.display.Visible() != connected {
+		g.display.SetVisible(connected)
+	}
 }
 
 // CheckGearController reports whether the specified gear slot is driven by the controller.
