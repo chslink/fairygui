@@ -122,16 +122,16 @@ func (c *Controller) SetSelectedIndex(index int) {
 	c.selectedIndex = index
 
 	// 记录新状态并打印日志
-	parentName := "nil"
+	parentInfo := "nil"
 	if c.parent != nil {
-		parentName = c.parent.Name()
+		parentInfo = fmt.Sprintf("%s@%p", c.parent.Name(), c.parent)
 	}
 	newPageID := ""
 	if c.selectedIndex >= 0 && c.selectedIndex < len(c.PageIDs) {
 		newPageID = c.PageIDs[c.selectedIndex]
 	}
 	fmt.Printf("[Controller.SetSelectedIndex] %s (parent=%s): %d(%s) -> %d(%s)\n",
-		c.Name, parentName, oldIndex, oldPageID, c.selectedIndex, newPageID)
+		c.Name, parentInfo, oldIndex, oldPageID, c.selectedIndex, newPageID)
 
 	c.applySelection()
 	c.notifySelectionChanged()
@@ -259,9 +259,19 @@ func (c *Controller) detach(parent *GComponent) {
 }
 
 func (c *Controller) applySelection() {
-	if c == nil || c.parent == nil || c.changing {
+	if c == nil {
 		return
 	}
+	if c.parent == nil {
+		fmt.Printf("[Controller.applySelection] %s: parent is nil, skipping applyController\n", c.Name)
+		return
+	}
+	if c.changing {
+		fmt.Printf("[Controller.applySelection] %s: already changing, skipping\n", c.Name)
+		return
+	}
+	fmt.Printf("[Controller.applySelection] %s: calling parent.applyController (parent=%s@%p, children=%d)\n",
+		c.Name, c.parent.Name(), c.parent, len(c.parent.Children()))
 	c.changing = true
 	c.parent.applyController(c)
 	c.changing = false
