@@ -470,13 +470,29 @@ func (s *Server) collectObjectJSON(obj *core.GObject) map[string]interface{} {
 			data["children"] = childData
 		}
 
-			// 添加组件特定信息
-			if scrollPane := comp.ScrollPane(); scrollPane != nil {
-				data["scrollPane"] = map[string]interface{}{
-					"viewWidth":  scrollPane.ViewWidth(),
-					"viewHeight": scrollPane.ViewHeight(),
+		// 添加组件特定信息
+		if scrollPane := comp.ScrollPane(); scrollPane != nil {
+			data["scrollPane"] = map[string]interface{}{
+				"viewWidth":  scrollPane.ViewWidth(),
+				"viewHeight": scrollPane.ViewHeight(),
+			}
+		}
+
+		// 添加控制器信息
+		if controllers := comp.Controllers(); len(controllers) > 0 {
+			var ctrlData []map[string]interface{}
+			for _, ctrl := range controllers {
+				if ctrl != nil {
+					ctrlData = append(ctrlData, map[string]interface{}{
+						"name":          ctrl.Name,
+						"selectedIndex": ctrl.SelectedIndex(),
+						"selectedPage":  ctrl.SelectedPageID(),
+						"pageCount":     ctrl.PageCount(),
+					})
 				}
 			}
+			data["controllers"] = ctrlData
+		}
 	}
 
 	return data
@@ -806,6 +822,24 @@ func (s *Server) addObjectSpecificData(obj *core.GObject, data map[string]interf
 		data["excludeInvisibles"] = widget.ExcludeInvisibles()
 		data["autoSizeDisabled"] = widget.AutoSizeDisabled()
 	}
+
+	// 为所有 GComponent 添加控制器信息
+	if comp, ok := obj.Data().(*core.GComponent); ok {
+		if controllers := comp.Controllers(); len(controllers) > 0 {
+			var ctrlData []map[string]interface{}
+			for _, ctrl := range controllers {
+				if ctrl != nil {
+					ctrlData = append(ctrlData, map[string]interface{}{
+						"name":          ctrl.Name,
+						"selectedIndex": ctrl.SelectedIndex(),
+						"selectedPage":  ctrl.SelectedPageID(),
+						"pageCount":     ctrl.PageCount(),
+					})
+				}
+			}
+			data["controllers"] = ctrlData
+		}
+	}
 }
 
 // getVirtualListInfo 获取虚拟列表信息
@@ -951,6 +985,20 @@ func (s *Server) renderObjectDetails(obj *core.GObject, result *strings.Builder)
 	if parent := obj.Parent(); parent != nil {
 		result.WriteString(fmt.Sprintf("<div class='detail-info'>👪 父对象: %s (%s)</div>",
 			parent.Name(), s.getObjectType(parent.GObject)))
+	}
+
+	// 添加控制器信息
+	if comp, ok := obj.Data().(*core.GComponent); ok {
+		if controllers := comp.Controllers(); len(controllers) > 0 {
+			result.WriteString(fmt.Sprintf("<div class='detail-info'>🎮 控制器: %d个", len(controllers)))
+			for i, ctrl := range controllers {
+				if ctrl != nil {
+					result.WriteString(fmt.Sprintf("<br>  %d. %s: page=%d/%d (%s)",
+						i+1, ctrl.Name, ctrl.SelectedIndex(), ctrl.PageCount(), ctrl.SelectedPageID()))
+				}
+			}
+			result.WriteString("</div>")
+		}
 	}
 }
 
