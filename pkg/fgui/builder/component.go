@@ -265,7 +265,15 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 	for _, ctrlData := range item.Component.Controllers {
 		ctrl := core.NewController(ctrlData.Name)
 		ctrl.AutoRadio = ctrlData.AutoRadio
-		ctrl.SetPages(ctrlData.PageIDs, ctrlData.PageNames)
+		// 注意：FairyGUI 二进制格式中，PageIDs 字段存储的是索引号 (0,1,2,3)
+		// PageNames 字段才是真正的 page ID (up,down,over,selectedOver)
+		// 如果 PageNames 非空，使用它作为 PageIDs；否则使用原 PageIDs
+		pageIDs := ctrlData.PageIDs
+		pageNames := ctrlData.PageNames
+		if len(pageNames) > 0 && pageNames[0] != "" {
+			pageIDs = pageNames
+		}
+		ctrl.SetPages(pageIDs, pageNames)
 		root.AddController(ctrl)
 	}
 
@@ -767,7 +775,15 @@ func (f *Factory) applyButtonTemplate(ctx context.Context, widget *widgets.GButt
 		for _, ctrlData := range item.Component.Controllers {
 			ctrl := core.NewController(ctrlData.Name)
 			ctrl.AutoRadio = ctrlData.AutoRadio
-			ctrl.SetPages(ctrlData.PageIDs, ctrlData.PageNames)
+			// 注意：FairyGUI 二进制格式中，PageIDs 字段存储的是索引号 (0,1,2,3)
+			// PageNames 字段才是真正的 page ID (up,down,over,selectedOver)
+			// 如果 PageNames 非空，使用它作为 PageIDs；否则使用原 PageIDs
+			pageIDs := ctrlData.PageIDs
+			pageNames := ctrlData.PageNames
+			if len(pageNames) > 0 && pageNames[0] != "" {
+				pageIDs = pageNames
+			}
+			ctrl.SetPages(pageIDs, pageNames)
 			widget.AddController(ctrl)
 			if strings.EqualFold(ctrl.Name, "button") {
 				widget.SetButtonController(ctrl)
