@@ -1233,9 +1233,24 @@ func (g *GObject) HandleControllerChanged(ctrl *Controller) {
 	if g.handlingController {
 		return
 	}
-	g.handlingController = true
+
+	// 统计匹配的gear数量
+	matchedGears := 0
 	for _, gear := range g.gears {
 		if gear != nil && gear.Controller() == ctrl {
+			matchedGears++
+		}
+	}
+
+	if matchedGears > 0 {
+		fmt.Printf("[GObject.HandleControllerChanged] obj=%s (type=%T), ctrl=%s, matched gears=%d\n",
+			g.Name(), g.Data(), ctrl.Name, matchedGears)
+	}
+
+	g.handlingController = true
+	for i, gear := range g.gears {
+		if gear != nil && gear.Controller() == ctrl {
+			fmt.Printf("[GObject.HandleControllerChanged]   gear[%d] type=%T, applying...\n", i, gear)
 			gear.Apply()
 		}
 	}
