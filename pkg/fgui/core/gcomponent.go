@@ -1,8 +1,6 @@
 package core
 
 import (
-	"fmt"
-
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/utils"
@@ -441,12 +439,8 @@ func (c *GComponent) applyController(ctrl *Controller) {
 	if c == nil || ctrl == nil {
 		return
 	}
-	fmt.Printf("[GComponent.applyController] comp=%s@%p, ctrl=%s, children=%d\n",
-		c.Name(), c, ctrl.Name, len(c.children))
-	for i, child := range c.children {
+	for _, child := range c.children {
 		if child != nil {
-			fmt.Printf("[GComponent.applyController]   child[%d]=%s (type=%T)\n",
-				i, child.Name(), child.Data())
 			child.HandleControllerChanged(ctrl)
 		}
 	}

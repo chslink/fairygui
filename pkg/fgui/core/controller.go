@@ -1,7 +1,5 @@
 package core
 
-import "fmt"
-
 // Controller models a simple controller with page list and selection state.
 type Controller struct {
 	Name           string
@@ -45,22 +43,12 @@ func (c *Controller) SetPages(pageIDs, pageNames []string) {
 		c.PageNames = c.PageNames[:0]
 	}
 	oldIndex := c.selectedIndex
-	oldPageID := ""
-	if oldIndex >= 0 && oldIndex < len(c.PageIDs) {
-		oldPageID = c.PageIDs[oldIndex]
-	}
+	// oldPageID := ""
+	// if oldIndex >= 0 && oldIndex < len(c.PageIDs) {
+	// 	oldPageID = c.PageIDs[oldIndex]
+	// }
 	c.normalizeSelection()
 	if oldIndex != c.selectedIndex {
-		parentName := "nil"
-		if c.parent != nil {
-			parentName = c.parent.Name()
-		}
-		newPageID := ""
-		if c.selectedIndex >= 0 && c.selectedIndex < len(c.PageIDs) {
-			newPageID = c.PageIDs[c.selectedIndex]
-		}
-		fmt.Printf("[Controller.SetPages] %s (parent=%s): %d(%s) -> %d(%s), PageIDs=%v\n",
-			c.Name, parentName, oldIndex, oldPageID, c.selectedIndex, newPageID, c.PageIDs)
 		c.previousIndex = oldIndex
 		c.applySelection()
 		c.notifySelectionChanged()
@@ -112,27 +100,14 @@ func (c *Controller) SetSelectedIndex(index int) {
 	}
 
 	// 记录旧状态
-	oldIndex := c.selectedIndex
-	oldPageID := ""
-	if oldIndex >= 0 && oldIndex < len(c.PageIDs) {
-		oldPageID = c.PageIDs[oldIndex]
-	}
+	// oldIndex := c.selectedIndex
+	// oldPageID := ""
+	// if oldIndex >= 0 && oldIndex < len(c.PageIDs) {
+	// 	oldPageID = c.PageIDs[oldIndex]
+	// }
 
 	c.previousIndex = c.selectedIndex
 	c.selectedIndex = index
-
-	// 记录新状态并打印日志
-	parentInfo := "nil"
-	if c.parent != nil {
-		parentInfo = fmt.Sprintf("%s@%p", c.parent.Name(), c.parent)
-	}
-	newPageID := ""
-	if c.selectedIndex >= 0 && c.selectedIndex < len(c.PageIDs) {
-		newPageID = c.PageIDs[c.selectedIndex]
-	}
-	fmt.Printf("[Controller.SetSelectedIndex] %s (parent=%s): %d(%s) -> %d(%s)\n",
-		c.Name, parentInfo, oldIndex, oldPageID, c.selectedIndex, newPageID)
-
 	c.applySelection()
 	c.notifySelectionChanged()
 }
@@ -175,12 +150,6 @@ func (c *Controller) SetSelectedPageID(id string) {
 		}
 	}
 	if target == -1 {
-		parentName := "nil"
-		if c.parent != nil {
-			parentName = c.parent.Name()
-		}
-		fmt.Printf("[Controller.SetSelectedPageID] %s (parent=%s): pageID '%s' not found in %v, defaulting to index 0\n",
-			c.Name, parentName, id, c.PageIDs)
 		target = 0
 	}
 	c.SetSelectedIndex(target)
@@ -231,23 +200,8 @@ func (c *Controller) attach(parent *GComponent) {
 	if c == nil {
 		return
 	}
-	parentName := "nil"
-	if parent != nil {
-		parentName = parent.Name()
-	}
 	c.parent = parent
-	oldIndex := c.selectedIndex
 	c.normalizeSelection()
-	pageID := ""
-	if c.selectedIndex >= 0 && c.selectedIndex < len(c.PageIDs) {
-		pageID = c.PageIDs[c.selectedIndex]
-	}
-	fmt.Printf("[Controller.attach] %s -> parent=%s, index=%d(%s), PageIDs=%v\n",
-		c.Name, parentName, c.selectedIndex, pageID, c.PageIDs)
-	if oldIndex != c.selectedIndex {
-		fmt.Printf("[Controller.attach] %s: normalizeSelection changed index from %d to %d\n",
-			c.Name, oldIndex, c.selectedIndex)
-	}
 	c.applySelection()
 }
 
@@ -263,15 +217,11 @@ func (c *Controller) applySelection() {
 		return
 	}
 	if c.parent == nil {
-		fmt.Printf("[Controller.applySelection] %s: parent is nil, skipping applyController\n", c.Name)
 		return
 	}
 	if c.changing {
-		fmt.Printf("[Controller.applySelection] %s: already changing, skipping\n", c.Name)
 		return
 	}
-	fmt.Printf("[Controller.applySelection] %s: calling parent.applyController (parent=%s@%p, children=%d)\n",
-		c.Name, c.parent.Name(), c.parent, len(c.parent.Children()))
 	c.changing = true
 	c.parent.applyController(c)
 	c.changing = false

@@ -1,7 +1,6 @@
 package widgets
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
@@ -732,14 +731,6 @@ func (b *GButton) hasState(name string) bool {
 
 func (b *GButton) applyState(name string) {
 	if ctrl := b.buttonController; ctrl != nil {
-		fmt.Printf("[Button.applyState] Button=%s, state=%s, hasState=%v, ctrl=%p\n",
-			b.GComponent.Name(), name, b.hasState(name), ctrl)
-		if b.template != nil {
-			if templateCtrl := b.template.ControllerByName("button"); templateCtrl != nil {
-				fmt.Printf("[Button.applyState] Template has controller 'button', ctrl=%p (same=%v)\n",
-					templateCtrl, templateCtrl == ctrl)
-			}
-		}
 		if b.hasState(name) {
 			ctrl.SetSelectedPageName(name)
 		}
