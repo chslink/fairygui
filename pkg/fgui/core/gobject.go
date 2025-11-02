@@ -1290,7 +1290,17 @@ func (g *GObject) CheckGearDisplay() {
 	// 3. 更新 internalVisible（gear控制的可见性）
 	// 注意：不直接修改 g.visible（用户控制的可见性）
 	if g.internalVisible != connected {
+		oldInternalVisible := g.internalVisible
+		oldDisplayVisible := false
+		if g.display != nil {
+			oldDisplayVisible = g.display.Visible()
+		}
+
 		g.internalVisible = connected
+
+		fmt.Printf("[GObject.CheckGearDisplay] obj=%s, internalVisible: %v->%v\n",
+			g.Name(), oldInternalVisible, g.internalVisible)
+
 		// 调用 HandleVisibleChanged 重新计算最终可见性
 		// 检查 data 是否实现了自定义的 HandleVisibleChanged（如 GGroup）
 		if handler, ok := g.data.(interface{ HandleVisibleChanged() }); ok {
@@ -1298,6 +1308,13 @@ func (g *GObject) CheckGearDisplay() {
 		} else {
 			g.HandleVisibleChanged()
 		}
+
+		newDisplayVisible := false
+		if g.display != nil {
+			newDisplayVisible = g.display.Visible()
+		}
+		fmt.Printf("[GObject.CheckGearDisplay] obj=%s, DisplayObject.Visible: %v->%v\n",
+			g.Name(), oldDisplayVisible, newDisplayVisible)
 	}
 }
 

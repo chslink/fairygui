@@ -1,6 +1,10 @@
 package gears
 
-import "github.com/chslink/fairygui/pkg/fgui/utils"
+import (
+	"fmt"
+
+	"github.com/chslink/fairygui/pkg/fgui/utils"
+)
 
 // GearDisplay controls an object's visibility across controller pages.
 type GearDisplay struct {
@@ -82,6 +86,18 @@ func (g *GearDisplay) Apply() {
 					break
 				}
 			}
+			ownerName := "unknown"
+			if owner := g.Owner(); owner != nil {
+				if obj, ok := owner.(interface{ Name() string }); ok {
+					ownerName = obj.Name()
+				}
+			}
+			ctrlName := "unknown"
+			if c, ok := ctrl.(interface{ Name() string }); ok {
+				ctrlName = c.Name()
+			}
+			fmt.Printf("[GearDisplay.Apply] owner=%s, ctrl=%s, currentPage=%s, pages=%v, visible=%v\n",
+				ownerName, ctrlName, pageID, g.pages, visible)
 		}
 	}
 	if visible {
