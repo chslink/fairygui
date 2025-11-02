@@ -335,9 +335,21 @@ func (g *GObject) SetVisible(visible bool) {
 	}
 }
 
-// Visible reports whether the object is visible.
+// Visible reports whether the object is actually visible.
+// This considers both user-controlled visibility and gear-controlled visibility.
+// 参考 TypeScript 版本 GObject.ts internalVisible getter
 func (g *GObject) Visible() bool {
-	return g.visible
+	if !g.visible {
+		return false
+	}
+	if !g.internalVisible {
+		return false
+	}
+	// 检查 group 可见性
+	if g.group != nil && g.group.display != nil {
+		return g.group.display.Visible()
+	}
+	return true
 }
 
 // HandleVisibleChanged 更新 displayObject 的可见性
@@ -1234,23 +1246,9 @@ func (g *GObject) HandleControllerChanged(ctrl *Controller) {
 		return
 	}
 
-	// 统计匹配的gear数量
-	matchedGears := 0
+	g.handlingController = true
 	for _, gear := range g.gears {
 		if gear != nil && gear.Controller() == ctrl {
-			matchedGears++
-		}
-	}
-
-	if matchedGears > 0 {
-		fmt.Printf("[GObject.HandleControllerChanged] obj=%s (type=%T), ctrl=%s, matched gears=%d\n",
-			g.Name(), g.Data(), ctrl.Name, matchedGears)
-	}
-
-	g.handlingController = true
-	for i, gear := range g.gears {
-		if gear != nil && gear.Controller() == ctrl {
-			fmt.Printf("[GObject.HandleControllerChanged]   gear[%d] type=%T, applying...\n", i, gear)
 			gear.Apply()
 		}
 	}
@@ -1290,16 +1288,7 @@ func (g *GObject) CheckGearDisplay() {
 	// 3. 更新 internalVisible（gear控制的可见性）
 	// 注意：不直接修改 g.visible（用户控制的可见性）
 	if g.internalVisible != connected {
-		oldInternalVisible := g.internalVisible
-		oldDisplayVisible := false
-		if g.display != nil {
-			oldDisplayVisible = g.display.Visible()
-		}
-
 		g.internalVisible = connected
-
-		fmt.Printf("[GObject.CheckGearDisplay] obj=%s, internalVisible: %v->%v\n",
-			g.Name(), oldInternalVisible, g.internalVisible)
 
 		// 调用 HandleVisibleChanged 重新计算最终可见性
 		// 检查 data 是否实现了自定义的 HandleVisibleChanged（如 GGroup）
@@ -1308,13 +1297,6 @@ func (g *GObject) CheckGearDisplay() {
 		} else {
 			g.HandleVisibleChanged()
 		}
-
-		newDisplayVisible := false
-		if g.display != nil {
-			newDisplayVisible = g.display.Visible()
-		}
-		fmt.Printf("[GObject.CheckGearDisplay] obj=%s, DisplayObject.Visible: %v->%v\n",
-			g.Name(), oldDisplayVisible, newDisplayVisible)
 	}
 }
 

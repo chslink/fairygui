@@ -31,6 +31,13 @@ func (g *GearDisplay) SetController(ctrl Controller) {
 	}
 	g.Base.SetController(ctrl)
 	g.Apply()
+	// 手动触发可见性更新，因为 Apply() 只更新 visibleCounter
+	// 需要调用 CheckGearDisplay() 来更新 internalVisible 和实际显示
+	if owner := g.Owner(); owner != nil {
+		if obj, ok := owner.(interface{ CheckGearDisplay() }); ok {
+			obj.CheckGearDisplay()
+		}
+	}
 }
 
 // Setup initialises the gear from serialized data.
@@ -78,26 +85,31 @@ func (g *GearDisplay) Apply() {
 	ctrl := g.Controller()
 	if ctrl != nil {
 		if len(g.pages) > 0 {
+			// GearDisplay支持两种pages格式：
+			// 1. 页面ID字符串（如"up", "down", "over"）- 用于手动设置
+			// 2. 页面索引字符串（如"0", "1", "2"）- 来自二进制数据
+			// 参考TypeScript版本GearDisplay.ts apply()方法
+			selectedIndex := ctrl.SelectedIndex()
 			pageID := ctrl.SelectedPageID()
+
 			visible = false
+			// 先尝试作为页面ID匹配
 			for _, candidate := range g.pages {
 				if candidate == pageID {
 					visible = true
 					break
 				}
 			}
-			ownerName := "unknown"
-			if owner := g.Owner(); owner != nil {
-				if obj, ok := owner.(interface{ Name() string }); ok {
-					ownerName = obj.Name()
+			// 如果没匹配到，尝试作为索引号匹配
+			if !visible {
+				currentPageStr := fmt.Sprintf("%d", selectedIndex)
+				for _, candidate := range g.pages {
+					if candidate == currentPageStr {
+						visible = true
+						break
+					}
 				}
 			}
-			ctrlName := "unknown"
-			if c, ok := ctrl.(interface{ Name() string }); ok {
-				ctrlName = c.Name()
-			}
-			fmt.Printf("[GearDisplay.Apply] owner=%s, ctrl=%s, currentPage=%s, pages=%v, visible=%v\n",
-				ownerName, ctrlName, pageID, g.pages, visible)
 		}
 	}
 	if visible {

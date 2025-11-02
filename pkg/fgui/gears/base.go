@@ -51,6 +51,7 @@ type Owner interface {
 // Controller is a soft dependency that exposes the selected page.
 type Controller interface {
 	SelectedPageID() string
+	SelectedIndex() int
 }
 
 // ObjectPropID enumerates generic GObject property identifiers used by gears.
