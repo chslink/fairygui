@@ -63,6 +63,9 @@ func (g *GearDisplay) UpdateState() {
 }
 
 // Apply evaluates the selected page and toggles owner visibility.
+// 参考 TypeScript 版本 GearDisplay.ts apply() 方法
+// 只更新 visibleCounter，不调用 SetVisible
+// 实际可见性由 CheckGearDisplay() 统一计算
 func (g *GearDisplay) Apply() {
 	if g == nil || g.Owner() == nil {
 		return
@@ -86,9 +89,7 @@ func (g *GearDisplay) Apply() {
 	} else {
 		g.visibleCounter = 0
 	}
-	if g.Owner().Visible() != visible {
-		g.Owner().SetVisible(visible)
-	}
+	// 注意：不调用 SetVisible，由 CheckGearDisplay 统一处理可见性更新
 }
 
 // UpdateFromRelations keeps compatibility with the Gear interface but has no effect.

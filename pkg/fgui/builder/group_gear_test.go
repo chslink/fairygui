@@ -107,26 +107,27 @@ func TestGroupGearDisplay(t *testing.T) {
 	// 根据 XML，c2 page 0 时，n16 应该在默认位置 (661,450)
 	// c2 page 1 时，n16 有 gearDisplay，应该显示；gearXY 改为 (1154,450)
 	if c2.SelectedPageID() == "0" {
-		// page 0: gearDisplay 没有定义，所以应该隐藏？
-		// 实际上 gearDisplay controller="c2" pages="1" 表示只在 page 1 显示
+		// page 0: gearDisplay controller="c2" pages="1" 表示只在 page 1 显示
 		// 所以 page 0 时应该隐藏
-		expectedVisible := false
-		if groupWidget.GObject.Visible() != expectedVisible {
-			t.Errorf("page 0 时 n16.Visible 应该是 %v，实际是 %v",
-				expectedVisible, groupWidget.GObject.Visible())
+		// 注意：Visible() 返回用户控制的可见性（不受 gear 影响）
+		// DisplayObject().Visible() 才是最终的实际可见性（包含 gear 控制）
+		expectedDisplayVisible := false
+		if groupWidget.GObject.DisplayObject().Visible() != expectedDisplayVisible {
+			t.Errorf("page 0 时 n16.DisplayObject().Visible 应该是 %v，实际是 %v",
+				expectedDisplayVisible, groupWidget.GObject.DisplayObject().Visible())
 		}
 		// 子元素的 DisplayObject 也应该隐藏（跟随 Group）
-		if n13.DisplayObject().Visible() != expectedVisible {
+		if n13.DisplayObject().Visible() != expectedDisplayVisible {
 			t.Errorf("page 0 时 n13.DisplayObject().Visible 应该是 %v（跟随 Group），实际是 %v",
-				expectedVisible, n13.DisplayObject().Visible())
+				expectedDisplayVisible, n13.DisplayObject().Visible())
 		}
-		if n14.DisplayObject().Visible() != expectedVisible {
+		if n14.DisplayObject().Visible() != expectedDisplayVisible {
 			t.Errorf("page 0 时 n14.DisplayObject().Visible 应该是 %v（跟随 Group），实际是 %v",
-				expectedVisible, n14.DisplayObject().Visible())
+				expectedDisplayVisible, n14.DisplayObject().Visible())
 		}
-		if n15.DisplayObject().Visible() != expectedVisible {
+		if n15.DisplayObject().Visible() != expectedDisplayVisible {
 			t.Errorf("page 0 时 n15.DisplayObject().Visible 应该是 %v（跟随 Group），实际是 %v",
-				expectedVisible, n15.DisplayObject().Visible())
+				expectedDisplayVisible, n15.DisplayObject().Visible())
 		}
 	}
 
@@ -170,8 +171,8 @@ func TestGroupGearDisplay(t *testing.T) {
 		n15.Visible(), n15.DisplayObject().Visible())
 
 	// page 0: 应该隐藏
-	if groupWidget.GObject.Visible() {
-		t.Errorf("page 0 时 n16.Visible 应该是 false，实际是 true")
+	if groupWidget.GObject.DisplayObject().Visible() {
+		t.Errorf("page 0 时 n16.DisplayObject().Visible 应该是 false，实际是 true")
 	}
 	// 子元素的 DisplayObject 也应该隐藏
 	if n13.DisplayObject().Visible() {

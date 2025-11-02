@@ -1397,6 +1397,10 @@ func setupObjectGears(obj *core.GObject, resolver componentControllerResolver, b
 		}
 		buf.SetPos(nextPos)
 	}
+
+	// 所有 gear 设置完成后，计算 GearDisplay 和 GearDisplay2 的组合可见性
+	// 参考 TypeScript 版本 GComponent.ts constructFromResource2 (1039行)
+	obj.CheckGearDisplay()
 }
 
 type componentControllerResolver struct {

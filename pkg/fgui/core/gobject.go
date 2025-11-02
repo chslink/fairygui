@@ -48,6 +48,7 @@ type GObject struct {
 	parent             *GComponent
 	alpha              float64
 	visible            bool
+	internalVisible    bool // gear-controlled visibility (separate from user-controlled visible)
 	touchable          bool
 	grayed             bool
 	rotation           float64
@@ -93,14 +94,15 @@ func NewGObject() *GObject {
 	counter := atomic.AddUint64(&gObjectCounter, 1)
 	display := laya.NewSprite()
 	obj := &GObject{
-		id:        fmt.Sprintf("gobj-%d", counter),
-		display:   display,
-		alpha:     1.0,
-		visible:   true,
-		touchable: true,
-		scaleX:    1.0,
-		scaleY:    1.0,
-		props:     make(map[gears.ObjectPropID]any),
+		id:              fmt.Sprintf("gobj-%d", counter),
+		display:         display,
+		alpha:           1.0,
+		visible:         true,
+		internalVisible: true, // gear-controlled visibility默认为true
+		touchable:       true,
+		scaleX:          1.0,
+		scaleY:          1.0,
+		props:           make(map[gears.ObjectPropID]any),
 	}
 	display.SetOwner(obj)
 	display.SetMouseEnabled(true)
@@ -339,18 +341,22 @@ func (g *GObject) Visible() bool {
 }
 
 // HandleVisibleChanged 更新 displayObject 的可见性
-// 计算考虑了 group 的可见性：实际可见性 = 自己的 visible && (没有 group 或 group 的实际可见性)
+// 参考 TypeScript 版本 GObject.ts internalVisible getter (455-469行)
+// 最终可见性 = internalVisible(gear控制) && visible(用户控制) && group可见性
 func (g *GObject) HandleVisibleChanged() {
 	if g == nil || g.display == nil {
 		return
 	}
-	// 计算实际可见性：自己的 visible && group 的可见性
-	actualVisible := g.visible
-	if actualVisible && g.group != nil {
-		// 递归计算 group 的实际可见性
-		actualVisible = g.group.visible && g.isGroupVisible(g.group)
+	// 计算最终可见性：internalVisible && visible && group可见性
+	finalVisible := g.internalVisible && g.visible
+	if finalVisible && g.group != nil {
+		// group 的实际可见性 = group.internalVisible && group.visible
+		// 参考 TypeScript 版本 GObject.ts internalVisible getter
+		if g.group.display != nil {
+			finalVisible = g.group.display.Visible()
+		}
 	}
-	g.display.SetVisible(actualVisible)
+	g.display.SetVisible(finalVisible)
 }
 
 // isGroupVisible 递归检查 group 链的可见性
@@ -1242,6 +1248,7 @@ func (g *GObject) HandleControllerChanged(ctrl *Controller) {
 
 // CheckGearDisplay 计算 GearDisplay 和 GearDisplay2 的组合可见性
 // 参考 TypeScript 版本 GObject.ts checkGearDisplay (617-634行)
+// 更新 internalVisible 字段，然后调用 HandleVisibleChanged 更新实际显示
 func (g *GObject) CheckGearDisplay() {
 	if g == nil {
 		return
@@ -1265,11 +1272,17 @@ func (g *GObject) CheckGearDisplay() {
 		}
 	}
 
-	// 3. 更新可见性（如果 connected 状态改变）
-	// 注意：这里直接设置 DisplayObject 的可见性，不通过 SetVisible
-	// 因为 SetVisible 会修改 g.visible 字段，而这里只是计算"实际可见性"
-	if g.display != nil && g.display.Visible() != connected {
-		g.display.SetVisible(connected)
+	// 3. 更新 internalVisible（gear控制的可见性）
+	// 注意：不直接修改 g.visible（用户控制的可见性）
+	if g.internalVisible != connected {
+		g.internalVisible = connected
+		// 调用 HandleVisibleChanged 重新计算最终可见性
+		// 检查 data 是否实现了自定义的 HandleVisibleChanged（如 GGroup）
+		if handler, ok := g.data.(interface{ HandleVisibleChanged() }); ok {
+			handler.HandleVisibleChanged()
+		} else {
+			g.HandleVisibleChanged()
+		}
 	}
 }
 
