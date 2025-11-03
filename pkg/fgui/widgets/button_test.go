@@ -185,3 +185,157 @@ func TestButtonClickTogglesSelection(t *testing.T) {
 		t.Fatalf("expected selection to remain when changeStateOnClick disabled")
 	}
 }
+
+// TestButtonCheckModeStateController 测试 Check 模式下按钮状态和 controller 的同步
+func TestButtonCheckModeStateController(t *testing.T) {
+	env := testutil.NewStageEnv(t, 200, 200)
+	stage := env.Stage
+
+	// 创建一个 Check 模式的按钮
+	btn := NewButton()
+	btn.SetMode(ButtonModeCheck)
+
+	// 创建一个 button controller 模拟 Button4.xml 的配置
+	// controller name="button" pages="0,up,1,down,2,over,3,selectedOver"
+	buttonCtrl := core.NewController("button")
+	buttonCtrl.SetPages(
+		[]string{"0", "1", "2", "3"},
+		[]string{"up", "down", "over", "selectedOver"},
+	)
+	btn.GComponent.AddController(buttonCtrl)
+	btn.SetButtonController(buttonCtrl)
+
+	obj := btn.GComponent.GObject
+	obj.SetSize(131, 45)
+	obj.SetPosition(50, 50)
+	stage.AddChild(obj.DisplayObject())
+
+	// 初始状态应该是 "up"
+	if buttonCtrl.SelectedPageName() != "up" {
+		t.Errorf("初始状态应该是 'up'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+	if btn.Selected() {
+		t.Error("初始状态按钮不应该被选中")
+	}
+
+	// 模拟第一次点击：应该切换到选中状态
+	// 鼠标移到按钮上
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 100, Y: 70, Primary: false})
+	// 鼠标按下
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 100, Y: 70, Primary: true})
+	// 鼠标释放（点击完成）
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 100, Y: 70, Primary: false})
+
+	if !btn.Selected() {
+		t.Error("点击后按钮应该被选中")
+	}
+	// 点击后鼠标还在按钮上，所以应该是 "selectedOver" 状态
+	if buttonCtrl.SelectedPageName() != "selectedOver" {
+		t.Errorf("选中且鼠标在按钮上应该是 'selectedOver'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+
+	// 模拟鼠标离开按钮：应该切换到 "down"
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 10, Y: 10, Primary: false})
+	if buttonCtrl.SelectedPageName() != "down" {
+		t.Errorf("选中且非悬停状态应该是 'down'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+
+	// 模拟第二次点击：应该取消选中
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 100, Y: 70, Primary: false})
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 100, Y: 70, Primary: true})
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 100, Y: 70, Primary: false})
+
+	if btn.Selected() {
+		t.Error("第二次点击后按钮应该取消选中")
+	}
+	// 未选中且悬停状态应该是 "over"
+	if buttonCtrl.SelectedPageName() != "over" {
+		t.Errorf("未选中且悬停状态应该是 'over'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+
+	// 模拟鼠标离开：应该回到 "up"
+	env.Advance(16*time.Millisecond, laya.MouseState{X: 10, Y: 10, Primary: false})
+	if buttonCtrl.SelectedPageName() != "up" {
+		t.Errorf("未选中且非悬停状态应该是 'up'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+}
+
+// TestButtonCheckModeDirectSetSelected 测试直接调用 SetSelected 的效果
+func TestButtonCheckModeDirectSetSelected(t *testing.T) {
+	btn := NewButton()
+	btn.SetMode(ButtonModeCheck)
+
+	// 创建一个 button controller
+	buttonCtrl := core.NewController("button")
+	buttonCtrl.SetPages(
+		[]string{"0", "1", "2", "3"},
+		[]string{"up", "down", "over", "selectedOver"},
+	)
+	btn.GComponent.AddController(buttonCtrl)
+	btn.SetButtonController(buttonCtrl)
+
+	// 初始状态
+	if btn.Selected() {
+		t.Error("初始状态不应该被选中")
+	}
+	if buttonCtrl.SelectedPageName() != "up" {
+		t.Errorf("初始状态应该是 'up'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+
+	// 直接设置为选中
+	btn.SetSelected(true)
+	if !btn.Selected() {
+		t.Error("SetSelected(true) 后应该被选中")
+	}
+	if buttonCtrl.SelectedPageName() != "down" {
+		t.Errorf("SetSelected(true) 后状态应该是 'down'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+
+	// 直接设置为未选中
+	btn.SetSelected(false)
+	if btn.Selected() {
+		t.Error("SetSelected(false) 后不应该被选中")
+	}
+	if buttonCtrl.SelectedPageName() != "up" {
+		t.Errorf("SetSelected(false) 后状态应该是 'up'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+}
+
+// TestButtonCheckModeWithGearXY 测试 Check 模式下 GearXY 是否正确应用
+// 注意：这个测试只验证 controller 状态切换逻辑
+// 实际的 GearXY 功能测试在 builder 包的集成测试中
+func TestButtonCheckModeWithGearXY(t *testing.T) {
+	btn := NewButton()
+	btn.SetMode(ButtonModeCheck)
+	btn.GComponent.GObject.SetSize(131, 45)
+
+	// 创建一个 button controller 模拟 Button4.xml
+	buttonCtrl := core.NewController("button")
+	buttonCtrl.SetPages(
+		[]string{"0", "1", "2", "3"},
+		[]string{"up", "down", "over", "selectedOver"},
+	)
+	btn.GComponent.AddController(buttonCtrl)
+	btn.SetButtonController(buttonCtrl)
+
+	// 测试初始状态
+	if buttonCtrl.SelectedPageName() != "up" {
+		t.Errorf("初始状态应该是 'up'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+
+	// 切换到选中状态
+	btn.SetSelected(true)
+
+	// 验证 controller 状态切换到 down
+	if buttonCtrl.SelectedPageName() != "down" {
+		t.Errorf("选中后状态应该是 'down'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+
+	// 切换回未选中状态
+	btn.SetSelected(false)
+
+	// 验证 controller 状态切换回 up
+	if buttonCtrl.SelectedPageName() != "up" {
+		t.Errorf("取消选中后状态应该是 'up'，实际是 '%s'", buttonCtrl.SelectedPageName())
+	}
+}
