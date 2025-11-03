@@ -265,15 +265,11 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 	for _, ctrlData := range item.Component.Controllers {
 		ctrl := core.NewController(ctrlData.Name)
 		ctrl.AutoRadio = ctrlData.AutoRadio
-		// 注意：FairyGUI 二进制格式中，PageIDs 字段存储的是索引号 (0,1,2,3)
-		// PageNames 字段才是真正的 page ID (up,down,over,selectedOver)
-		// 如果 PageNames 非空，使用它作为 PageIDs；否则使用原 PageIDs
-		pageIDs := ctrlData.PageIDs
-		pageNames := ctrlData.PageNames
-		if len(pageNames) > 0 && pageNames[0] != "" {
-			pageIDs = pageNames
-		}
-		ctrl.SetPages(pageIDs, pageNames)
+		// 注意：PageIDs 和 PageNames 是独立的两个数组
+		// PageIDs 用于 gear 等系统内部匹配（通常是数字字符串 "0","1","2"...）
+		// PageNames 用于显示名称（如 "up","down","over"...）
+		// 不能把 pageNames 替换 pageIDs！
+		ctrl.SetPages(ctrlData.PageIDs, ctrlData.PageNames)
 		root.AddController(ctrl)
 	}
 
@@ -285,6 +281,40 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 
 	f.setupRelations(item, root)
 	f.setupGears(item, root)
+
+	// 如果根组件是 GButton，设置 button controller 和其他属性
+	// 注意：不能调用 applyButtonTemplate，因为它会尝试构建模板组件导致无限递归
+	// 这里手动读取按钮属性（mode, sound等）
+	if btnWidget, ok := root.GObject.Data().(*widgets.GButton); ok && btnWidget != nil {
+		// 设置 button controller（如果还没有设置）
+		if btnWidget.ButtonController() == nil {
+			for _, ctrl := range btnWidget.Controllers() {
+				if strings.EqualFold(ctrl.Name, "button") {
+					btnWidget.SetButtonController(ctrl)
+					break
+				}
+			}
+		}
+
+		// 读取按钮扩展属性（对应 applyButtonTemplate 中 section 6 的内容）
+		if buf := item.RawData; buf != nil {
+			saved := buf.Pos()
+			defer buf.SetPos(saved)
+			if buf.Seek(0, 6) {
+				mode := widgets.ButtonMode(buf.ReadByte())
+				btnWidget.SetMode(mode)
+				if sound := buf.ReadS(); sound != nil && *sound != "" {
+					btnWidget.SetSound(*sound)
+				}
+				btnWidget.SetSoundVolumeScale(float64(buf.ReadFloat32()))
+				btnWidget.SetDownEffect(int(buf.ReadByte()))
+				btnWidget.SetDownEffectValue(float64(buf.ReadFloat32()))
+				if btnWidget.DownEffect() == 2 {
+					btnWidget.SetPivotWithAnchor(0.5, 0.5, btnWidget.PivotAsAnchor())
+				}
+			}
+		}
+	}
 
 	// 注意：根组件不需要调用 SetupBeforeAdd，因为：
 	// 1. 根组件的尺寸、pivot 等已经从 ComponentData 设置
@@ -750,6 +780,17 @@ func (f *Factory) applyButtonTemplate(ctx context.Context, widget *widgets.GButt
 			}
 		}
 	}
+	// 修复：查找并设置 button controller
+	// 参考 TypeScript 版本：GButton.constructExtension() 中使用 this.getController("button")
+	// 注意：controllers 已经在 BuildComponent 中添加到组件了，这里只需要查找并设置
+	for _, ctrl := range widget.Controllers() {
+		if strings.EqualFold(ctrl.Name, "button") {
+			widget.SetButtonController(ctrl)
+			break
+		}
+	}
+
+	// 然后处理 template 相关的设置
 	if template := widget.TemplateComponent(); template != nil {
 		titleObj := template.ChildByName("title")
 		if titleObj != nil {
@@ -759,10 +800,13 @@ func (f *Factory) applyButtonTemplate(ctx context.Context, widget *widgets.GButt
 		if iconObj != nil {
 			widget.SetIconObject(iconObj)
 		}
-		if ctrl := template.ControllerByName("button"); ctrl != nil {
-			widget.SetButtonController(ctrl)
-		} else if ctrl := template.ControllerByName("Button"); ctrl != nil {
-			widget.SetButtonController(ctrl)
+		// 只有在按钮自己没有 button controller 时，才从 template 查找
+		if widget.ButtonController() == nil {
+			if ctrl := template.ControllerByName("button"); ctrl != nil {
+				widget.SetButtonController(ctrl)
+			} else if ctrl := template.ControllerByName("Button"); ctrl != nil {
+				widget.SetButtonController(ctrl)
+			}
 		}
 
 		// 修复：如果按钮尺寸为0，从模板继承尺寸
@@ -771,29 +815,13 @@ func (f *Factory) applyButtonTemplate(ctx context.Context, widget *widgets.GButt
 		if widget.GComponent.GObject.Width() == 0 || widget.GComponent.GObject.Height() == 0 {
 			widget.GComponent.GObject.SetSize(template.GObject.Width(), template.GObject.Height())
 		}
-	} else if item.Component != nil && len(widget.Controllers()) == 0 {
-		for _, ctrlData := range item.Component.Controllers {
-			ctrl := core.NewController(ctrlData.Name)
-			ctrl.AutoRadio = ctrlData.AutoRadio
-			// 注意：FairyGUI 二进制格式中，PageIDs 字段存储的是索引号 (0,1,2,3)
-			// PageNames 字段才是真正的 page ID (up,down,over,selectedOver)
-			// 如果 PageNames 非空，使用它作为 PageIDs；否则使用原 PageIDs
-			pageIDs := ctrlData.PageIDs
-			pageNames := ctrlData.PageNames
-			if len(pageNames) > 0 && pageNames[0] != "" {
-				pageIDs = pageNames
-			}
-			ctrl.SetPages(pageIDs, pageNames)
-			widget.AddController(ctrl)
-			if strings.EqualFold(ctrl.Name, "button") {
-				widget.SetButtonController(ctrl)
-			}
-		}
-		if widget.ButtonController() == nil {
-			for _, ctrl := range widget.Controllers() {
-				widget.SetButtonController(ctrl)
-				break
-			}
+	}
+
+	// 如果还是没有 button controller，使用第一个 controller
+	if widget.ButtonController() == nil {
+		for _, ctrl := range widget.Controllers() {
+			widget.SetButtonController(ctrl)
+			break
 		}
 	}
 	buf := item.RawData
