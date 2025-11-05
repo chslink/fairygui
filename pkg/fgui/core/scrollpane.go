@@ -111,6 +111,10 @@ func newScrollPane(owner *GComponent) *ScrollPane {
 		mask.AddChild(container)
 		pane.container = container
 		pane.maskContainer = mask
+
+		// 应用 margin 偏移到 container（对应 TypeScript ScrollPane.ts:128-130）
+		margin := owner.Margin()
+		container.SetPosition(float64(margin.Left), float64(margin.Top))
 	}
 	owner.scrollPane = pane
 	pane.refreshViewSize()
@@ -564,6 +568,20 @@ func (p *ScrollPane) refreshViewSize() {
 		height = 0
 	}
 	p.viewSize = laya.Point{X: width, Y: height}
+
+	// 减去 margin（对应 TypeScript ScrollPane.ts:727-728）
+	margin := p.owner.Margin()
+	p.viewSize.X -= float64(margin.Left + margin.Right)
+	p.viewSize.Y -= float64(margin.Top + margin.Bottom)
+
+	// 确保最小为 1
+	if p.viewSize.X < 1 {
+		p.viewSize.X = 1
+	}
+	if p.viewSize.Y < 1 {
+		p.viewSize.Y = 1
+	}
+
 	p.updateScrollRect()
 	p.refreshOverlap()
 }
@@ -589,9 +607,12 @@ func (p *ScrollPane) updateScrollRect() {
 	if p == nil || p.maskContainer == nil {
 		return
 	}
+
+	// scrollRect 的位置应该考虑 container 的偏移（margin）
+	margin := p.owner.Margin()
 	rect := &laya.Rect{
-		X: 0,
-		Y: 0,
+		X: float64(margin.Left),
+		Y: float64(margin.Top),
 		W: p.viewSize.X,
 		H: p.viewSize.Y,
 	}

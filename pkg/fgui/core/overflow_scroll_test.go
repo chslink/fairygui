@@ -226,3 +226,67 @@ func TestOverflowTypes(t *testing.T) {
 		})
 	}
 }
+
+// TestScrollPaneWithMargin 测试带 margin 的 ScrollPane
+func TestScrollPaneWithMargin(t *testing.T) {
+	comp := NewGComponent()
+	comp.SetSize(225, 343)
+	
+	// 设置 margin
+	margin := Margin{Left: 30, Top: 30, Right: 30, Bottom: 30}
+	comp.SetMargin(margin)
+	
+	// 创建 ScrollPane
+	scrollPane := comp.EnsureScrollPane(ScrollTypeBoth)
+	
+	// 验证 container 的位置
+	container := comp.Container()
+	if container != nil && container.Parent() != nil {
+		// container 应该在 maskContainer 下
+		maskContainer := container.Parent()
+		pos := container.Position()
+		
+		t.Logf("Container position: (%.1f, %.1f)", pos.X, pos.Y)
+		t.Logf("Expected position: (%.1f, %.1f)", float64(margin.Left), float64(margin.Top))
+		
+		if pos.X != float64(margin.Left) {
+			t.Errorf("Container X position = %.1f, want %.1f", pos.X, float64(margin.Left))
+		}
+		if pos.Y != float64(margin.Top) {
+			t.Errorf("Container Y position = %.1f, want %.1f", pos.Y, float64(margin.Top))
+		}
+		
+		// 验证 maskContainer 的 scrollRect
+		scrollRect := maskContainer.ScrollRect()
+		if scrollRect != nil {
+			t.Logf("ScrollRect: X=%.1f, Y=%.1f, W=%.1f, H=%.1f", 
+				scrollRect.X, scrollRect.Y, scrollRect.W, scrollRect.H)
+			
+			// scrollRect 的位置应该考虑 margin
+			expectedX := float64(margin.Left)
+			expectedY := float64(margin.Top)
+			expectedW := 225 - float64(margin.Left + margin.Right)
+			expectedH := 343 - float64(margin.Top + margin.Bottom)
+			
+			t.Logf("Expected ScrollRect: X=%.1f, Y=%.1f, W=%.1f, H=%.1f",
+				expectedX, expectedY, expectedW, expectedH)
+		}
+	}
+	
+	// 验证 viewSize 是否扣除了 margin
+	viewWidth := scrollPane.ViewWidth()
+	viewHeight := scrollPane.ViewHeight()
+	
+	expectedViewWidth := 225 - float64(margin.Left + margin.Right)
+	expectedViewHeight := 343 - float64(margin.Top + margin.Bottom)
+	
+	t.Logf("ViewSize: (%.1f, %.1f)", viewWidth, viewHeight)
+	t.Logf("Expected ViewSize: (%.1f, %.1f)", expectedViewWidth, expectedViewHeight)
+	
+	if viewWidth != expectedViewWidth {
+		t.Errorf("ViewWidth = %.1f, want %.1f", viewWidth, expectedViewWidth)
+	}
+	if viewHeight != expectedViewHeight {
+		t.Errorf("ViewHeight = %.1f, want %.1f", viewHeight, expectedViewHeight)
+	}
+}
