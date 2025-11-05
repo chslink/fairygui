@@ -1,10 +1,7 @@
 package core
 
 import (
-	"fmt"
 	"math"
-	"runtime"
-	"strings"
 	"time"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
@@ -251,9 +248,6 @@ func (p *ScrollPane) SetViewSize(width, height float64) {
 			vtX = 0
 		}
 
-		fmt.Printf("[ScrollPane.SetViewSize] Setting VT ScrollBar position to (%.1f, 0), width=%.1f\n", vtX, width)
-		fmt.Printf("  vtScrollBar.Width()=%.1f, displayOnLeft=%v\n", p.vtScrollBar.Width(), p.displayOnLeft)
-
 		if p.hzScrollBar != nil {
 			// 如果有水平滚动条，垂直滚动条高度要减去水平滚动条的高度
 			p.vtScrollBar.SetSize(p.vtScrollBar.Width(), height-p.hzScrollBar.Height())
@@ -261,12 +255,6 @@ func (p *ScrollPane) SetViewSize(width, height float64) {
 			p.vtScrollBar.SetSize(p.vtScrollBar.Width(), height)
 		}
 		p.vtScrollBar.SetPosition(vtX, 0)
-
-		// 验证位置是否设置成功
-		if p.vtScrollBar.DisplayObject() != nil {
-			pos := p.vtScrollBar.DisplayObject().Position()
-			fmt.Printf("[ScrollPane.SetViewSize] After SetPosition, DisplayObject position: (%.1f, %.1f)\n", pos.X, pos.Y)
-		}
 	}
 
 	// 设置初始 viewSize（对应 TypeScript ScrollPane.ts:721-722）
@@ -325,36 +313,6 @@ func (p *ScrollPane) SetContentSize(width, height float64) {
 	}
 	if height < 0 {
 		height = 0
-	}
-
-	// DEBUG: 输出 contentSize 变化
-	oldSize := p.contentSize
-	if p.owner != nil && (oldSize.X != width || oldSize.Y != height) {
-		// 检测可疑的 contentSize 减小
-		isSuspicious := (oldSize.Y > 0 && height < oldSize.Y && height < p.viewSize.Y)
-		if isSuspicious {
-			fmt.Printf("[ScrollPane.SetContentSize] ⚠️  SUSPICIOUS: Component '%s': (%.1f,%.1f) -> (%.1f,%.1f), viewSize=(%.1f,%.1f)\n",
-				p.owner.Name(), oldSize.X, oldSize.Y, width, height, p.viewSize.X, p.viewSize.Y)
-			// 打印调用栈
-			fmt.Printf("  Call stack:\n")
-			buf := make([]byte, 4096)
-			n := runtime.Stack(buf, false)
-			lines := strings.Split(string(buf[:n]), "\n")
-			for i, line := range lines {
-				if i > 20 { // 只打印前 20 行
-					break
-				}
-				if strings.Contains(line, "scrollpane.go") ||
-				   strings.Contains(line, "gcomponent.go") ||
-				   strings.Contains(line, "glist.go") ||
-				   strings.Contains(line, "builder") {
-					fmt.Printf("    %s\n", line)
-				}
-			}
-		} else {
-			fmt.Printf("[ScrollPane.SetContentSize] Component '%s': (%.1f,%.1f) -> (%.1f,%.1f), viewSize=(%.1f,%.1f)\n",
-				p.owner.Name(), oldSize.X, oldSize.Y, width, height, p.viewSize.X, p.viewSize.Y)
-		}
 	}
 
 	p.contentSize = laya.Point{X: width, Y: height}
@@ -484,10 +442,7 @@ func (p *ScrollPane) OnOwnerSizeChanged() {
 	if p == nil || p.owner == nil {
 		return
 	}
-	ownerW := p.owner.Width()
-	ownerH := p.owner.Height()
-	fmt.Printf("[ScrollPane.OnOwnerSizeChanged] owner size: (%.1f, %.1f)\n", ownerW, ownerH)
-	p.SetViewSize(ownerW, ownerH)
+	p.SetViewSize(p.owner.Width(), p.owner.Height())
 }
 
 // Dispose detaches事件监听。
@@ -995,9 +950,6 @@ func (p *ScrollPane) updateScrollBarVisible() {
 	// 检查垂直滚动条可见性
 	if p.vtScrollBar != nil {
 		vScrollNone := p.contentSize.Y <= p.viewSize.Y
-		// DEBUG: 打印滚动条可见性决策
-		fmt.Printf("[ScrollPane] VT ScrollBar: contentSize.Y=%.1f, viewSize.Y=%.1f, vScrollNone=%v\n",
-			p.contentSize.Y, p.viewSize.Y, vScrollNone)
 		if vScrollNone {
 			p.vtScrollBar.SetVisible(false)
 		} else {
@@ -1005,22 +957,16 @@ func (p *ScrollPane) updateScrollBarVisible() {
 			// scrollBarDisplayAuto (0) - 自动显示/隐藏
 			// 其他模式 - 始终显示
 			p.vtScrollBar.SetVisible(true)
-			fmt.Printf("[ScrollPane] VT ScrollBar set to visible, pos=(%.1f,%.1f), size=(%.1f,%.1f)\n",
-				p.vtScrollBar.X(), p.vtScrollBar.Y(), p.vtScrollBar.Width(), p.vtScrollBar.Height())
 		}
 	}
 
 	// 检查水平滚动条可见性
 	if p.hzScrollBar != nil {
 		hScrollNone := p.contentSize.X <= p.viewSize.X
-		fmt.Printf("[ScrollPane] HZ ScrollBar: contentSize.X=%.1f, viewSize.X=%.1f, hScrollNone=%v\n",
-			p.contentSize.X, p.viewSize.X, hScrollNone)
 		if hScrollNone {
 			p.hzScrollBar.SetVisible(false)
 		} else {
 			p.hzScrollBar.SetVisible(true)
-			fmt.Printf("[ScrollPane] HZ ScrollBar set to visible, pos=(%.1f,%.1f), size=(%.1f,%.1f)\n",
-				p.hzScrollBar.X(), p.hzScrollBar.Y(), p.hzScrollBar.Width(), p.hzScrollBar.Height())
 		}
 	}
 }

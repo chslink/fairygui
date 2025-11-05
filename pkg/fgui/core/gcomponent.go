@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
@@ -857,27 +856,6 @@ func (c *GComponent) UpdateBounds() {
 		ah = ab - ay
 	}
 
-	// DEBUG: 输出 bounds 计算结果
-	if c.scrollPane != nil {
-		fmt.Printf("[UpdateBounds] Component '%s': ax=%.1f, ay=%.1f, aw=%.1f, ah=%.1f -> contentSize=(%.1f, %.1f), children=%d\n",
-			c.Name(), ax, ay, aw, ah, ax+aw, ay+ah, len(c.children))
-
-		// 如果 contentSize 高度小于 viewSize，输出所有子对象信息
-		if c.scrollPane != nil && ay+ah < c.scrollPane.ViewHeight() {
-			fmt.Printf("[UpdateBounds] ⚠️  Content height (%.1f) < viewHeight (%.1f), listing all children:\n",
-				ay+ah, c.scrollPane.ViewHeight())
-			for i, child := range c.children {
-				if child != nil {
-					fmt.Printf("  [%d] name='%s', pos=(%.1f,%.1f), size=(%.1f,%.1f), actualSize=(%.1f,%.1f), visible=%v\n",
-						i, child.Name(), child.X(), child.Y(),
-						child.Width(), child.Height(),
-						child.ActualWidth(), child.ActualHeight(),
-						child.Visible())
-				}
-			}
-		}
-	}
-
 	c.SetBounds(ax, ay, aw, ah)
 }
 
@@ -908,8 +886,6 @@ func (c *GComponent) SetBounds(ax, ay, aw, ah float64) {
 		if currentSize.Y >= viewHeight &&
 			newHeight < viewHeight &&
 			newHeight < currentSize.Y*0.8 {
-			fmt.Printf("[SetBounds] ⚠️  Preserving contentSize height: current=(%.1f,%.1f), new would be=(%.1f,%.1f), using=(%.1f,%.1f)\n",
-				currentSize.X, currentSize.Y, newWidth, newHeight, newWidth, currentSize.Y)
 			newHeight = currentSize.Y // 保留原高度
 		}
 

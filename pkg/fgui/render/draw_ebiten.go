@@ -74,14 +74,23 @@ func drawComponent(target *ebiten.Image, comp *core.GComponent, atlas *AtlasMana
 	display := comp.DisplayObject()
 	container := comp.Container()
 
-	// 关键修复：ScrollRect 可能设置在 container（maskContainer）上，而不是 display 上
+	// 关键修复：ScrollRect 可能设置在 maskContainer 上
+	// newScrollPane 创建的结构是：display -> maskContainer -> container
+	// scrollRect 设置在 maskContainer 上，所以需要检查 container.Parent()
 	var scrollRect *laya.Rect
 	if container != nil && container != display {
-		// 优先检查 container 的 scrollRect（ScrollPane 场景）
-		scrollRect = container.ScrollRect()
+		// ScrollPane 场景：container 被 reparent 到 maskContainer 下
+		// scrollRect 设置在 maskContainer（即 container.Parent()）上
+		if parent := container.Parent(); parent != nil && parent != display {
+			scrollRect = parent.ScrollRect()
+		}
+		// 如果 parent 没有 scrollRect，再检查 container 自己（兼容其他场景）
+		if scrollRect == nil {
+			scrollRect = container.ScrollRect()
+		}
 	}
 	if scrollRect == nil {
-		// 回退到检查 display 的 scrollRect（兼容其他场景）
+		// 最后回退到检查 display 的 scrollRect（Overflow: hidden 场景）
 		scrollRect = display.ScrollRect()
 	}
 
@@ -150,19 +159,6 @@ func drawComponent(target *ebiten.Image, comp *core.GComponent, atlas *AtlasMana
 						if gcomp == comp {
 							continue
 						}
-					}
-
-					// DEBUG: 只输出滚动条相关的日志
-					isScrollBar := strings.Contains(strings.ToLower(gobject.Name()), "scroll") ||
-						(gobject.Width() == 17 && gobject.Height() > 50) ||
-						(gobject.Height() == 17 && gobject.Width() > 50)
-
-					if isScrollBar {
-						pos := childSprite.Position()
-						dispVisible := childSprite.Visible()
-						objVisible := gobject.Visible()
-						fmt.Printf("[Render] ScrollBar: name='%s', pos=(%.1f,%.1f), dispVisible=%v, objVisible=%v, size=(%.1f,%.1f)\n",
-							gobject.Name(), pos.X, pos.Y, dispVisible, objVisible, gobject.Width(), gobject.Height())
 					}
 
 					// 渲染额外的 GObject
@@ -254,19 +250,6 @@ func drawComponentWithClipping(target *ebiten.Image, comp *core.GComponent, atla
 						if gcomp == comp {
 							continue
 						}
-					}
-
-					// DEBUG: 只输出滚动条相关的日志
-					isScrollBar := strings.Contains(strings.ToLower(gobject.Name()), "scroll") ||
-						(gobject.Width() == 17 && gobject.Height() > 50) ||
-						(gobject.Height() == 17 && gobject.Width() > 50)
-
-					if isScrollBar {
-						pos := childSprite.Position()
-						dispVisible := childSprite.Visible()
-						objVisible := gobject.Visible()
-						fmt.Printf("[Render/Clipping] ScrollBar: name='%s', pos=(%.1f,%.1f), dispVisible=%v, objVisible=%v, size=(%.1f,%.1f)\n",
-							gobject.Name(), pos.X, pos.Y, dispVisible, objVisible, gobject.Width(), gobject.Height())
 					}
 
 					// 渲染额外的 GObject
