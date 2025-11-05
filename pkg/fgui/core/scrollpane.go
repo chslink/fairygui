@@ -1,7 +1,10 @@
 package core
 
 import (
+	"fmt"
 	"math"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
@@ -208,6 +211,7 @@ func (p *ScrollPane) ViewHeight() float64 {
 }
 
 // SetViewSize updates the viewport dimensions。
+// 对应 TypeScript 版本 ScrollPane.ts:694-736 (setSize)
 func (p *ScrollPane) SetViewSize(width, height float64) {
 	if p == nil {
 		return
@@ -218,20 +222,89 @@ func (p *ScrollPane) SetViewSize(width, height float64) {
 	if height < 0 {
 		height = 0
 	}
-	p.viewSize = laya.Point{X: width, Y: height}
-	if p.pageMode {
-		if p.pageSize.X <= 0 {
-			p.pageSize.X = width
-		}
-		if p.pageSize.Y <= 0 {
-			p.pageSize.Y = height
+
+	// 先设置滚动条的位置和尺寸（对应 TypeScript ScrollPane.ts:697-719）
+	if p.hzScrollBar != nil {
+		// 水平滚动条放在底部
+		hzY := height - p.hzScrollBar.Height()
+
+		if p.vtScrollBar != nil {
+			// 如果有垂直滚动条，水平滚动条宽度要减去垂直滚动条的宽度
+			p.hzScrollBar.SetSize(width-p.vtScrollBar.Width(), p.hzScrollBar.Height())
+			if p.displayOnLeft {
+				p.hzScrollBar.SetPosition(p.vtScrollBar.Width(), hzY)
+			} else {
+				p.hzScrollBar.SetPosition(0, hzY)
+			}
+		} else {
+			p.hzScrollBar.SetSize(width, p.hzScrollBar.Height())
+			p.hzScrollBar.SetPosition(0, hzY)
 		}
 	}
+
+	if p.vtScrollBar != nil {
+		// 垂直滚动条放在右侧（或左侧，如果 displayOnLeft=true）
+		var vtX float64
+		if !p.displayOnLeft {
+			vtX = width - p.vtScrollBar.Width()
+		} else {
+			vtX = 0
+		}
+
+		fmt.Printf("[ScrollPane.SetViewSize] Setting VT ScrollBar position to (%.1f, 0), width=%.1f\n", vtX, width)
+		fmt.Printf("  vtScrollBar.Width()=%.1f, displayOnLeft=%v\n", p.vtScrollBar.Width(), p.displayOnLeft)
+
+		if p.hzScrollBar != nil {
+			// 如果有水平滚动条，垂直滚动条高度要减去水平滚动条的高度
+			p.vtScrollBar.SetSize(p.vtScrollBar.Width(), height-p.hzScrollBar.Height())
+		} else {
+			p.vtScrollBar.SetSize(p.vtScrollBar.Width(), height)
+		}
+		p.vtScrollBar.SetPosition(vtX, 0)
+
+		// 验证位置是否设置成功
+		if p.vtScrollBar.DisplayObject() != nil {
+			pos := p.vtScrollBar.DisplayObject().Position()
+			fmt.Printf("[ScrollPane.SetViewSize] After SetPosition, DisplayObject position: (%.1f, %.1f)\n", pos.X, pos.Y)
+		}
+	}
+
+	// 设置初始 viewSize（对应 TypeScript ScrollPane.ts:721-722）
+	p.viewSize = laya.Point{X: width, Y: height}
+
+	// 如果有滚动条且不是浮动模式，减去滚动条尺寸
+	// 对应 TypeScript ScrollPane.ts:723-726
+	if p.hzScrollBar != nil && !p.floating {
+		p.viewSize.Y -= p.hzScrollBar.Height()
+	}
+	if p.vtScrollBar != nil && !p.floating {
+		p.viewSize.X -= p.vtScrollBar.Width()
+	}
+
+	// 减去 margin（对应 TypeScript ScrollPane.ts:727-728）
+	if p.owner != nil {
+		margin := p.owner.Margin()
+		p.viewSize.X -= float64(margin.Left + margin.Right)
+		p.viewSize.Y -= float64(margin.Top + margin.Bottom)
+	}
+
+	// 确保最小为 1（对应 TypeScript ScrollPane.ts:730-731）
+	if p.viewSize.X < 1 {
+		p.viewSize.X = 1
+	}
+	if p.viewSize.Y < 1 {
+		p.viewSize.Y = 1
+	}
+
+	// 更新 pageSize（对应 TypeScript ScrollPane.ts:732-733）
+	p.pageSize.X = p.viewSize.X
+	p.pageSize.Y = p.viewSize.Y
+
 	p.updateScrollRect()
 	p.refreshOverlap()
 	p.clampPosition()
 	p.notifyScrollListeners()
-	p.updateScrollBars() // 更新滚动条显示百分比
+	p.updateScrollBars() // 更新滚动条显示百分比（对应 TypeScript ScrollPane.ts:735）
 }
 
 // SetContentSize updates the scrollable content size。
@@ -253,6 +326,37 @@ func (p *ScrollPane) SetContentSize(width, height float64) {
 	if height < 0 {
 		height = 0
 	}
+
+	// DEBUG: 输出 contentSize 变化
+	oldSize := p.contentSize
+	if p.owner != nil && (oldSize.X != width || oldSize.Y != height) {
+		// 检测可疑的 contentSize 减小
+		isSuspicious := (oldSize.Y > 0 && height < oldSize.Y && height < p.viewSize.Y)
+		if isSuspicious {
+			fmt.Printf("[ScrollPane.SetContentSize] ⚠️  SUSPICIOUS: Component '%s': (%.1f,%.1f) -> (%.1f,%.1f), viewSize=(%.1f,%.1f)\n",
+				p.owner.Name(), oldSize.X, oldSize.Y, width, height, p.viewSize.X, p.viewSize.Y)
+			// 打印调用栈
+			fmt.Printf("  Call stack:\n")
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			lines := strings.Split(string(buf[:n]), "\n")
+			for i, line := range lines {
+				if i > 20 { // 只打印前 20 行
+					break
+				}
+				if strings.Contains(line, "scrollpane.go") ||
+				   strings.Contains(line, "gcomponent.go") ||
+				   strings.Contains(line, "glist.go") ||
+				   strings.Contains(line, "builder") {
+					fmt.Printf("    %s\n", line)
+				}
+			}
+		} else {
+			fmt.Printf("[ScrollPane.SetContentSize] Component '%s': (%.1f,%.1f) -> (%.1f,%.1f), viewSize=(%.1f,%.1f)\n",
+				p.owner.Name(), oldSize.X, oldSize.Y, width, height, p.viewSize.X, p.viewSize.Y)
+		}
+	}
+
 	p.contentSize = laya.Point{X: width, Y: height}
 	p.refreshOverlap()
 	p.clampPosition()
@@ -380,7 +484,10 @@ func (p *ScrollPane) OnOwnerSizeChanged() {
 	if p == nil || p.owner == nil {
 		return
 	}
-	p.SetViewSize(p.owner.Width(), p.owner.Height())
+	ownerW := p.owner.Width()
+	ownerH := p.owner.Height()
+	fmt.Printf("[ScrollPane.OnOwnerSizeChanged] owner size: (%.1f, %.1f)\n", ownerW, ownerH)
+	p.SetViewSize(ownerW, ownerH)
 }
 
 // Dispose detaches事件监听。
@@ -871,6 +978,49 @@ func (p *ScrollPane) updateScrollBars() {
 	if p.hzScrollBar != nil {
 		if scrollBar, ok := p.hzScrollBar.Data().(interface{ SyncFromPane(ScrollInfo) }); ok {
 			scrollBar.SyncFromPane(info)
+		}
+	}
+
+	// 更新滚动条可见性（对应 TypeScript ScrollPane.ts:829）
+	p.updateScrollBarVisible()
+}
+
+// updateScrollBarVisible 更新滚动条的可见性
+// 对应 TypeScript 版本 ScrollPane.ts:1326-1340
+func (p *ScrollPane) updateScrollBarVisible() {
+	if p == nil {
+		return
+	}
+
+	// 检查垂直滚动条可见性
+	if p.vtScrollBar != nil {
+		vScrollNone := p.contentSize.Y <= p.viewSize.Y
+		// DEBUG: 打印滚动条可见性决策
+		fmt.Printf("[ScrollPane] VT ScrollBar: contentSize.Y=%.1f, viewSize.Y=%.1f, vScrollNone=%v\n",
+			p.contentSize.Y, p.viewSize.Y, vScrollNone)
+		if vScrollNone {
+			p.vtScrollBar.SetVisible(false)
+		} else {
+			// 根据 scrollBarDisplay 模式决定可见性
+			// scrollBarDisplayAuto (0) - 自动显示/隐藏
+			// 其他模式 - 始终显示
+			p.vtScrollBar.SetVisible(true)
+			fmt.Printf("[ScrollPane] VT ScrollBar set to visible, pos=(%.1f,%.1f), size=(%.1f,%.1f)\n",
+				p.vtScrollBar.X(), p.vtScrollBar.Y(), p.vtScrollBar.Width(), p.vtScrollBar.Height())
+		}
+	}
+
+	// 检查水平滚动条可见性
+	if p.hzScrollBar != nil {
+		hScrollNone := p.contentSize.X <= p.viewSize.X
+		fmt.Printf("[ScrollPane] HZ ScrollBar: contentSize.X=%.1f, viewSize.X=%.1f, hScrollNone=%v\n",
+			p.contentSize.X, p.viewSize.X, hScrollNone)
+		if hScrollNone {
+			p.hzScrollBar.SetVisible(false)
+		} else {
+			p.hzScrollBar.SetVisible(true)
+			fmt.Printf("[ScrollPane] HZ ScrollBar set to visible, pos=(%.1f,%.1f), size=(%.1f,%.1f)\n",
+				p.hzScrollBar.X(), p.hzScrollBar.Y(), p.hzScrollBar.Width(), p.hzScrollBar.Height())
 		}
 	}
 }

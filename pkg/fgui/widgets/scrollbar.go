@@ -1,6 +1,8 @@
 package widgets
 
 import (
+	"fmt"
+
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
@@ -68,14 +70,47 @@ func (b *GScrollBar) SetTemplateComponent(comp *core.GComponent) {
 	b.template = comp
 	if comp != nil && b.GComponent != nil {
 		b.GComponent.AddChild(comp.GObject)
+		fmt.Printf("[GScrollBar] Template added: size=(%.1f,%.1f), children=%d\n",
+			comp.Width(), comp.Height(), len(comp.Children()))
 	}
 	b.resolveTemplate()
+	fmt.Printf("[GScrollBar] After resolveTemplate: grip=%v, bar=%v, arrow1=%v, arrow2=%v\n",
+		b.grip != nil, b.bar != nil, b.arrow1 != nil, b.arrow2 != nil)
+	if b.grip != nil {
+		fmt.Printf("[GScrollBar]   grip: pos=(%.1f,%.1f), size=(%.1f,%.1f), visible=%v\n",
+			b.grip.X(), b.grip.Y(), b.grip.Width(), b.grip.Height(), b.grip.Visible())
+	}
+	if b.bar != nil {
+		fmt.Printf("[GScrollBar]   bar: pos=(%.1f,%.1f), size=(%.1f,%.1f), visible=%v\n",
+			b.bar.X(), b.bar.Y(), b.bar.Width(), b.bar.Height(), b.bar.Visible())
+	}
 	b.updateGrip()
 }
 
 // TemplateComponent 返回模板。
 func (b *GScrollBar) TemplateComponent() *core.GComponent {
 	return b.template
+}
+
+// ResolveChildren 手动触发子组件解析
+// 用于 BuildComponent 中直接构建子组件的情况（不通过 SetTemplateComponent）
+func (b *GScrollBar) ResolveChildren() {
+	if b == nil {
+		return
+	}
+	fmt.Printf("[GScrollBar.ResolveChildren] Starting, GComponent children count=%d\n", len(b.GComponent.Children()))
+	b.resolveTemplate()
+	fmt.Printf("[GScrollBar.ResolveChildren] After resolveTemplate: grip=%v, bar=%v, arrow1=%v, arrow2=%v\n",
+		b.grip != nil, b.bar != nil, b.arrow1 != nil, b.arrow2 != nil)
+	if b.grip != nil {
+		fmt.Printf("[GScrollBar.ResolveChildren]   grip: pos=(%.1f,%.1f), size=(%.1f,%.1f), visible=%v\n",
+			b.grip.X(), b.grip.Y(), b.grip.Width(), b.grip.Height(), b.grip.Visible())
+	}
+	if b.bar != nil {
+		fmt.Printf("[GScrollBar.ResolveChildren]   bar: pos=(%.1f,%.1f), size=(%.1f,%.1f), visible=%v\n",
+			b.bar.X(), b.bar.Y(), b.bar.Width(), b.bar.Height(), b.bar.Visible())
+	}
+	b.updateGrip()
 }
 
 // SetFixedGrip 标记 Grip 是否固定尺寸。
@@ -118,23 +153,32 @@ func (b *GScrollBar) SyncFromPane(info core.ScrollInfo) {
 }
 
 func (b *GScrollBar) resolveTemplate() {
-	if b.template == nil {
+	// 优先从 template 查找，如果没有 template 则从 GComponent 本身查找
+	// 这支持两种模式：
+	// 1. 通过 SetTemplateComponent 设置的独立模板（TypeScript 模式）
+	// 2. 直接在 GComponent 中构建的子组件（Go BuildComponent 模式）
+	searchRoot := b.template
+	if searchRoot == nil {
+		searchRoot = b.GComponent
+	}
+	if searchRoot == nil {
 		return
 	}
-	if child := b.template.ChildByName("grip"); child != nil {
+
+	if child := searchRoot.ChildByName("grip"); child != nil {
 		b.setGrip(child)
 	}
-	if child := b.template.ChildByName("bar"); child != nil {
+	if child := searchRoot.ChildByName("bar"); child != nil {
 		b.bar = child
 	}
-	if child := b.template.ChildByName("arrow1"); child != nil {
+	if child := searchRoot.ChildByName("arrow1"); child != nil {
 		b.arrow1 = child
 	}
-	if child := b.template.ChildByName("arrow2"); child != nil {
+	if child := searchRoot.ChildByName("arrow2"); child != nil {
 		b.arrow2 = child
 	}
-	if b.template.GObject != nil {
-		b.template.GObject.DisplayObject().Dispatcher().On(laya.EventMouseDown, b.onBarMouseDown)
+	if searchRoot.GObject != nil {
+		searchRoot.GObject.DisplayObject().Dispatcher().On(laya.EventMouseDown, b.onBarMouseDown)
 	}
 }
 

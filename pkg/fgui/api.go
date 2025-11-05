@@ -215,3 +215,27 @@ func ParsePackage(data []byte, resKey string) (*assets.Package, error) {
 func NewFileLoader(root string) *assets.FileLoader {
 	return assets.NewFileLoader(root)
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// UIConfig API
+// ────────────────────────────────────────────────────────────────────────────
+
+// SetDefaultScrollBars 设置全局默认滚动条资源URL
+// 对应 TypeScript 版本的 UIConfig.verticalScrollBar 和 UIConfig.horizontalScrollBar
+//
+// Parameters:
+//   - vertical: 垂直滚动条的资源URL (格式: ui://packageId/itemId)
+//   - horizontal: 水平滚动条的资源URL (格式: ui://packageId/itemId)
+//
+// Example:
+//   // 在加载 Basics 包后设置默认滚动条
+//   fgui.SetDefaultScrollBars("ui://9leh0eyf/i3s65w", "ui://9leh0eyf/i3s65i")
+func SetDefaultScrollBars(vertical, horizontal string) {
+	config := core.GetUIConfig()
+	if vertical != "" {
+		config.VerticalScrollBar = vertical
+	}
+	if horizontal != "" {
+		config.HorizontalScrollBar = horizontal
+	}
+}

@@ -70,14 +70,214 @@ func DrawComponent(target *ebiten.Image, root *core.GComponent, atlas *AtlasMana
 }
 
 func drawComponent(target *ebiten.Image, comp *core.GComponent, atlas *AtlasManager, parentGeo ebiten.GeoM, parentAlpha float64) error {
+	// 检查是否需要应用 scrollRect 裁剪
+	display := comp.DisplayObject()
+	container := comp.Container()
+
+	// 关键修复：ScrollRect 可能设置在 container（maskContainer）上，而不是 display 上
+	var scrollRect *laya.Rect
+	if container != nil && container != display {
+		// 优先检查 container 的 scrollRect（ScrollPane 场景）
+		scrollRect = container.ScrollRect()
+	}
+	if scrollRect == nil {
+		// 回退到检查 display 的 scrollRect（兼容其他场景）
+		scrollRect = display.ScrollRect()
+	}
+
+	// 计算 container 相对于 display 的偏移
+	containerGeo := parentGeo
+	if container != nil && container != display {
+		containerMatrix := container.LocalMatrix()
+		containerTransform := ebiten.GeoM{}
+		containerTransform.SetElement(0, 0, containerMatrix.A)
+		containerTransform.SetElement(0, 1, containerMatrix.C)
+		containerTransform.SetElement(0, 2, containerMatrix.Tx)
+		containerTransform.SetElement(1, 0, containerMatrix.B)
+		containerTransform.SetElement(1, 1, containerMatrix.D)
+		containerTransform.SetElement(1, 2, containerMatrix.Ty)
+		containerTransform.Concat(parentGeo)
+		containerGeo = containerTransform
+	}
+
+	if scrollRect != nil {
+		// 有 scrollRect，需要裁剪渲染
+		return drawComponentWithClipping(target, comp, atlas, parentGeo, containerGeo, parentAlpha, scrollRect)
+	}
+
+	// 没有 scrollRect，正常渲染所有子对象
 	for _, child := range comp.Children() {
 		if child == nil {
 			continue
 		}
-		if err := drawObject(target, child, atlas, parentGeo, parentAlpha); err != nil {
+		if err := drawObject(target, child, atlas, containerGeo, parentAlpha); err != nil {
 			return err
 		}
 	}
+
+	// 渲染直接添加到 displayObject 的子对象（例如滚动条）
+	if display != nil {
+		extraCount := 0
+		for _, childSprite := range display.Children() {
+			if childSprite == container {
+				continue
+			}
+			extraCount++
+
+			if owner := childSprite.Owner(); owner != nil {
+				var gobject *core.GObject
+				if obj, ok := owner.(*core.GObject); ok {
+					gobject = obj
+				} else if gcomp, ok := owner.(*core.GComponent); ok {
+					gobject = gcomp.GObject
+				}
+
+				if gobject != nil {
+					// 检查是否在 Children() 列表中（避免重复渲染）
+					isInChildren := false
+					for _, child := range comp.Children() {
+						if child == gobject {
+							isInChildren = true
+							break
+						}
+					}
+					if isInChildren {
+						continue
+					}
+
+					// 防止自渲染（避免无限循环）
+					if gcomp, ok := owner.(*core.GComponent); ok {
+						if gcomp == comp {
+							continue
+						}
+					}
+
+					// DEBUG: 只输出滚动条相关的日志
+					isScrollBar := strings.Contains(strings.ToLower(gobject.Name()), "scroll") ||
+						(gobject.Width() == 17 && gobject.Height() > 50) ||
+						(gobject.Height() == 17 && gobject.Width() > 50)
+
+					if isScrollBar {
+						pos := childSprite.Position()
+						dispVisible := childSprite.Visible()
+						objVisible := gobject.Visible()
+						fmt.Printf("[Render] ScrollBar: name='%s', pos=(%.1f,%.1f), dispVisible=%v, objVisible=%v, size=(%.1f,%.1f)\n",
+							gobject.Name(), pos.X, pos.Y, dispVisible, objVisible, gobject.Width(), gobject.Height())
+					}
+
+					// 渲染额外的 GObject
+					if err := drawObject(target, gobject, atlas, parentGeo, parentAlpha); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// drawComponentWithClipping 渲染带裁剪的组件
+func drawComponentWithClipping(target *ebiten.Image, comp *core.GComponent, atlas *AtlasManager, parentGeo, containerGeo ebiten.GeoM, parentAlpha float64, scrollRect *laya.Rect) error {
+	// 计算裁剪区域的实际尺寸
+	clipW := int(math.Ceil(scrollRect.W))
+	clipH := int(math.Ceil(scrollRect.H))
+
+	if clipW <= 0 || clipH <= 0 {
+		return nil
+	}
+
+	// 创建临时渲染目标
+	tempTarget := ebiten.NewImage(clipW, clipH)
+	defer func() {
+		tempTarget.Dispose()
+	}()
+
+	// 创建内容偏移的变换矩阵
+	contentGeo := ebiten.GeoM{}
+	contentGeo.Translate(-scrollRect.X, -scrollRect.Y)
+
+	// 渲染所有子对象到临时目标
+	for _, child := range comp.Children() {
+		if child == nil {
+			continue
+		}
+		if err := drawObject(tempTarget, child, atlas, contentGeo, parentAlpha); err != nil {
+			return err
+		}
+	}
+
+	// 将裁剪后的内容绘制到最终目标
+	finalGeo := parentGeo
+	finalGeo.Translate(scrollRect.X, scrollRect.Y)
+
+	opts := &ebiten.DrawImageOptions{
+		GeoM: finalGeo,
+	}
+
+	if parentAlpha < 1.0 {
+		opts.ColorScale.ScaleAlpha(float32(parentAlpha))
+	}
+
+	target.DrawImage(tempTarget, opts)
+
+	// 渲染额外的 DisplayObject（如滚动条）
+	display := comp.DisplayObject()
+	container := comp.Container()
+	if display != nil {
+		for _, childSprite := range display.Children() {
+			if childSprite == container {
+				continue
+			}
+			if owner := childSprite.Owner(); owner != nil {
+				var gobject *core.GObject
+				if obj, ok := owner.(*core.GObject); ok {
+					gobject = obj
+				} else if gcomp, ok := owner.(*core.GComponent); ok {
+					gobject = gcomp.GObject
+				}
+
+				if gobject != nil {
+					// 检查是否在 Children() 列表中
+					isInChildren := false
+					for _, child := range comp.Children() {
+						if child == gobject {
+							isInChildren = true
+							break
+						}
+					}
+					if isInChildren {
+						continue
+					}
+
+					// 防止自渲染
+					if gcomp, ok := owner.(*core.GComponent); ok {
+						if gcomp == comp {
+							continue
+						}
+					}
+
+					// DEBUG: 只输出滚动条相关的日志
+					isScrollBar := strings.Contains(strings.ToLower(gobject.Name()), "scroll") ||
+						(gobject.Width() == 17 && gobject.Height() > 50) ||
+						(gobject.Height() == 17 && gobject.Width() > 50)
+
+					if isScrollBar {
+						pos := childSprite.Position()
+						dispVisible := childSprite.Visible()
+						objVisible := gobject.Visible()
+						fmt.Printf("[Render/Clipping] ScrollBar: name='%s', pos=(%.1f,%.1f), dispVisible=%v, objVisible=%v, size=(%.1f,%.1f)\n",
+							gobject.Name(), pos.X, pos.Y, dispVisible, objVisible, gobject.Width(), gobject.Height())
+					}
+
+					// 渲染额外的 GObject
+					if err := drawObject(target, gobject, atlas, parentGeo, parentAlpha); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

@@ -2,6 +2,7 @@ package scenes
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"sync"
 
@@ -57,4 +58,37 @@ func (e *Environment) Package(ctx context.Context, name string) (*assets.Package
 	e.mu.Unlock()
 
 	return pkg, nil
+}
+
+// SetupDefaultScrollBars 设置默认滚动条资源
+// 从指定包中查找滚动条组件并设置为全局默认值
+func (e *Environment) SetupDefaultScrollBars(ctx context.Context, packageName, verticalName, horizontalName string) error {
+	pkg, err := e.Package(ctx, packageName)
+	if err != nil {
+		return err
+	}
+
+	// 查找垂直滚动条
+	if verticalName != "" {
+		if item := pkg.ItemByName(verticalName); item != nil {
+			vtURL := "ui://" + pkg.ID + "/" + item.ID
+			fmt.Printf("[DefaultScrollBars] Setting vertical scrollbar: %s (from %s.%s)\n", vtURL, packageName, verticalName)
+			fgui.SetDefaultScrollBars(vtURL, "")
+		} else {
+			fmt.Printf("[DefaultScrollBars] WARNING: Vertical scrollbar '%s' not found in package %s\n", verticalName, packageName)
+		}
+	}
+
+	// 查找水平滚动条
+	if horizontalName != "" {
+		if item := pkg.ItemByName(horizontalName); item != nil {
+			hzURL := "ui://" + pkg.ID + "/" + item.ID
+			fmt.Printf("[DefaultScrollBars] Setting horizontal scrollbar: %s (from %s.%s)\n", hzURL, packageName, horizontalName)
+			fgui.SetDefaultScrollBars("", hzURL)
+		} else {
+			fmt.Printf("[DefaultScrollBars] WARNING: Horizontal scrollbar '%s' not found in package %s\n", horizontalName, packageName)
+		}
+	}
+
+	return nil
 }

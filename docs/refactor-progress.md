@@ -190,3 +190,38 @@
 2. 修复 render 包测试失败（TestRenderMovieClipWidgetUsesSourceSize），检查 MovieClip 源尺寸计算。
 3. 在 demo/scenes 中验证所有场景使用新 API 后的行为一致性。
 4. 考虑是否需要为 `fgui` 包添加更多便捷函数（如 CreateObject 等）以进一步简化 API。
+
+
+## 2025-11-04
+- [x] **完整实现 Overflow 功能**：对齐 TypeScript 版本的 overflow 行为，支持 Visible/Hidden/Scroll 三种模式。
+  - 创建 `pkg/fgui/core/overflow.go`：定义 OverflowType 类型别名与 Margin 结构体（通过类型别名复用 assets.OverflowType 避免重复定义）
+  - 扩展 GComponent：添加 margin/overflow 字段与访问器，实现 SetupOverflow/UpdateMask/SetMargin 方法
+  - OverflowHidden：创建独立 container Sprite，设置 scrollRect 实现内容裁剪，支持 margin 偏移
+  - OverflowVisible with Margin：创建独立 container 应用偏移，但不设置 scrollRect
+  - OverflowScroll：委托给已有的 SetupScroll 方法（ScrollPane）
+  - SetSize 集成：尺寸变化时自动调用 UpdateMask 更新裁剪区域
+- [x] Builder 集成：`BuildComponent` 从 ComponentData 读取 margin 和 overflow，自动调用 SetupOverflow/SetupScroll
+- [x] **完整测试覆盖**：
+  - 单元测试 (`pkg/fgui/core/overflow_test.go`)：8 个测试全部通过
+    - 验证 OverflowHidden 创建独立 container
+    - 验证 scrollRect 尺寸与偏移正确性
+    - 验证 margin 应用与容器偏移
+    - 验证 OverflowVisible 行为
+    - 验证 SetSize 触发 UpdateMask
+    - 验证 Margin.IsZero 和访问器方法
+  - 集成测试 (`pkg/fgui/builder/overflow_test.go`)：2 个测试通过
+    - TestOverflowFromPackage：验证从真实 .fui 文件加载 overflow 配置（Component1/Component7/Component8）
+    - TestOverflowBuildIntegration：手工构造测试数据验证完整构建流程
+- [x] 文档更新：创建 `docs/overflow-investigation.md` 详细记录调研过程、TypeScript 参考实现、Go 实现方案与测试计划
+
+**实现细节**：
+- 使用 laya.Rect 替代 Rectangle（字段为 X/Y/W/H 而非 Width/Height）
+- 通过 `display.SetScrollRect(rect)` 实现裁剪（laya 兼容层已支持）
+- Container 创建时机：overflow=hidden 或 margin 非零时创建
+- Margin 应用：container 偏移 (left, top)，scrollRect 起点也在 (left, top)，尺寸为 width-right, height-bottom
+
+### Upcoming Focus（2025-11-04）
+1. 在 GUI 环境运行 `go run ./demo`，验证 Demo_Clip&Scroll 场景的 overflow 视觉效果
+2. 检查其他场景是否有 overflow 相关问题（如滚动容器、裁剪区域等）
+3. 如需要，补充 overflow 与 ScrollPane 的集成测试
+

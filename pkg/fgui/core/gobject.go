@@ -158,6 +158,14 @@ func (g *GObject) SetPosition(x, y float64) {
 	g.x = x
 	g.y = y
 	g.refreshTransform()
+
+	// 如果是 GGroup，需要同步移动子元素
+	// 参考 TypeScript 版本 GObject.ts setXY (97-110行)
+	// if (this instanceof GGroup) this.moveChildren(dx, dy);
+	if groupMover, ok := g.data.(interface{ MoveChildren(dx, dy float64) }); ok {
+		groupMover.MoveChildren(dx, dy)
+	}
+
 	g.updateGear(gears.IndexXY)
 	g.notifyDependentsXY(dx, dy)
 }
@@ -179,6 +187,16 @@ func (g *GObject) SetSize(width, height float64) {
 	g.updateGear(gears.IndexSize)
 	if (dw != 0 || dh != 0) && g.relations != nil {
 		g.relations.OnOwnerSizeChanged(dw, dh, g.pivotAsAnchor)
+		// 通知父组件边界可能变化（对应 TypeScript GObject.ts:228）
+		if g.parent != nil {
+			g.parent.SetBoundsChangedFlag()
+		}
+		// 通知组 (group) 边界可能变化
+		if g.group != nil {
+			if groupComp, ok := g.group.data.(*GComponent); ok {
+				groupComp.SetBoundsChangedFlag()
+			}
+		}
 	}
 	g.notifyDependentsSize(dw, dh)
 	if handler, ok := g.data.(ownerSizeChanged); ok {
@@ -491,12 +509,39 @@ func (g *GObject) Y() float64 {
 
 // Width returns the current width.
 func (g *GObject) Width() float64 {
+	g.EnsureSizeCorrect()
+	if g.relations != nil && g.relations.sizeDirty {
+		g.relations.EnsureRelationsSizeCorrect()
+	}
 	return g.width
 }
 
 // Height returns the current height.
 func (g *GObject) Height() float64 {
+	g.EnsureSizeCorrect()
+	if g.relations != nil && g.relations.sizeDirty {
+		g.relations.EnsureRelationsSizeCorrect()
+	}
 	return g.height
+}
+
+// ActualWidth returns the width taking scale into account.
+// 对应 TypeScript: get actualWidth(): number { return this.width * Math.abs(this._scaleX); }
+func (g *GObject) ActualWidth() float64 {
+	return g.Width() * math.Abs(g.scaleX)
+}
+
+// ActualHeight returns the height taking scale into account.
+// 对应 TypeScript: get actualHeight(): number { return this.height * Math.abs(this._scaleY); }
+func (g *GObject) ActualHeight() float64 {
+	return g.Height() * math.Abs(g.scaleY)
+}
+
+// EnsureSizeCorrect ensures the size is up-to-date.
+// This is a hook method that can be overridden by subclasses (e.g., GTextField for AutoSize).
+// 对应 TypeScript: public ensureSizeCorrect(): void {}
+func (g *GObject) EnsureSizeCorrect() {
+	// Base implementation is empty - subclasses can override
 }
 
 // ParentSize reports the dimensions of the parent component, when available.

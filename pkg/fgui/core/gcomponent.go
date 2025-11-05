@@ -1,6 +1,9 @@
 package core
 
 import (
+	"fmt"
+	"math"
+
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/utils"
@@ -21,6 +24,10 @@ type GComponent struct {
 	transitionList     []*Transition
 	transitionCache    map[string]*Transition
 	sortingChildCount  int // Number of children with sortingOrder > 0
+	margin             Margin
+	overflow           OverflowType
+	boundsChanged      bool // 边界是否需要重新计算（对应 TypeScript _boundsChanged）
+	trackBounds        bool // 是否跟踪子对象边界（对应 TypeScript _trackBounds）
 }
 
 // HitTestMode enumerates supported hit-test strategies.
@@ -183,7 +190,77 @@ func (c *GComponent) SetupScroll(buf *utils.ByteBuffer) {
 	pane.OnOwnerSizeChanged()
 }
 
+// SetupOverflow 配置组件的 overflow 行为
+// 参考 TypeScript 版本：GComponent.ts setupOverflow (746-762行)
+func (c *GComponent) SetupOverflow(overflow OverflowType) {
+	if c == nil {
+		return
+	}
+	c.overflow = overflow
+
+	if overflow == OverflowHidden {
+		// 如果 display 和 container 是同一个对象，创建新的 container
+		if c.display == c.container {
+			c.container = laya.NewSprite()
+			c.display.AddChild(c.container)
+		}
+		c.UpdateMask()
+		c.container.SetPosition(float64(c.margin.Left), float64(c.margin.Top))
+	} else if c.margin.Left != 0 || c.margin.Top != 0 {
+		// 即使不是 Hidden，如果有 margin 也需要独立的 container
+		if c.display == c.container {
+			c.container = laya.NewSprite()
+			c.display.AddChild(c.container)
+		}
+		c.container.SetPosition(float64(c.margin.Left), float64(c.margin.Top))
+	}
+}
+
+// UpdateMask 更新裁剪矩形（用于 overflow=hidden）
+// 参考 TypeScript 版本：GComponent.ts updateMask (724-734行)
+func (c *GComponent) UpdateMask() {
+	if c == nil || c.display == nil {
+		return
+	}
+
+	// 创建裁剪矩形
+	rect := &laya.Rect{
+		X: float64(c.margin.Left),
+		Y: float64(c.margin.Top),
+		W: c.width - float64(c.margin.Right),
+		H: c.height - float64(c.margin.Bottom),
+	}
+
+	// 应用到 displayObject
+	c.display.SetScrollRect(rect)
+}
+
+// SetMargin 设置组件的边距
+func (c *GComponent) SetMargin(margin Margin) {
+	if c == nil {
+		return
+	}
+	c.margin = margin
+}
+
+// Margin 返回组件的边距
+func (c *GComponent) Margin() Margin {
+	if c == nil {
+		return Margin{}
+	}
+	return c.margin
+}
+
+// Overflow 返回组件的 overflow 类型
+func (c *GComponent) Overflow() OverflowType {
+	if c == nil {
+		return OverflowVisible
+	}
+	return c.overflow
+}
+
 // SetSize overrides GObject.SetSize to同步滚动视图。
+// 参考 TypeScript 版本：GComponent.ts handleSizeChanged (764-774行)
 func (c *GComponent) SetSize(width, height float64) {
 	if c == nil {
 		return
@@ -191,8 +268,15 @@ func (c *GComponent) SetSize(width, height float64) {
 	oldWidth := c.Width()
 	oldHeight := c.Height()
 	c.GObject.SetSize(width, height)
-	if c.scrollPane != nil && (width != oldWidth || height != oldHeight) {
-		c.scrollPane.OnOwnerSizeChanged()
+
+	// 尺寸改变时需要更新
+	if width != oldWidth || height != oldHeight {
+		if c.scrollPane != nil {
+			c.scrollPane.OnOwnerSizeChanged()
+		} else if c.display != nil && c.display.ScrollRect() != nil {
+			// 如果有 scrollRect（overflow=hidden），更新裁剪区域
+			c.UpdateMask()
+		}
 	}
 }
 
@@ -241,6 +325,9 @@ func (c *GComponent) AddChildAt(child *GObject, index int) {
 			child.HandleControllerChanged(ctrl)
 		}
 	}
+
+	// 通知边界可能变化（对应 TypeScript GComponent.ts:111）
+	c.SetBoundsChangedFlag()
 }
 
 // RemoveChild removes a child from the component.
@@ -271,6 +358,9 @@ func (c *GComponent) RemoveChildAt(index int) {
 	}
 	copy(c.children[index:], c.children[index+1:])
 	c.children = c.children[:len(c.children)-1]
+
+	// 通知边界可能变化（对应 TypeScript GComponent.ts:163）
+	c.SetBoundsChangedFlag()
 }
 
 // Children returns a snapshot of the child slice.
@@ -679,6 +769,153 @@ func (c *GComponent) ViewHeight() float64 {
 		return c.scrollPane.ViewHeight()
 	}
 	return c.Height()
+}
+
+// SetBoundsChangedFlag marks the bounds as needing recalculation.
+// 对应 TypeScript: public setBoundsChangedFlag(): void (GComponent.ts:797-807)
+func (c *GComponent) SetBoundsChangedFlag() {
+	if c == nil {
+		return
+	}
+	// 只有在有 scrollPane 或 trackBounds 时才需要标记
+	if c.scrollPane == nil && !c.trackBounds {
+		return
+	}
+
+	if !c.boundsChanged {
+		c.boundsChanged = true
+		// TypeScript 使用 Laya.timer.callLater(this, this.ensureBoundsCorrect)
+		// Go 版本我们不使用 callLater，而是在需要时同步调用
+	}
+}
+
+// EnsureBoundsCorrect ensures all child sizes are correct and updates bounds if needed.
+// 对应 TypeScript: public ensureBoundsCorrect(): void (GComponent.ts:821-832)
+func (c *GComponent) EnsureBoundsCorrect() {
+	if c == nil {
+		return
+	}
+
+	// 确保所有子对象的尺寸正确
+	for _, child := range c.children {
+		if child != nil {
+			child.EnsureSizeCorrect()
+		}
+	}
+
+	// 如果边界标记为已变化，更新边界
+	if c.boundsChanged {
+		c.UpdateBounds()
+	}
+}
+
+// UpdateBounds calculates the bounding box from children and updates content size.
+// 对应 TypeScript: protected updateBounds(): void (GComponent.ts:834-862)
+func (c *GComponent) UpdateBounds() {
+	if c == nil {
+		return
+	}
+
+	var ax, ay, aw, ah float64
+
+	if len(c.children) > 0 {
+		// 初始化为最大/最小值
+		ax = math.MaxFloat64
+		ay = math.MaxFloat64
+		ar := -math.MaxFloat64 // right edge
+		ab := -math.MaxFloat64 // bottom edge
+
+		// 遍历所有子对象计算边界
+		for _, child := range c.children {
+			if child == nil {
+				continue
+			}
+
+			x := child.X()
+			if x < ax {
+				ax = x
+			}
+
+			y := child.Y()
+			if y < ay {
+				ay = y
+			}
+
+			r := x + child.ActualWidth()
+			if r > ar {
+				ar = r
+			}
+
+			b := y + child.ActualHeight()
+			if b > ab {
+				ab = b
+
+			}
+		}
+
+		aw = ar - ax
+		ah = ab - ay
+	}
+
+	// DEBUG: 输出 bounds 计算结果
+	if c.scrollPane != nil {
+		fmt.Printf("[UpdateBounds] Component '%s': ax=%.1f, ay=%.1f, aw=%.1f, ah=%.1f -> contentSize=(%.1f, %.1f), children=%d\n",
+			c.Name(), ax, ay, aw, ah, ax+aw, ay+ah, len(c.children))
+
+		// 如果 contentSize 高度小于 viewSize，输出所有子对象信息
+		if c.scrollPane != nil && ay+ah < c.scrollPane.ViewHeight() {
+			fmt.Printf("[UpdateBounds] ⚠️  Content height (%.1f) < viewHeight (%.1f), listing all children:\n",
+				ay+ah, c.scrollPane.ViewHeight())
+			for i, child := range c.children {
+				if child != nil {
+					fmt.Printf("  [%d] name='%s', pos=(%.1f,%.1f), size=(%.1f,%.1f), actualSize=(%.1f,%.1f), visible=%v\n",
+						i, child.Name(), child.X(), child.Y(),
+						child.Width(), child.Height(),
+						child.ActualWidth(), child.ActualHeight(),
+						child.Visible())
+				}
+			}
+		}
+	}
+
+	c.SetBounds(ax, ay, aw, ah)
+}
+
+// SetBounds updates the content size for scrollPane if present.
+// 对应 TypeScript: public setBounds(ax: number, ay: number, aw: number, ah: number): void (GComponent.ts:864-869)
+func (c *GComponent) SetBounds(ax, ay, aw, ah float64) {
+	if c == nil {
+		return
+	}
+
+	c.boundsChanged = false
+
+	// 如果有 ScrollPane，设置内容尺寸
+	if c.scrollPane != nil {
+		newWidth := math.Round(ax + aw)
+		newHeight := math.Round(ay + ah)
+
+		// 关键修复：如果当前 contentSize 已经合理（大于等于 viewSize），
+		// 并且新计算的高度明显变小，说明可能是子对象未完全创建（GList 虚拟化等），
+		// 此时保留原有的高度，但仍然更新宽度
+		currentSize := c.scrollPane.ContentSize()
+		viewHeight := c.scrollPane.ViewHeight()
+
+		// 如果满足以下条件，保留当前高度：
+		// 1. 当前高度 >= viewHeight（需要滚动条）
+		// 2. 新高度 < viewHeight（不需要滚动条）
+		// 3. 新高度明显小于当前高度（减少超过 20%）
+		if currentSize.Y >= viewHeight &&
+			newHeight < viewHeight &&
+			newHeight < currentSize.Y*0.8 {
+			fmt.Printf("[SetBounds] ⚠️  Preserving contentSize height: current=(%.1f,%.1f), new would be=(%.1f,%.1f), using=(%.1f,%.1f)\n",
+				currentSize.X, currentSize.Y, newWidth, newHeight, newWidth, currentSize.Y)
+			newHeight = currentSize.Y // 保留原高度
+		}
+
+		// TypeScript: this._scrollPane.setContentSize(Math.round(ax + aw), Math.round(ay + ah))
+		c.scrollPane.SetContentSize(newWidth, newHeight)
+	}
 }
 
 // MaskResolver resolves mask children by index.

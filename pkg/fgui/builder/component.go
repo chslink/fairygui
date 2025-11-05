@@ -316,6 +316,42 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 		}
 	}
 
+	// 如果根组件是 GScrollBar，解析子组件并设置属性
+	// 注意：GScrollBar 的子组件（grip, bar, arrow1, arrow2）已经在上面的 for 循环中构建到 root 中了
+	// 我们需要让 scrollBarWidget 识别这些子组件，但不能调用 SetTemplateComponent(root)
+	// 因为那会导致 root 添加自己为子对象（循环引用）
+	if scrollBarWidget, ok := root.GObject.Data().(*widgets.GScrollBar); ok && scrollBarWidget != nil {
+		// resolveTemplate 现在支持从 GComponent 本身查找子组件（当 template 为 nil 时）
+		// 所以我们不需要设置 template，直接调用 resolveTemplate 即可
+		fmt.Printf("[BuildComponent] GScrollBar detected, resolving template from GComponent children\n")
+
+		// 手动触发 resolveTemplate（通常由 SetTemplateComponent 触发）
+		// 注意：这里需要访问 scrollBarWidget 的私有方法，我们需要提供一个公开方法
+		// 暂时通过设置一个空的 template 触发，稍后会修复
+		// scrollBarWidget.SetTemplateComponent(nil) // 这会清空现有的，不对
+
+		// 更好的方法：提供一个公开的 ResolveChildren 方法
+		// 或者暂时使用 SetTemplateComponent 但传入 nil 让它从 GComponent 查找
+		// 但这需要修改 SetTemplateComponent 的逻辑
+
+		// 最简单的修复：既然 resolveTemplate 已经支持从 GComponent 查找，
+		// 我们需要一个方法来触发它
+		if scrollBarWidget.TemplateComponent() == nil {
+			// 设置一个标记让 scrollBarWidget 知道它应该从自己查找子组件
+			// 通过调用 updateGrip 间接触发 resolveTemplate
+			scrollBarWidget.ResolveChildren()
+		}
+
+		// 读取 ScrollBar 扩展属性（对应 applyScrollBarTemplate 中 section 6 的内容）
+		if buf := item.RawData; buf != nil {
+			saved := buf.Pos()
+			defer buf.SetPos(saved)
+			if buf.Seek(0, 6) && buf.Remaining() > 0 {
+				scrollBarWidget.SetFixedGrip(buf.ReadBool())
+			}
+		}
+	}
+
 	// 注意：根组件不需要调用 SetupBeforeAdd，因为：
 	// 1. 根组件的尺寸、pivot 等已经从 ComponentData 设置
 	// 2. 根组件的 alpha、rotation 应该保持默认值（1.0, 0）
@@ -324,12 +360,44 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 	// 只设置 transitions（从 RawData Section 5 读取）
 	root.SetupTransitions(item.RawData, 0)
 
+	// 设置 margin 和 overflow（已经由 parseComponentData 解析）
+	// 参考 TypeScript 版本：GComponent.ts setup (1039-1054行)
+	if item.Component != nil {
+		// 设置 margin
+		root.SetMargin(core.Margin{
+			Top:    item.Component.Margin.Top,
+			Bottom: item.Component.Margin.Bottom,
+			Left:   item.Component.Margin.Left,
+			Right:  item.Component.Margin.Right,
+		})
+
+		// 设置 overflow
+		overflow := item.Component.Overflow
+		if overflow == core.OverflowScroll {
+			// 切换到 section 7 读取 scroll 配置
+			if buf := item.RawData; buf != nil {
+				saved := buf.Pos()
+				if buf.Seek(0, 7) {
+					root.SetupScroll(buf)
+				}
+				buf.SetPos(saved)
+			}
+		} else {
+			root.SetupOverflow(overflow)
+		}
+	}
+
 	f.finalizeComponentSize(root)
 
 	// 创建并绑定滚动条（如果有）
 	if pane := root.ScrollPane(); pane != nil {
 		f.setupScrollBars(ctx, pkg, root, pane)
 	}
+
+	// 标记边界需要计算并立即计算（对应 TypeScript GComponent.ts:1204）
+	// TypeScript 使用 callLater 延迟调用，Go 版本同步执行
+	root.SetBoundsChangedFlag()
+	root.EnsureBoundsCorrect()
 
 	return root, nil
 }
@@ -1691,19 +1759,18 @@ func (f *Factory) setupScrollBars(ctx context.Context, pkg *assets.Package, owne
 	vtURL := pane.VtScrollBarURL()
 	hzURL := pane.HzScrollBarURL()
 
-	// 如果滚动条URL为空，使用默认值（对应 TypeScript 版本 ScrollPane.ts:150,160）
+	// 如果滚动条URL为空，使用全局配置的默认值（对应 TypeScript 版本 ScrollPane.ts:150,160）
 	// TypeScript: var res: string = vtScrollBarRes ? vtScrollBarRes : UIConfig.verticalScrollBar;
 	if vtURL == "" {
-		// 默认垂直滚动条：ui://9leh0eyf/i3s65w (Basics包中的ScrollBar_VT)
-		vtURL = "ui://9leh0eyf/i3s65w"
+		vtURL = core.GetUIConfig().VerticalScrollBar
 	}
 	if hzURL == "" {
-		// 默认水平滚动条：ui://9leh0eyf/i3s65i (Basics包中的ScrollBar_HZ)
-		hzURL = "ui://9leh0eyf/i3s65i"
+		hzURL = core.GetUIConfig().HorizontalScrollBar
 	}
 
 	// 创建垂直滚动条
 	if vtURL != "" {
+		fmt.Printf("[setupScrollBars] Creating vertical scrollbar from URL: %s\n", vtURL)
 		if vtItem := f.resolveIcon(ctx, pkg, vtURL); vtItem != nil {
 			targetPkg := vtItem.Owner
 			if targetPkg == nil {
@@ -1711,13 +1778,57 @@ func (f *Factory) setupScrollBars(ctx context.Context, pkg *assets.Package, owne
 			}
 			if vtComp, err := f.BuildComponent(ctx, targetPkg, vtItem); err == nil && vtComp != nil {
 				pane.SetVtScrollBar(vtComp.GObject)
-				owner.AddChild(vtComp.GObject)
+
+				// 检查 DisplayObject 是否存在
+				if vtComp.GObject.DisplayObject() == nil {
+					fmt.Printf("[setupScrollBars] WARNING: VT ScrollBar has nil DisplayObject!\n")
+				} else {
+					fmt.Printf("[setupScrollBars] VT ScrollBar DisplayObject: visible=%v, children=%d\n",
+						vtComp.GObject.DisplayObject().Visible(), len(vtComp.GObject.DisplayObject().Children()))
+				}
+
+				// 关键修复：滚动条必须添加到 owner.displayObject（根 DisplayObject），而不是通过 AddChild
+				// AddChild 会把子对象添加到 childContainer()，而 childContainer() 可能是被裁剪的容器
+				// 参考 TypeScript ScrollPane.ts:156 - this._owner.displayObject.addChild(this._vtScrollBar.displayObject);
+				if owner.GObject.DisplayObject() != nil && vtComp.GObject.DisplayObject() != nil {
+					ownerDisplay := owner.GObject.DisplayObject()
+					scrollBarDisplay := vtComp.GObject.DisplayObject()
+
+					fmt.Printf("[setupScrollBars] Before adding VT ScrollBar:\n")
+					fmt.Printf("  owner.displayObject children count: %d\n", len(ownerDisplay.Children()))
+					pos := scrollBarDisplay.Position()
+					fmt.Printf("  scrollBar position: (%.1f, %.1f)\n", pos.X, pos.Y)
+
+					ownerDisplay.AddChild(scrollBarDisplay)
+
+					fmt.Printf("[setupScrollBars] After adding VT ScrollBar:\n")
+					fmt.Printf("  owner.displayObject children count: %d\n", len(ownerDisplay.Children()))
+					fmt.Printf("  VT ScrollBar added to owner.displayObject\n")
+
+					// 列出 owner.displayObject 的所有子对象
+					fmt.Printf("  owner.displayObject children:\n")
+					for i, child := range ownerDisplay.Children() {
+						childPos := child.Position()
+						fmt.Printf("    [%d] visible=%v, pos=(%.1f,%.1f), children=%d\n",
+							i, child.Visible(), childPos.X, childPos.Y, len(child.Children()))
+					}
+				}
+				fmt.Printf("[setupScrollBars] VT ScrollBar final state: size=(%.1f,%.1f), visible=%v, display visible=%v\n",
+					vtComp.GObject.Width(), vtComp.GObject.Height(), vtComp.GObject.Visible(),
+					vtComp.GObject.DisplayObject().Visible())
+
 				// 调用GScrollBar的SetScrollPane绑定
 				if scrollBar, ok := vtComp.GObject.Data().(*widgets.GScrollBar); ok {
 					scrollBar.SetScrollPane(pane, true) // true = vertical
 				}
+			} else {
+				fmt.Printf("[setupScrollBars] Failed to build vertical scrollbar: %v\n", err)
 			}
+		} else {
+			fmt.Printf("[setupScrollBars] Failed to resolve vertical scrollbar item for URL: %s\n", vtURL)
 		}
+	} else {
+		fmt.Printf("[setupScrollBars] No vertical scrollbar URL configured\n")
 	}
 
 	// 创建水平滚动条
@@ -1729,7 +1840,12 @@ func (f *Factory) setupScrollBars(ctx context.Context, pkg *assets.Package, owne
 			}
 			if hzComp, err := f.BuildComponent(ctx, targetPkg, hzItem); err == nil && hzComp != nil {
 				pane.SetHzScrollBar(hzComp.GObject)
-				owner.AddChild(hzComp.GObject)
+				// 关键修复：滚动条必须添加到 owner.displayObject（根 DisplayObject）
+				// 参考 TypeScript ScrollPane.ts:166 - this._owner.displayObject.addChild(this._hzScrollBar.displayObject);
+				if owner.GObject.DisplayObject() != nil && hzComp.GObject.DisplayObject() != nil {
+					owner.GObject.DisplayObject().AddChild(hzComp.GObject.DisplayObject())
+					fmt.Printf("[setupScrollBars] HZ ScrollBar added directly to owner.displayObject\n")
+				}
 				// 调用GScrollBar的SetScrollPane绑定
 				if scrollBar, ok := hzComp.GObject.Data().(*widgets.GScrollBar); ok {
 					scrollBar.SetScrollPane(pane, false) // false = horizontal
@@ -1737,4 +1853,8 @@ func (f *Factory) setupScrollBars(ctx context.Context, pkg *assets.Package, owne
 			}
 		}
 	}
+
+	// 滚动条创建后，重新计算 ViewSize（包含 margin 和滚动条尺寸）
+	// 对应 TypeScript 版本 ScrollPane.ts:197 (setup方法最后调用 this.setSize)
+	pane.OnOwnerSizeChanged()
 }

@@ -25,6 +25,7 @@ type GGroup struct {
 	autoSizeDisabled  bool
 	mainGridIndex     int
 	mainGridMinSize   int
+	updating          int // 位标志，用于避免递归更新
 }
 
 // NewGroup creates a new group widget backed by a bare GObject.
@@ -148,6 +149,36 @@ func (g *GGroup) HandleVisibleChanged() {
 	for _, child := range parent.Children() {
 		if child != nil && child.Group() == g.GObject {
 			child.HandleVisibleChanged()
+		}
+	}
+}
+
+// MoveChildren 移动所有属于该 Group 的子元素
+// 当 Group 的位置改变时自动调用
+// 参考 TypeScript 版本 GGroup.ts moveChildren (238-250行)
+func (g *GGroup) MoveChildren(dx, dy float64) {
+	if g == nil || g.GObject == nil {
+		return
+	}
+
+	// 检查是否正在更新中（避免递归）
+	if (g.updating & 1) != 0 {
+		return
+	}
+
+	parent := g.GObject.Parent()
+	if parent == nil {
+		return
+	}
+
+	// 设置更新标志
+	g.updating |= 1
+	defer func() { g.updating &^= 1 }()
+
+	// 遍历父组件的所有子元素，移动属于该 Group 的子元素
+	for _, child := range parent.Children() {
+		if child != nil && child.Group() == g.GObject {
+			child.SetPosition(child.X()+dx, child.Y()+dy)
 		}
 	}
 }

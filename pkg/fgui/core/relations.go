@@ -142,6 +142,21 @@ func (r *Relations) OnOwnerSizeChanged(dWidth, dHeight float64, applyPivot bool)
 	}
 }
 
+// EnsureRelationsSizeCorrect ensures all relation targets have correct sizes.
+// 对应 TypeScript: public ensureRelationsSizeCorrect(): void (Relations.ts:112-122)
+func (r *Relations) EnsureRelationsSizeCorrect() {
+	if r == nil || len(r.items) == 0 {
+		return
+	}
+
+	r.sizeDirty = false
+	for _, item := range r.items {
+		if item != nil && item.target != nil {
+			item.target.EnsureSizeCorrect()
+		}
+	}
+}
+
 func (r *Relations) ensureItem(target *GObject) *RelationItem {
 	for _, item := range r.items {
 		if item.Target() == target {

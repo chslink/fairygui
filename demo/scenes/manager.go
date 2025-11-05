@@ -68,10 +68,23 @@ func NewManager(ctx context.Context, env *Environment) (*Manager, error) {
 	mgr.Register("GuideDemo", func() Scene { return NewSimpleScene("GuideDemo", "Guide") })
 	mgr.Register("CooldownDemo", func() Scene { return NewSimpleScene("CooldownDemo", "Cooldown") })
 
+	// 设置默认滚动条（在启动场景之前）
+	// 从 Basics 包加载默认滚动条组件
+	if err := mgr.setupDefaultScrollBars(ctx); err != nil {
+		log.Printf("warning: failed to setup default scrollbars: %v", err)
+	}
+
 	if err := mgr.Start(mainMenuSceneName); err != nil {
 		return nil, err
 	}
 	return mgr, nil
+}
+
+// setupDefaultScrollBars 设置全局默认滚动条
+func (m *Manager) setupDefaultScrollBars(ctx context.Context) error {
+	// 加载 Basics 包并设置默认滚动条
+	// ScrollBar_VT 是垂直滚动条，ScrollBar_HZ 是水平滚动条
+	return m.env.SetupDefaultScrollBars(ctx, "Basics", "ScrollBar_VT", "ScrollBar_HZ")
 }
 
 // Environment exposes shared loader/factory services to scene implementations.
