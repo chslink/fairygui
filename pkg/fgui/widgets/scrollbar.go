@@ -1,8 +1,6 @@
 package widgets
 
 import (
-	"fmt"
-
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
@@ -70,20 +68,8 @@ func (b *GScrollBar) SetTemplateComponent(comp *core.GComponent) {
 	b.template = comp
 	if comp != nil && b.GComponent != nil {
 		b.GComponent.AddChild(comp.GObject)
-		fmt.Printf("[GScrollBar] Template added: size=(%.1f,%.1f), children=%d\n",
-			comp.Width(), comp.Height(), len(comp.Children()))
 	}
 	b.resolveTemplate()
-	fmt.Printf("[GScrollBar] After resolveTemplate: grip=%v, bar=%v, arrow1=%v, arrow2=%v\n",
-		b.grip != nil, b.bar != nil, b.arrow1 != nil, b.arrow2 != nil)
-	if b.grip != nil {
-		fmt.Printf("[GScrollBar]   grip: pos=(%.1f,%.1f), size=(%.1f,%.1f), visible=%v\n",
-			b.grip.X(), b.grip.Y(), b.grip.Width(), b.grip.Height(), b.grip.Visible())
-	}
-	if b.bar != nil {
-		fmt.Printf("[GScrollBar]   bar: pos=(%.1f,%.1f), size=(%.1f,%.1f), visible=%v\n",
-			b.bar.X(), b.bar.Y(), b.bar.Width(), b.bar.Height(), b.bar.Visible())
-	}
 	b.updateGrip()
 }
 
@@ -98,18 +84,7 @@ func (b *GScrollBar) ResolveChildren() {
 	if b == nil {
 		return
 	}
-	fmt.Printf("[GScrollBar.ResolveChildren] Starting, GComponent children count=%d\n", len(b.GComponent.Children()))
 	b.resolveTemplate()
-	fmt.Printf("[GScrollBar.ResolveChildren] After resolveTemplate: grip=%v, bar=%v, arrow1=%v, arrow2=%v\n",
-		b.grip != nil, b.bar != nil, b.arrow1 != nil, b.arrow2 != nil)
-	if b.grip != nil {
-		fmt.Printf("[GScrollBar.ResolveChildren]   grip: pos=(%.1f,%.1f), size=(%.1f,%.1f), visible=%v\n",
-			b.grip.X(), b.grip.Y(), b.grip.Width(), b.grip.Height(), b.grip.Visible())
-	}
-	if b.bar != nil {
-		fmt.Printf("[GScrollBar.ResolveChildren]   bar: pos=(%.1f,%.1f), size=(%.1f,%.1f), visible=%v\n",
-			b.bar.X(), b.bar.Y(), b.bar.Width(), b.bar.Height(), b.bar.Visible())
-	}
 	b.updateGrip()
 }
 
@@ -280,6 +255,18 @@ func (b *GScrollBar) minSize() float64 {
 	return 10 + b.extraMargin()
 }
 
+// getContainerDisplayObject 返回用于坐标转换的 DisplayObject
+// 如果 template 存在则使用 template，否则使用 GComponent 本身
+func (b *GScrollBar) getContainerDisplayObject() *laya.Sprite {
+	if b.template != nil && b.template.GObject != nil {
+		return b.template.GObject.DisplayObject()
+	}
+	if b.GComponent != nil && b.GComponent.GObject != nil {
+		return b.GComponent.GObject.DisplayObject()
+	}
+	return nil
+}
+
 func (b *GScrollBar) onGripMouseDown(evt laya.Event) {
 	if b.grip == nil || b.target == nil {
 		return
@@ -289,8 +276,12 @@ func (b *GScrollBar) onGripMouseDown(evt laya.Event) {
 	if !ok {
 		return
 	}
+	display := b.getContainerDisplayObject()
+	if display == nil {
+		return
+	}
 	b.dragging = true
-	local := b.template.GObject.DisplayObject().GlobalToLocal(event.Position)
+	local := display.GlobalToLocal(event.Position)
 	if b.vertical {
 		b.dragOffset = laya.Point{X: 0, Y: local.Y - b.grip.Y()}
 	} else {
@@ -307,7 +298,11 @@ func (b *GScrollBar) onStageMouseMove(evt laya.Event) {
 	if !ok {
 		return
 	}
-	local := b.template.GObject.DisplayObject().GlobalToLocal(pe.Position)
+	display := b.getContainerDisplayObject()
+	if display == nil {
+		return
+	}
+	local := display.GlobalToLocal(pe.Position)
 	if b.vertical {
 		track := b.length() - b.grip.Height()
 		if track <= 0 {
@@ -340,7 +335,11 @@ func (b *GScrollBar) onBarMouseDown(evt laya.Event) {
 	if !ok || b.target == nil || b.bar == nil {
 		return
 	}
-	local := b.template.GObject.DisplayObject().GlobalToLocal(pe.Position)
+	display := b.getContainerDisplayObject()
+	if display == nil {
+		return
+	}
+	local := display.GlobalToLocal(pe.Position)
 	if b.vertical {
 		if local.Y < b.grip.Y() {
 			b.target.ScrollUp()

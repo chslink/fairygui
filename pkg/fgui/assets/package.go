@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -212,6 +213,11 @@ func parseItems(buf *utils.ByteBuffer, pkg *Package) error {
 			item.RawData = buf.ReadBuffer()
 		case PackageItemTypeComponent:
 			ext := buf.ReadByte()
+			// 诊断日志：打印 ext byte 值，特别关注滚动条组件
+			if strings.Contains(strings.ToLower(item.Name), "scrollbar") {
+				fmt.Printf("[DEBUG ScrollBar] Component %s: ext byte = %d (expected 16 for ScrollBar, got ObjectType=%d)\n",
+					item.Name, ext, ObjectType(uint8(ext)))
+			}
 			if ext > 0 {
 				item.ObjectType = ObjectType(uint8(ext))
 			} else {

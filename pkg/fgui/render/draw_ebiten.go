@@ -145,6 +145,7 @@ func drawComponent(target *ebiten.Image, comp *core.GComponent, atlas *AtlasMana
 				continue
 			}
 			extraCount++
+			// fmt.Printf("[DEBUG Render] Found extra child sprite (not container), extraCount=%d\n", extraCount)
 
 			if owner := childSprite.Owner(); owner != nil {
 				var gobject *core.GObject
@@ -180,6 +181,9 @@ func drawComponent(target *ebiten.Image, comp *core.GComponent, atlas *AtlasMana
 					}
 				}
 			}
+		}
+		if extraCount > 0 {
+			// fmt.Printf("[DEBUG Render] Total extra children found: %d\n", extraCount)
 		}
 	}
 	return nil
@@ -233,10 +237,15 @@ func drawComponentWithClipping(target *ebiten.Image, comp *core.GComponent, atla
 	display := comp.DisplayObject()
 	container := comp.Container()
 	if display != nil {
+		extraCount := 0
+		// fmt.Printf("[DEBUG Render Clipping] Checking for extra children in clipped component\n")
 		for _, childSprite := range display.Children() {
 			if childSprite == container {
 				continue
 			}
+			extraCount++
+			// fmt.Printf("[DEBUG Render Clipping] Found extra child sprite, extraCount=%d\n", extraCount)
+
 			if owner := childSprite.Owner(); owner != nil {
 				var gobject *core.GObject
 				if obj, ok := owner.(*core.GObject); ok {
@@ -561,6 +570,11 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		}
 		//fmt.Printf("[DEBUG GList] (widget path) rendering GList: name=%s, children=%d\n",
 		//	obj.Name(), len(data.GComponent.Children()))
+		if err := drawComponent(target, data.GComponent, atlas, combined, alpha); err != nil {
+			return err
+		}
+	case *widgets.GScrollBar:
+		// GScrollBar 内嵌 GComponent，渲染其子对象（grip, bar, arrow1, arrow2）
 		if err := drawComponent(target, data.GComponent, atlas, combined, alpha); err != nil {
 			return err
 		}

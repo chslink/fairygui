@@ -969,6 +969,17 @@ func (l *GList) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 			l.boundsInitialized = true
 		}
 	}
+
+	// 关键修复：对于虚拟列表，在 SetupAfterAdd 完成后触发首次刷新
+	// 这确保在滚动条创建前，contentSize 已经被正确计算
+	// 对应 TypeScript 版本中 virtual list 在初始化后立即刷新的行为
+	if l.virtual && l.numItems > 0 {
+		// 设置标志，表示需要完整的布局刷新
+		l.SetVirtualListChangedFlag(true)
+		// 注意：不直接调用 refreshVirtualList，而是设置标志
+		// 因为此时 ScrollPane 可能还没有完全初始化
+		// 标志会在下一次 CheckVirtualList 时触发刷新
+	}
 }
 
 // readItems 读取并创建列表项 - 对应TypeScript版本的readItems方法
