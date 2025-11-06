@@ -80,6 +80,11 @@ func (c *GComponent) childContainer() *laya.Sprite {
 	if c == nil {
 		return nil
 	}
+	// 如果有ScrollPane，应该返回ScrollPane管理的container
+	// 因为ScrollPane会将原始container移动到自己的mask容器中
+	if c.scrollPane != nil && c.scrollPane.container != nil {
+		return c.scrollPane.container
+	}
 	if c.container == nil {
 		c.container = c.DisplayObject()
 	}

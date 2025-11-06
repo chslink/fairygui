@@ -110,20 +110,26 @@ func drawComponent(target *ebiten.Image, comp *core.GComponent, atlas *AtlasMana
 	// 计算 container 相对于 display 的偏移
 	containerGeo := parentGeo
 	if container != nil && container != display {
+		// 获取容器的本地矩阵，包含位置、缩放、旋转等变换
 		containerMatrix := container.LocalMatrix()
 		containerTransform := ebiten.GeoM{}
+		// 应用容器的完整变换矩阵
 		containerTransform.SetElement(0, 0, containerMatrix.A)
 		containerTransform.SetElement(0, 1, containerMatrix.C)
 		containerTransform.SetElement(0, 2, containerMatrix.Tx)
 		containerTransform.SetElement(1, 0, containerMatrix.B)
 		containerTransform.SetElement(1, 1, containerMatrix.D)
 		containerTransform.SetElement(1, 2, containerMatrix.Ty)
+		// 将容器变换与父变换组合
 		containerTransform.Concat(parentGeo)
 		containerGeo = containerTransform
 	}
 
 	if scrollRect != nil {
 		// 有 scrollRect，需要裁剪渲染
+		// 关键修复：我们需要传递完整的containerGeo，包含容器的变换信息
+		// 这样drawComponentWithClipping才能正确计算子项的位置
+		// 确保containerGeo已经正确合并了所有必要的变换
 		return drawComponentWithClipping(target, comp, atlas, parentGeo, containerGeo, parentAlpha, scrollRect)
 	}
 
@@ -132,6 +138,7 @@ func drawComponent(target *ebiten.Image, comp *core.GComponent, atlas *AtlasMana
 		if child == nil {
 			continue
 		}
+		// 使用containerGeo确保子对象正确应用容器的变换
 		if err := drawObject(target, child, atlas, containerGeo, parentAlpha); err != nil {
 			return err
 		}
@@ -191,60 +198,78 @@ func drawComponent(target *ebiten.Image, comp *core.GComponent, atlas *AtlasMana
 
 // drawComponentWithClipping 渲染带裁剪的组件
 func drawComponentWithClipping(target *ebiten.Image, comp *core.GComponent, atlas *AtlasManager, parentGeo, containerGeo ebiten.GeoM, parentAlpha float64, scrollRect *laya.Rect) error {
-	// 计算裁剪区域的实际尺寸
-	clipW := int(math.Ceil(scrollRect.W))
-	clipH := int(math.Ceil(scrollRect.H))
+	// 创建一个临时渲染目标作为裁剪缓冲区，大小等于可视区域
+	// 注意：scrollRect的宽高已经是考虑了容器缩放后的值
+	clipWidth := int(math.Ceil(scrollRect.W))
+	clipHeight := int(math.Ceil(scrollRect.H))
 
-	if clipW <= 0 || clipH <= 0 {
+	if clipWidth <= 0 || clipHeight <= 0 {
 		return nil
 	}
 
 	// 创建临时渲染目标
-	tempTarget := ebiten.NewImage(clipW, clipH)
+	tempTarget := ebiten.NewImage(clipWidth, clipHeight)
 	defer func() {
 		tempTarget.Dispose()
 	}()
 
-	// 创建内容偏移的变换矩阵
-	contentGeo := ebiten.GeoM{}
-	contentGeo.Translate(-scrollRect.X, -scrollRect.Y)
-
-	// 渲染所有子对象到临时目标
+	// 关键实现：滚动偏移应用
+	// 1. 我们在临时缓冲区中渲染内容，这个缓冲区就是可视区域的大小
+	// 2. 当滚动时，我们需要将内容在这个缓冲区中重新定位
+	// 3. 超出缓冲区范围的内容会被自动裁剪掉
 	for _, child := range comp.Children() {
-		if child == nil {
+		if child == nil || !child.Visible() {
 			continue
 		}
-		if err := drawObject(tempTarget, child, atlas, contentGeo, parentAlpha); err != nil {
+
+		// 为每个子对象创建一个变换矩阵
+		var transformMatrix ebiten.GeoM
+
+		// 关键修复：使用单位矩阵作为子对象渲染的父变换
+		// 这样drawObject只会应用子对象自身的变换，不会重复应用容器变换
+		// 滚动偏移通过transformMatrix.Translate(-scrollRect.X, -scrollRect.Y)来实现
+
+		// 应用滚动偏移
+		// 当我们向下滚动时(scrollRect.Y为正)，内容需要向上移动(-scrollRect.Y)
+		// 这样顶部的内容会移出临时缓冲区(被裁剪)，底部的内容会进入缓冲区(显示出来)
+		transformMatrix.Translate(-scrollRect.X, -scrollRect.Y)
+
+		// 将子对象渲染到临时缓冲区
+		// 由于临时缓冲区的大小限制，任何超出可视区域的内容都会被自动裁剪
+		// 使用transformMatrix，它包含了容器的本地变换和滚动偏移
+		if err := drawObject(tempTarget, child, atlas, transformMatrix, parentAlpha); err != nil {
 			return err
 		}
 	}
 
-	// 将裁剪后的内容绘制到最终目标
-	finalGeo := parentGeo
-	finalGeo.Translate(scrollRect.X, scrollRect.Y)
+	// 最后，将临时缓冲区绘制到主目标上，并应用容器的位置变换
+	// 临时缓冲区的左上角已经对应滚动视图的左上角，不需要额外偏移
+	opts := &ebiten.DrawImageOptions{}
 
-	opts := &ebiten.DrawImageOptions{
-		GeoM: finalGeo,
-	}
+	// 创建一个新的矩阵，基于容器的位置矩阵
+	// 临时缓冲区的内容已经考虑了滚动偏移，所以这里只需要应用容器的变换
+	var finalMatrix ebiten.GeoM
+	finalMatrix = containerGeo // 复制容器的位置矩阵
 
+	// 注意：不再需要额外的平移，因为：
+	// 1. 临时缓冲区的内容已经应用了-scrollRect.X和-scrollRect.Y的偏移
+	// 2. 容器的变换已经包含了正确的位置信息
+	// 3. 额外的平移会导致双重偏移，造成内容溢出
+
+	opts.GeoM = finalMatrix
 	if parentAlpha < 1.0 {
 		opts.ColorScale.ScaleAlpha(float32(parentAlpha))
 	}
-
 	target.DrawImage(tempTarget, opts)
 
-	// 渲染额外的 DisplayObject（如滚动条）
+	// 6. 渲染额外的DisplayObject（如滚动条）
 	display := comp.DisplayObject()
 	container := comp.Container()
 	if display != nil {
-		extraCount := 0
-		// fmt.Printf("[DEBUG Render Clipping] Checking for extra children in clipped component\n")
 		for _, childSprite := range display.Children() {
 			if childSprite == container {
 				continue
 			}
-			extraCount++
-			// fmt.Printf("[DEBUG Render Clipping] Found extra child sprite, extraCount=%d\n", extraCount)
 
 			if owner := childSprite.Owner(); owner != nil {
 				var gobject *core.GObject
@@ -255,7 +280,7 @@ func drawComponentWithClipping(target *ebiten.Image, comp *core.GComponent, atla
 				}
 
 				if gobject != nil {
-					// 检查是否在 Children() 列表中
+					// 检查是否在Children()列表中
 					isInChildren := false
 					for _, child := range comp.Children() {
 						if child == gobject {
@@ -274,7 +299,7 @@ func drawComponentWithClipping(target *ebiten.Image, comp *core.GComponent, atla
 						}
 					}
 
-					// 渲染额外的 GObject
+					// 渲染额外的GObject
 					if err := drawObject(target, gobject, atlas, parentGeo, parentAlpha); err != nil {
 						return err
 					}
