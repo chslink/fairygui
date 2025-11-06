@@ -46,6 +46,7 @@ type Sprite struct {
 	colorMatrixEnabled bool
 	grayEnabled        bool
 	blendMode          BlendMode
+	mask               *Sprite // 遮罩对象
 }
 
 // NewSprite constructs a sprite with sensible defaults.
@@ -272,6 +273,16 @@ func (s *Sprite) SetBlendMode(mode BlendMode) {
 // BlendMode reports the current blending mode.
 func (s *Sprite) BlendMode() BlendMode {
 	return s.blendMode
+}
+
+// SetMask sets the mask sprite for this sprite.
+func (s *Sprite) SetMask(mask *Sprite) {
+	s.mask = mask
+}
+
+// Mask returns the mask sprite.
+func (s *Sprite) Mask() *Sprite {
+	return s.mask
 }
 
 // Graphics returns the sprite's drawing command collection.

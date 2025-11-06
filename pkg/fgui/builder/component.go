@@ -352,12 +352,51 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 		}
 	}
 
-	// 注意：根组件不需要调用 SetupBeforeAdd，因为：
+	// 注意：根组件不能调用 SetupBeforeAdd/SetupAfterAdd，因为：
 	// 1. 根组件的尺寸、pivot 等已经从 ComponentData 设置
 	// 2. 根组件的 alpha、rotation 应该保持默认值（1.0, 0）
 	// 3. SetupBeforeAdd 会错误地从 RawData Section 0 读取 ComponentData 元数据，而不是 GObject 基础属性
 	//
-	// 只设置 transitions（从 RawData Section 5 读取）
+	// 但我们需要手动设置 mask、hitTest 和 transitions
+	// 参考 GComponent.SetupBeforeAdd 的实现（gcomponent.go:616-659）
+	if buf := item.RawData; buf != nil {
+		saved := buf.Pos()
+		defer buf.SetPos(saved)
+
+		// 读取 mask 和 hitTest（Section 4）
+		if buf.Seek(0, 4) {
+			if err := buf.Skip(2); err == nil && buf.Remaining() >= 1+2 {
+				root.SetOpaque(buf.ReadBool())
+				maskIndex := int(buf.ReadInt16())
+				reversed := false
+				var maskObj *core.GObject
+				if maskIndex >= 0 {
+					if buf.Remaining() > 0 {
+						reversed = buf.ReadBool()
+					}
+					// 从根组件的子对象中查找 mask
+					maskObj = root.ChildAt(maskIndex)
+				}
+				root.SetMask(maskObj, reversed)
+
+				// 读取 hitTest
+				if buf.Remaining() >= 4+4 {
+					hitID := buf.ReadS()
+					offsetX := int(buf.ReadInt32())
+					offsetY := int(buf.ReadInt32())
+					hitMode := core.HitTest{Mode: core.HitTestModeNone}
+					if hitID != nil && *hitID != "" {
+						hitMode = core.HitTest{Mode: core.HitTestModePixel, ItemID: *hitID, OffsetX: offsetX, OffsetY: offsetY}
+					} else if offsetX != 0 && offsetY != -1 {
+						hitMode = core.HitTest{Mode: core.HitTestModeChild, OffsetX: offsetX, ChildIndex: offsetY}
+					}
+					root.SetHitTest(hitMode)
+				}
+			}
+		}
+	}
+
+	// 设置 transitions（Section 5）
 	root.SetupTransitions(item.RawData, 0)
 
 	// 设置 margin 和 overflow（已经由 parseComponentData 解析）

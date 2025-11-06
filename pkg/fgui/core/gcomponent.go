@@ -567,6 +567,26 @@ func (c *GComponent) SetMask(mask *GObject, reversed bool) {
 	}
 	c.mask = mask
 	c.maskReversed = reversed
+
+	// 应用 mask 到 displayObject（对应 TypeScript GComponent.ts setMask）
+	display := c.DisplayObject()
+	if display == nil {
+		return
+	}
+
+	if mask == nil {
+		display.SetMask(nil)
+		return
+	}
+
+	// 获取 mask 对象的 displayObject
+	maskSprite := mask.DisplayObject()
+	if maskSprite == nil {
+		return
+	}
+
+	// 设置 mask（暂不支持 reversed，需要 blendMode 支持）
+	display.SetMask(maskSprite)
 }
 
 // Mask returns the mask object and whether the mask is inverted.

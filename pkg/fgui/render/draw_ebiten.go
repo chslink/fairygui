@@ -70,6 +70,19 @@ func DrawComponent(target *ebiten.Image, root *core.GComponent, atlas *AtlasMana
 }
 
 func drawComponent(target *ebiten.Image, comp *core.GComponent, atlas *AtlasManager, parentGeo ebiten.GeoM, parentAlpha float64) error {
+	// 检查是否有 mask
+	maskObj, _ := comp.Mask()
+	if maskObj != nil {
+		display := comp.DisplayObject()
+		if display != nil {
+			maskSprite := display.Mask()
+			if maskSprite != nil {
+				// 有 mask，使用 mask 渲染
+				return drawComponentWithMask(target, comp, maskObj, atlas, parentGeo, parentAlpha)
+			}
+		}
+	}
+
 	// 检查是否需要应用 scrollRect 裁剪
 	display := comp.DisplayObject()
 	container := comp.Container()
@@ -260,6 +273,71 @@ func drawComponentWithClipping(target *ebiten.Image, comp *core.GComponent, atla
 			}
 		}
 	}
+
+	return nil
+}
+
+// drawComponentWithMask 渲染带 mask 的组件
+func drawComponentWithMask(target *ebiten.Image, comp *core.GComponent, maskObj *core.GObject, atlas *AtlasManager, parentGeo ebiten.GeoM, parentAlpha float64) error {
+	// 获取组件尺寸
+	w := int(math.Ceil(comp.Width()))
+	h := int(math.Ceil(comp.Height()))
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+
+	// 创建临时图像渲染内容
+	contentImg := ebiten.NewImage(w, h)
+	defer contentImg.Dispose()
+
+	// 创建临时图像渲染 mask
+	maskImg := ebiten.NewImage(w, h)
+	defer maskImg.Dispose()
+
+	// 渲染内容到临时图像
+	contentGeo := ebiten.GeoM{}
+	for _, child := range comp.Children() {
+		if child == nil || child == maskObj {
+			continue // 跳过 mask 对象本身
+		}
+		if err := drawObject(contentImg, child, atlas, contentGeo, parentAlpha); err != nil {
+			return err
+		}
+	}
+
+	// 渲染 mask 到临时图像
+	maskGeo := ebiten.GeoM{}
+	if err := drawObject(maskImg, maskObj, atlas, maskGeo, 1.0); err != nil {
+		return err
+	}
+
+	// 使用 mask 裁剪内容
+	// 参考 Ebiten 官方 masking 示例：
+	// 1. 先用 BlendCopy 将 mask 绘制到空白图像（mask 的 alpha 决定可见区域）
+	// 2. 再用 BlendSourceIn 将内容绘制上去（内容的颜色 + mask 的 alpha）
+	tmpResult := ebiten.NewImage(w, h)
+	defer tmpResult.Dispose()
+
+	// 第一步：使用 BlendCopy 绘制 mask（alpha 通道）
+	maskOpts := &ebiten.DrawImageOptions{}
+	maskOpts.Blend = ebiten.BlendCopy
+	tmpResult.DrawImage(maskImg, maskOpts)
+
+	// 第二步：使用 BlendSourceIn 绘制内容
+	// BlendSourceIn: 使用源图像（content）的颜色，但使用目标图像（mask）的 alpha
+	// 结果：content 的颜色 + mask 的 alpha = 被 mask 裁剪的 content
+	contentOpts := &ebiten.DrawImageOptions{}
+	contentOpts.Blend = ebiten.BlendSourceIn
+	tmpResult.DrawImage(contentImg, contentOpts)
+
+	// 将结果绘制到目标
+	finalOpts := &ebiten.DrawImageOptions{
+		GeoM: parentGeo,
+	}
+	if parentAlpha < 1.0 {
+		finalOpts.ColorScale.ScaleAlpha(float32(parentAlpha))
+	}
+	target.DrawImage(tmpResult, finalOpts)
 
 	return nil
 }
