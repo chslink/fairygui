@@ -110,8 +110,11 @@ func (i *GImage) ScaleSettings() (scaleByTile bool, tileGridIndice int) {
 }
 
 // OwnerSizeChanged 在宿主尺寸变化时刷新绘制。
-func (i *GImage) OwnerSizeChanged(_, _ float64) {
+
+func (i *GImage) OwnerSizeChanged(oldW, oldH float64) {
+
 	i.updateGraphics()
+
 }
 
 func (i *GImage) updateGraphics() {

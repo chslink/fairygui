@@ -199,7 +199,9 @@ func (g *GObject) SetSize(width, height float64) {
 		}
 	}
 	g.notifyDependentsSize(dw, dh)
+
 	if handler, ok := g.data.(ownerSizeChanged); ok {
+
 		handler.OwnerSizeChanged(oldWidth, oldHeight)
 	}
 }

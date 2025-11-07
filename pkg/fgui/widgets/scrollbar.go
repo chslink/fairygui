@@ -168,6 +168,13 @@ func (b *GScrollBar) setGrip(obj *core.GObject) {
 }
 
 func (b *GScrollBar) updateGrip() {
+	// 如果还没有绑定到 ScrollPane，跳过更新
+	// 此时 displayPerc 还是默认值 0，无法计算正确的 gripLength
+	// 等到 SetScrollPane() 调用 AddScrollListener() 后会再次触发 updateGrip()
+	if b.target == nil {
+		return
+	}
+
 	if b.bar == nil || b.grip == nil {
 		return
 	}
@@ -186,12 +193,16 @@ func (b *GScrollBar) updateGrip() {
 	if gripLength > total {
 		gripLength = total
 	}
+
 	if b.vertical {
+
 		b.grip.SetSize(b.grip.Width(), gripLength)
+
 		offset := (total - gripLength) * b.scrollPerc
-		b.grip.SetPosition(b.grip.X(), b.bar.Y()+offset)
+		gripY := b.bar.Y() + offset
+		b.grip.SetPosition(b.grip.X(), gripY)
+
 	} else {
-		b.grip.SetSize(gripLength, b.grip.Height())
 		offset := (total - gripLength) * b.scrollPerc
 		b.grip.SetPosition(b.bar.X()+offset, b.grip.Y())
 	}
@@ -209,13 +220,21 @@ func (b *GScrollBar) setScrollPerc(value float64) {
 }
 
 func (b *GScrollBar) setDisplayPerc(value float64) {
+
 	if value < 0 {
+
 		value = 0
+
 	} else if value > 1 {
+
 		value = 1
+
 	}
+
 	b.displayPerc = value
+
 	b.updateGrip()
+
 }
 
 func (b *GScrollBar) length() float64 {

@@ -289,15 +289,15 @@ func (b *GButton) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	}
 
 	// 跳过已在 SetupBeforeAdd 中读取的属性
-	_ = buf.ReadByte()                            // objectType
-	_ = buf.ReadS()                               // title
-	_ = buf.ReadS()                               // selectedTitle
-	_ = buf.ReadS()                               // icon
-	_ = buf.ReadS()                               // selectedIcon
-	if buf.ReadBool() && buf.Remaining() >= 4 {   // hasColor
-		_ = buf.ReadColorString(true)             // titleColor
+	_ = buf.ReadByte()                          // objectType
+	_ = buf.ReadS()                             // title
+	_ = buf.ReadS()                             // selectedTitle
+	_ = buf.ReadS()                             // icon
+	_ = buf.ReadS()                             // selectedIcon
+	if buf.ReadBool() && buf.Remaining() >= 4 { // hasColor
+		_ = buf.ReadColorString(true) // titleColor
 	}
-	_ = buf.ReadInt32()                           // titleFontSize
+	_ = buf.ReadInt32() // titleFontSize
 
 	// 读取依赖父组件的属性
 	if idx := buf.ReadInt16(); idx >= 0 && ctx.Parent != nil {
@@ -492,6 +492,16 @@ func (b *GButton) UpdateTemplateBounds(width, height float64) {
 		return
 	}
 	b.template.GObject.SetSize(width, height)
+}
+
+// OwnerSizeChanged 在 GButton 尺寸变化时同步更新模板组件的尺寸
+// 这样模板组件内部的 Relations 系统会自动更新所有子对象（如背景图像）
+func (b *GButton) OwnerSizeChanged(oldWidth, oldHeight float64) {
+	if b.template != nil {
+		newWidth := b.GComponent.GObject.Width()
+		newHeight := b.GComponent.GObject.Height()
+		b.template.GObject.SetSize(newWidth, newHeight)
+	}
 }
 
 func (b *GButton) applyTitleState() {

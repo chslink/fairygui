@@ -137,6 +137,7 @@ func (r *Relations) OnOwnerSizeChanged(dWidth, dHeight float64, applyPivot bool)
 	if dWidth == 0 && dHeight == 0 {
 		return
 	}
+
 	for _, item := range r.items {
 		item.applyOnSelfResized(dWidth, dHeight, applyPivot)
 	}

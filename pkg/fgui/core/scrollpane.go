@@ -171,6 +171,14 @@ func (p *ScrollPane) RemoveScrollListener(id int) {
 	delete(p.scrollListeners, id)
 }
 
+// ScrollType 返回当前滚动类型。
+func (p *ScrollPane) ScrollType() ScrollType {
+	if p == nil {
+		return ScrollTypeBoth
+	}
+	return p.scrollType
+}
+
 // SetScrollType updates the allowed scroll direction.
 func (p *ScrollPane) SetScrollType(t ScrollType) {
 	if p == nil {
@@ -549,10 +557,16 @@ func (p *ScrollPane) setPos(x, y float64) {
 }
 
 func (p *ScrollPane) applyPosition() {
-	if p == nil || p.container == nil {
+	if p == nil || p.container == nil || p.owner == nil {
 		return
 	}
-	p.container.SetPosition(-p.xPos, -p.yPos)
+	// container 的位置 = margin 偏移 - scroll 偏移
+	// 这样 container 中的子对象（位置为 child.X, child.Y）最终会出现在正确的位置
+	margin := p.owner.Margin()
+	p.container.SetPosition(
+		float64(margin.Left)-p.xPos,
+		float64(margin.Top)-p.yPos,
+	)
 }
 
 func (p *ScrollPane) refreshViewSize() {
@@ -737,7 +751,9 @@ func (p *ScrollPane) currentScrollInfo() ScrollInfo {
 	} else {
 		info.DisplayPercY = 1
 	}
+
 	return info
+
 }
 
 func (p *ScrollPane) notifyScrollListeners() {

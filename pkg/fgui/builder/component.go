@@ -1780,6 +1780,7 @@ func (f *Factory) setupScrollBars(ctx context.Context, pkg *assets.Package, owne
 		return
 	}
 
+	scrollType := pane.ScrollType()
 	vtURL := pane.VtScrollBarURL()
 	hzURL := pane.HzScrollBarURL()
 
@@ -1792,8 +1793,10 @@ func (f *Factory) setupScrollBars(ctx context.Context, pkg *assets.Package, owne
 		hzURL = core.GetUIConfig().HorizontalScrollBar
 	}
 
-	// 创建垂直滚动条
-	if vtURL != "" {
+	// 关键修复：根据 scrollType 决定创建哪个滚动条
+	// 对应 TypeScript ScrollPane.ts:149,159
+	// if (this._scrollType == ScrollType.Both || this._scrollType == ScrollType.Vertical)
+	if (scrollType == core.ScrollTypeBoth || scrollType == core.ScrollTypeVertical) && vtURL != "" {
 		if vtItem := f.resolveIcon(ctx, pkg, vtURL); vtItem != nil {
 			targetPkg := vtItem.Owner
 			if targetPkg == nil {
@@ -1820,8 +1823,8 @@ func (f *Factory) setupScrollBars(ctx context.Context, pkg *assets.Package, owne
 		}
 	}
 
-	// 创建水平滚动条
-	if hzURL != "" {
+	// if (this._scrollType == ScrollType.Both || this._scrollType == ScrollType.Horizontal)
+	if (scrollType == core.ScrollTypeBoth || scrollType == core.ScrollTypeHorizontal) && hzURL != "" {
 		if hzItem := f.resolveIcon(ctx, pkg, hzURL); hzItem != nil {
 			targetPkg := hzItem.Owner
 			if targetPkg == nil {

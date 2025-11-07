@@ -9,6 +9,7 @@ import (
 
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
+	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -96,6 +97,16 @@ func (r *TextureRenderer) renderSimple(
 	cmd *laya.TextureCommand,
 	spriteOffsetX, spriteOffsetY float64,
 ) error {
+	if sprite != nil {
+		if owner := sprite.Owner(); owner != nil {
+			if gobj, ok := owner.(*core.GObject); ok {
+				name := gobj.Name()
+				if name == "n1" || name == "n2" || name == "n3" {
+				}
+			}
+		}
+	}
+
 	// 构建完整的本地变换矩阵
 	// 顺序：缩放到目标尺寸 → 翻转 → sprite offset → 命令偏移 → 父变换
 	localGeo := ebiten.GeoM{}
@@ -134,7 +145,6 @@ func (r *TextureRenderer) renderSimple(
 	renderImageWithGeo(target, img, localGeo, alpha, tint, sprite)
 	return nil
 }
-
 
 // renderScale9 九宫格渲染
 func (r *TextureRenderer) renderScale9(

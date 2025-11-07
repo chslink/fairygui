@@ -213,48 +213,41 @@ func drawComponentWithClipping(target *ebiten.Image, comp *core.GComponent, atla
 		tempTarget.Dispose()
 	}()
 
-	// 关键实现：滚动偏移应用
-	// 1. 我们在临时缓冲区中渲染内容，这个缓冲区就是可视区域的大小
-	// 2. 当滚动时，我们需要将内容在这个缓冲区中重新定位
-	// 3. 超出缓冲区范围的内容会被自动裁剪掉
+	// 关键修复：正确的坐标变换
+	// tempTarget 是独立坐标系，(0,0) 对应 scrollRect 的左上角
+	// 子对象在 tempTarget 中的位置 = 子对象本地位置 - scroll偏移
+	//
+	// container.LocalMatrix() = (margin.Left - scrollX, margin.Top - scrollY)
+	// scrollRect = (margin.Left, margin.Top, viewW, viewH)
+	// 所以 container 相对于 scrollRect 左上角的偏移 = (-scrollX, -scrollY)
+	contentGeo := ebiten.GeoM{}
+	if pane := comp.ScrollPane(); pane != nil {
+		// 使用 ScrollPane 的实际 scroll 位置
+		contentGeo.Translate(-pane.PosX(), -pane.PosY())
+	}
+
+	// 渲染所有子对象到临时目标
 	for _, child := range comp.Children() {
-		if child == nil || !child.Visible() {
+		if child == nil {
 			continue
 		}
-
-		// 为每个子对象创建一个变换矩阵
-		var transformMatrix ebiten.GeoM
-
-		// 关键修复：使用单位矩阵作为子对象渲染的父变换
-		// 这样drawObject只会应用子对象自身的变换，不会重复应用容器变换
-		// 滚动偏移通过transformMatrix.Translate(-scrollRect.X, -scrollRect.Y)来实现
-
-		// 应用滚动偏移
-		// 当我们向下滚动时(scrollRect.Y为正)，内容需要向上移动(-scrollRect.Y)
-		// 这样顶部的内容会移出临时缓冲区(被裁剪)，底部的内容会进入缓冲区(显示出来)
-		transformMatrix.Translate(-scrollRect.X, -scrollRect.Y)
-
-		// 将子对象渲染到临时缓冲区
-		// 由于临时缓冲区的大小限制，任何超出可视区域的内容都会被自动裁剪
-		// 使用transformMatrix，它包含了容器的本地变换和滚动偏移
-		if err := drawObject(tempTarget, child, atlas, transformMatrix, parentAlpha); err != nil {
+		if err := drawObject(tempTarget, child, atlas, contentGeo, parentAlpha); err != nil {
 			return err
 		}
 	}
 
-	// 最后，将临时缓冲区绘制到主目标上，并应用容器的位置变换
-	// 临时缓冲区的左上角已经对应滚动视图的左上角，不需要额外偏移
+	// 最后，将临时缓冲区绘制到主目标上
+	// 需要将临时缓冲区定位到正确的位置
 	opts := &ebiten.DrawImageOptions{}
 
-	// 创建一个新的矩阵，基于容器的位置矩阵
-	// 临时缓冲区的内容已经考虑了滚动偏移，所以这里只需要应用容器的变换
+	// 正确的定位方式：
+	// 1. 临时图像上已经包含了容器内容相对于scrollRect的正确视图
+	// 2. 现在需要将这个视图放置在parentGeo的正确位置上
+	// 3. 由于我们希望在parentGeo位置显示容器的scrollRect区域，
+	//    所以使用parentGeo + scrollRect偏移
 	var finalMatrix ebiten.GeoM
-	finalMatrix = containerGeo // 复制容器的位置矩阵
-
-	// 注意：不再需要额外的平移，因为：
-	// 1. 临时缓冲区的内容已经应用了-scrollRect.X和-scrollRect.Y的偏移
-	// 2. 容器的变换已经包含了正确的位置信息
-	// 3. 额外的平移会导致双重偏移，造成内容溢出
+	finalMatrix = parentGeo
+	finalMatrix.Translate(scrollRect.X, scrollRect.Y)
 
 	opts.GeoM = finalMatrix
 	if parentAlpha < 1.0 {
@@ -322,11 +315,11 @@ func drawComponentWithMask(target *ebiten.Image, comp *core.GComponent, maskObj 
 
 	// 创建临时图像渲染内容
 	contentImg := ebiten.NewImage(w, h)
-	defer contentImg.Dispose()
+	defer contentImg.Deallocate()
 
 	// 创建临时图像渲染 mask
 	maskImg := ebiten.NewImage(w, h)
-	defer maskImg.Dispose()
+	defer maskImg.Deallocate()
 
 	// 渲染内容到临时图像
 	contentGeo := ebiten.GeoM{}
@@ -350,7 +343,7 @@ func drawComponentWithMask(target *ebiten.Image, comp *core.GComponent, maskObj 
 	// 1. 先用 BlendCopy 将 mask 绘制到空白图像（mask 的 alpha 决定可见区域）
 	// 2. 再用 BlendSourceIn 将内容绘制上去（内容的颜色 + mask 的 alpha）
 	tmpResult := ebiten.NewImage(w, h)
-	defer tmpResult.Dispose()
+	defer tmpResult.Deallocate()
 
 	// 第一步：使用 BlendCopy 绘制 mask（alpha 通道）
 	maskOpts := &ebiten.DrawImageOptions{}
@@ -395,6 +388,8 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 	combined.SetElement(1, 1, localMatrix.D)
 	combined.SetElement(1, 2, localMatrix.Ty)
 	combined.Concat(parentGeo)
+
+	
 
 	// ✅ 优先处理 Graphics 命令（统一渲染路径）
 	gfx := sprite.Graphics()
