@@ -510,7 +510,20 @@ func (b *GButton) applyTitleState() {
 		text = b.selectedTitle
 	}
 	if b.titleObject == nil {
-		return
+		// 修复：在没有titleObject时自动查找
+		// 参考 TypeScript 版本中 titleObject 是通过 getChild("title") 查找的
+		if titleChild := b.GComponent.ChildByName("title"); titleChild != nil {
+			b.SetTitleObject(titleChild)
+		} else if b.template != nil {
+			// 如果Button有template，从template中查找
+			if titleChild := b.template.ChildByName("title"); titleChild != nil {
+				b.SetTitleObject(titleChild)
+			}
+		}
+		// 如果仍然没有找到titleObject，直接返回
+		if b.titleObject == nil {
+			return
+		}
 	}
 	switch data := b.titleObject.Data().(type) {
 	case *GTextField:
@@ -537,7 +550,20 @@ func (b *GButton) applyIconState() {
 		icon = b.selectedIcon
 	}
 	if b.iconObject == nil {
-		return
+		// 修复：在没有iconObject时自动查找
+		// 参考 TypeScript 版本中 iconObject 是通过 getChild("icon") 查找的
+		if iconChild := b.GComponent.ChildByName("icon"); iconChild != nil {
+			b.SetIconObject(iconChild)
+		} else if b.template != nil {
+			// 如果Button有template，从template中查找
+			if iconChild := b.template.ChildByName("icon"); iconChild != nil {
+				b.SetIconObject(iconChild)
+			}
+		}
+		// 如果仍然没有找到iconObject，直接返回
+		if b.iconObject == nil {
+			return
+		}
 	}
 	switch data := b.iconObject.Data().(type) {
 	case *GLoader:

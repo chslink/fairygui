@@ -883,14 +883,25 @@ func (f *Factory) applyButtonTemplate(ctx context.Context, widget *widgets.GButt
 	}
 
 	// 然后处理 template 相关的设置
+	// 修复：同时检查template和Button直接子组件中的title和icon
 	if template := widget.TemplateComponent(); template != nil {
 		titleObj := template.ChildByName("title")
 		if titleObj != nil {
 			widget.SetTitleObject(titleObj)
+		} else {
+			// 如果template中没有title，尝试从Button的子组件中查找
+			if titleObj := widget.GComponent.ChildByName("title"); titleObj != nil {
+				widget.SetTitleObject(titleObj)
+			}
 		}
 		iconObj := template.ChildByName("icon")
 		if iconObj != nil {
 			widget.SetIconObject(iconObj)
+		} else {
+			// 如果template中没有icon，尝试从Button的子组件中查找
+			if iconObj := widget.GComponent.ChildByName("icon"); iconObj != nil {
+				widget.SetIconObject(iconObj)
+			}
 		}
 		// 只有在按钮自己没有 button controller 时，才从 template 查找
 		if widget.ButtonController() == nil {
@@ -906,6 +917,14 @@ func (f *Factory) applyButtonTemplate(ctx context.Context, widget *widgets.GButt
 		// 参考 Button10.xml: <component size="163,69" extention="Button">
 		if widget.GComponent.GObject.Width() == 0 || widget.GComponent.GObject.Height() == 0 {
 			widget.GComponent.GObject.SetSize(template.GObject.Width(), template.GObject.Height())
+		}
+	} else {
+		// 如果没有template，直接从Button的子组件中查找title和icon
+		if titleObj := widget.GComponent.ChildByName("title"); titleObj != nil {
+			widget.SetTitleObject(titleObj)
+		}
+		if iconObj := widget.GComponent.ChildByName("icon"); iconObj != nil {
+			widget.SetIconObject(iconObj)
 		}
 	}
 
