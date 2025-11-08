@@ -388,7 +388,12 @@ func (r *RelationItem) applyOnSizeChanged(def RelationDef) {
 
 	var pos, pivot, delta float64
 	if def.Axis == 0 {
-		if !targetIsOwnerParent {
+		// 关键修复：当 target 是 owner 的父组件时，使用相对坐标
+		// 在嵌套组件场景下，owner 的 target 指向父组件，使用绝对坐标会导致位置错误
+		if owner.Parent() != nil && target == owner.Parent().GObject {
+			// target 是父组件时，pos 保持为 0（使用相对坐标）
+			pos = 0
+		} else if !targetIsOwnerParent {
 			pos = target.X()
 		}
 		pivot = targetPivotX
@@ -402,7 +407,11 @@ func (r *RelationItem) applyOnSizeChanged(def RelationDef) {
 			delta = targetWidth - r.targetWidth
 		}
 	} else {
-		if !targetIsOwnerParent {
+		// 关键修复：当 target 是 owner 的父组件时，使用相对坐标
+		if owner.Parent() != nil && target == owner.Parent().GObject {
+			// target 是父组件时，pos 保持为 0（使用相对坐标）
+			pos = 0
+		} else if !targetIsOwnerParent {
 			pos = target.Y()
 		}
 		pivot = targetPivotY
@@ -755,6 +764,14 @@ func (r *RelationItem) applyOnXYChanged(def RelationDef, dx, dy float64) {
 		return
 	}
 	owner := r.owner
+
+	// 关键修复：对于自引用关系（target 是父组件），跳过位置更新
+	// 在嵌套组件场景下，子组件应该保持相对于嵌套组件的固定偏移，
+	// 而不是跟随嵌套组件在父组件中的绝对位置移动
+	if owner.Parent() != nil && r.target == owner.Parent().GObject {
+		return
+	}
+
 	switch def.Type {
 	case RelationTypeLeft_Left, RelationTypeLeft_Center, RelationTypeLeft_Right,
 		RelationTypeCenter_Center, RelationTypeRight_Left, RelationTypeRight_Center, RelationTypeRight_Right:

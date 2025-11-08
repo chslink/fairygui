@@ -452,6 +452,38 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 				sprite.SetMouseEnabled(true)
 			}
 			return drawComponent(target, data.GComponent, atlas, combined, alpha)
+		case *widgets.GLabel:
+			// GLabel 需要渲染模板组件（在命令之上）
+			// 注意：这里不在Widget分发路径中执行，所以需要在这里处理
+			if tpl := data.TemplateComponent(); tpl != nil {
+				if err := drawComponent(target, tpl, atlas, combined, alpha); err != nil {
+					return err
+				}
+				// 注意：不在这里渲染GLabel自己的IconItem，避免重复渲染
+				// 图标由TemplateComponent中的GLoader处理
+				return nil
+			}
+			// 没有TemplateComponent时，渲染GLabel自己的文本和图标
+			iconItem := data.IconItem()
+			textMatrix := combined
+			if iconItem != nil {
+				if iconItem.Sprite != nil {
+					iconGeo := combined
+					if err := drawPackageItem(target, iconItem, iconGeo, atlas, alpha, sprite); err != nil {
+						return err
+					}
+					shift := ebiten.GeoM{}
+					shift.Translate(float64(iconItem.Sprite.Rect.Width)+4, 0)
+					shift.Concat(combined)
+					textMatrix = shift
+				}
+			}
+			if textValue := data.Title(); textValue != "" {
+				if err := drawTextImage(target, textMatrix, nil, textValue, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
+					return err
+				}
+			}
+			return nil
 		case *widgets.GComboBox:
 			// GComboBox 也是容器
 			if root := data.ComponentRoot(); root != nil {
@@ -574,23 +606,39 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			}
 		}
 	case *widgets.GLabel:
-		iconItem := data.IconItem()
-		textMatrix := combined
-		if iconItem != nil {
-			iconGeo := combined
-			if err := drawPackageItem(target, iconItem, iconGeo, atlas, alpha, sprite); err != nil {
+		// ✅ 关键修复：避免GLabel中的GLoader重复渲染
+		// GLabel的渲染：
+		// 1. 如果有TemplateComponent，只渲染TemplateComponent（图标由TemplateComponent中的GLoader处理）
+		// 2. 如果没有TemplateComponent，渲染GLabel自己的文本和图标
+		// 这样避免重复渲染：TemplateComponent中的GLoader vs GLabel自己的IconItem
+		if tpl := data.TemplateComponent(); tpl != nil {
+			if err := drawComponent(target, tpl, atlas, combined, alpha); err != nil {
 				return err
 			}
-			if iconItem.Sprite != nil {
-				shift := ebiten.GeoM{}
-				shift.Translate(float64(iconItem.Sprite.Rect.Width)+4, 0)
-				shift.Concat(combined)
-				textMatrix = shift
+			// 注意：不再渲染GLabel自己的IconItem，避免重复渲染
+			// 图标应该由TemplateComponent中的GLoader处理
+			// GLabel的IconItem主要用于内部状态管理（applyIconState等）
+		} else {
+			// 没有TemplateComponent时，渲染GLabel自己的文本和图标
+			iconItem := data.IconItem()
+			textMatrix := combined
+			if iconItem != nil {
+				// 只对Image类型（Sprite不为nil）调用drawPackageItem
+				if iconItem.Sprite != nil {
+					iconGeo := combined
+					if err := drawPackageItem(target, iconItem, iconGeo, atlas, alpha, sprite); err != nil {
+						return err
+					}
+					shift := ebiten.GeoM{}
+					shift.Translate(float64(iconItem.Sprite.Rect.Width)+4, 0)
+					shift.Concat(combined)
+					textMatrix = shift
+				}
 			}
-		}
-		if textValue := data.Title(); textValue != "" {
-			if err := drawTextImage(target, textMatrix, nil, textValue, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
-				return err
+			if textValue := data.Title(); textValue != "" {
+				if err := drawTextImage(target, textMatrix, nil, textValue, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
+					return err
+				}
 			}
 		}
 	case *widgets.GButton:

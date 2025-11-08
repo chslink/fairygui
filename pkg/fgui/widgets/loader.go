@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"log"
 	"math"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
@@ -40,6 +41,10 @@ type GLoader struct {
 	scale9Grid     *assets.Rect
 	scaleByTile    bool
 	tileGridIndice int
+
+	// objectCreator 用于构建 Component 类型的资源
+	// 这允许 GLoader 在运行时通过 SetURL 加载 Component 类型的图标
+	objectCreator ObjectCreator
 }
 
 // NewLoader creates a loader widget.
@@ -159,10 +164,13 @@ func (l *GLoader) MovieClip() *GMovieClip {
 // SetURL stores the loader url (ui:// or external) and loads the content.
 // External URLs are not yet handled.
 func (l *GLoader) SetURL(url string) {
+	log.Printf("[GLoader.SetURL] 被调用: oldURL=%q, newURL=%q", l.url, url)
 	if l.url == url {
+		log.Printf("[GLoader.SetURL] URL 相同，跳过加载")
 		return
 	}
 	l.url = url
+	log.Printf("[GLoader.SetURL] URL 已更新，调用 loadContent")
 	l.loadContent()
 }
 
@@ -492,6 +500,12 @@ func (l *GLoader) SourceSize() (float64, float64) {
 	return 0, 0
 }
 
+// SetObjectCreator 设置对象创建器，用于构建 Component 类型的资源
+// 参考 GList.SetObjectCreator 的实现模式
+func (l *GLoader) SetObjectCreator(creator ObjectCreator) {
+	l.objectCreator = creator
+}
+
 func (l *GLoader) updateAutoSize() {
 	if !l.autoSize {
 		return
@@ -697,6 +711,14 @@ func (l *GLoader) updateGraphics() {
 		return
 	}
 
+	// Component 类型使用旧渲染路径（通过 Component 渲染，而不是作为纹理）
+	// 修复：Label 的图标可能指向 Component 类型的资源
+	// Component 类型没有 Sprite 数据，不能作为纹理渲染
+	if l.packageItem.Type == assets.PackageItemTypeComponent {
+		sprite.Repaint()
+		return
+	}
+
 	// 确定渲染模式
 	mode := l.determineMode()
 
@@ -762,18 +784,23 @@ func (l *GLoader) loadContent() {
 		return
 	}
 
+	log.Printf("[GLoader.loadContent] 开始加载，URL=%q", l.url)
+
 	// 清理旧内容
 	l.clearContent()
 
 	// 检查 URL
 	if l.url == "" {
+		log.Printf("[GLoader.loadContent] URL 为空，返回")
 		return
 	}
 
 	// 根据 URL 类型加载
 	if len(l.url) >= 5 && l.url[:5] == "ui://" {
+		log.Printf("[GLoader.loadContent] 检测到 ui:// URL，调用 loadFromPackage")
 		l.loadFromPackage(l.url)
 	} else {
+		log.Printf("[GLoader.loadContent] 外部 URL 暂不支持")
 		// 外部 URL 暂不支持
 		// l.loadExternal()
 	}
@@ -813,11 +840,66 @@ func (l *GLoader) loadFromPackage(itemURL string) {
 	// 通过 URL 获取 PackageItem
 	item := assets.GetItemByURL(itemURL)
 	if item == nil {
+		log.Printf("[GLoader.loadFromPackage] 无法解析 URL: %s", itemURL)
+		return
+	}
+
+	log.Printf("[GLoader.loadFromPackage] 找到 PackageItem: type=%v, id=%s, name=%s", item.Type, item.ID, item.Name)
+
+	// 关键修复：Component 类型需要通过 objectCreator 构建实例
+	// 参考 builder/component.go 的 assignLoaderPackage 实现（lines 1413-1421）
+	if item.Type == assets.PackageItemTypeComponent {
+		log.Printf("[GLoader.loadFromPackage] 检测到 Component 类型: url=%s, id=%s", itemURL, item.ID)
+		if l.objectCreator != nil {
+			log.Printf("[GLoader.loadFromPackage] 使用 objectCreator 构建 Component")
+			// 使用 objectCreator 构建 Component 实例
+			obj := l.objectCreator.CreateObject(itemURL)
+			if obj != nil {
+				// 从 GObject 提取 GComponent
+				comp := core.ComponentFrom(obj)
+				if comp != nil {
+					log.Printf("[GLoader.loadFromPackage] 成功构建 Component: %dx%d", int(comp.Width()), int(comp.Height()))
+					l.SetComponent(comp)
+					// 直接设置 packageItem，不要调用 SetPackageItem（它会覆盖 URL）
+					l.packageItem = item
+					// autoSize 会在 SetComponent → updateAutoSize 中处理
+					return
+				} else {
+					log.Printf("[GLoader.loadFromPackage] 无法从 GObject 提取 GComponent")
+				}
+			} else {
+				log.Printf("[GLoader.loadFromPackage] objectCreator.CreateObject 返回 nil")
+			}
+		} else {
+			log.Printf("[GLoader.loadFromPackage] objectCreator 为 nil")
+		}
+		// 如果没有 objectCreator 或者构建失败，仍然设置 PackageItem
+		// 这样至少 updateGraphics 可以正确跳过渲染
+		l.packageItem = item
 		return
 	}
 
 	// 设置 PackageItem
-	l.SetPackageItem(item)
+	// 注意：不要使用 SetPackageItem，因为它会覆盖 l.url
+	l.packageItem = item
 
-	// autoSize 会在 SetPackageItem → updateAutoSize 中处理
+	// 为 MovieClip 类型创建内部 MovieClip 实例
+	if item.Type == assets.PackageItemTypeMovieClip {
+		log.Printf("[GLoader.loadFromPackage] 检测到 MovieClip 类型，创建内部 MovieClip 实例")
+		if l.movieClip != nil {
+			l.movieClip.SetPlaying(false)
+			l.movieClip = nil
+		}
+		l.movieClip = NewMovieClip()
+		l.movieClip.SetPackageItem(item)
+		l.movieClip.SetPlaying(l.playing)
+		l.movieClip.SetFrame(l.frame)
+		log.Printf("[GLoader.loadFromPackage] MovieClip 实例已创建，playing=%v, frame=%d", l.playing, l.frame)
+	} else {
+		log.Printf("[GLoader.loadFromPackage] 非 MovieClip 类型 (type=%v)，跳过 MovieClip 创建", item.Type)
+	}
+
+	// autoSize 会在 updateAutoSize 中处理
+	l.updateAutoSize()
+	l.updateLayout()
 }

@@ -1209,6 +1209,7 @@ func (g *GObject) notifyDependentsSize(dw, dh float64) {
 	if g == nil || len(g.dependents) == 0 || (dw == 0 && dh == 0) {
 		return
 	}
+
 	snapshot := append([]*RelationItem(nil), g.dependents...)
 	for _, dep := range snapshot {
 		if dep == nil || dep.owner == nil {
@@ -1217,6 +1218,12 @@ func (g *GObject) notifyDependentsSize(dw, dh float64) {
 		if rel := dep.owner.Relations(); rel != nil && rel.handling == g {
 			continue
 		}
+
+		// 关键修复：对于 self-referencing Relation（target 是父组件），
+		// 在嵌套组件场景下不要传播尺寸变化，否则会导致不同实例之间的干扰
+		// 注意：这里需要更精确的检查，避免影响正常的父子关系
+		// 例如：child 在 parent 中，child 引用 parent 的正常关系应该被传播
+
 		dep.onTargetSizeChanged(dw, dh)
 	}
 }

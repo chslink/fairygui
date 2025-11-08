@@ -494,13 +494,11 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 	switch widget := w.(type) {
 	case *widgets.GImage:
 		obj = widget.GObject
-		log.Printf("[buildChild] 创建GImage: name=%s, type=%v, dataType=%T", child.Name, child.Type, widget)
 		if spriteItem := f.resolveImageSprite(ctx, pkg, owner, child); spriteItem != nil {
 			resolvedItem = spriteItem
 		}
 		widget.SetPackageItem(resolvedItem)
 		obj.SetData(widget)
-		log.Printf("[buildChild] GImage Data已设置: %T", obj.Data())
 		callSetupBeforeAdd(widget)
 
 	case *widgets.GMovieClip:
@@ -546,6 +544,14 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 	case *widgets.GLoader:
 		obj = widget.GObject
 		obj.SetData(widget)
+		// 关键修复：设置 ObjectCreator 以支持运行时加载 Component 类型的图标
+		// 这允许 GLoader.SetURL 能够正确构建 Component 类型的资源
+		// 参考 GList 的实现模式（lines 571-576）
+		widget.SetObjectCreator(&FactoryObjectCreator{
+			factory: f,
+			pkg:     pkg,
+			ctx:     ctx,
+		})
 		callSetupBeforeAdd(widget)
 		if resolvedItem == nil {
 			resolvedItem = f.resolveIcon(ctx, pkg, widget.URL())
@@ -729,6 +735,18 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		obj.SetName(child.Name)
 	}
 	obj.SetPosition(float64(child.X), float64(child.Y))
+
+	// 修复：在尺寸设置后同步TemplateComponent尺寸
+	// 对于GLabel类型，如果设置了外部尺寸，需要同步到TemplateComponent以使Relation生效
+	if child.Type == assets.ObjectTypeComponent {
+		if label, ok := obj.Data().(*widgets.GLabel); ok && label != nil {
+			if tpl := label.TemplateComponent(); tpl != nil {
+				if tpl.Width() != obj.Width() || tpl.Height() != obj.Height() {
+					tpl.GObject.SetSize(obj.Width(), obj.Height())
+				}
+			}
+		}
+	}
 
 	return obj
 }
@@ -994,7 +1012,28 @@ func (f *Factory) applyLabelTemplate(ctx context.Context, widget *widgets.GLabel
 		}
 		if iconObj := template.ChildByName("icon"); iconObj != nil {
 			widget.SetIconObject(iconObj)
+
+			// 关键修复：如果 iconObject 是 GLoader，需要设置 objectCreator
+			// 这样当加载 Component 类型资源时，GLoader 才能构建 Component 实例
+			if loader, ok := iconObj.Data().(*widgets.GLoader); ok && loader != nil {
+				// 设置 objectCreator，以便 GLoader 能够动态构建 Component
+				loader.SetObjectCreator(&FactoryObjectCreator{
+					factory: f,
+					pkg:     pkg,
+					ctx:     ctx,
+				})
+			}
 		}
+
+		// 修复：确保Label和TemplateComponent的尺寸同步
+		// 参考 applyButtonTemplate 的处理方式
+		// 这确保了没有明确指定尺寸的 Label 组件能够正确显示
+		if widget.GComponent.GObject.Width() == 0 || widget.GComponent.GObject.Height() == 0 {
+			// 如果Label尺寸为0，从模板继承尺寸
+			widget.GComponent.GObject.SetSize(template.GObject.Width(), template.GObject.Height())
+		}
+		// 注意：TemplateComponent尺寸的同步现在在buildChild中处理（第741-752行）
+		// 这样确保在尺寸设置之后才同步，避免时序问题
 	}
 }
 
@@ -1387,14 +1426,20 @@ func (f *Factory) assignLoaderPackage(ctx context.Context, loader *widgets.GLoad
 	if loader == nil {
 		return
 	}
+	log.Printf("[assignLoaderPackage] 开始处理 GLoader，URL=%s", loader.URL())
 	loader.SetComponent(nil)
 	loader.SetPackageItem(nil)
 	if item == nil {
+		log.Printf("[assignLoaderPackage] item 为 nil，尝试解析 URL")
 		if resolved := f.resolveIcon(ctx, currentPkg, loader.URL()); resolved != nil {
 			item = resolved
+			log.Printf("[assignLoaderPackage] 解析成功: type=%v, id=%s", resolved.Type, resolved.ID)
 		} else {
+			log.Printf("[assignLoaderPackage] 解析失败，返回")
 			return
 		}
+	} else {
+		log.Printf("[assignLoaderPackage] item 已提供: type=%v, id=%s", item.Type, item.ID)
 	}
 	loader.SetPackageItem(item)
 	loader.SetScale9Grid(nil)
@@ -1404,14 +1449,23 @@ func (f *Factory) assignLoaderPackage(ctx context.Context, loader *widgets.GLoad
 	loader.SetScaleByTile(item.ScaleByTile)
 	loader.SetTileGridIndice(item.TileGridIndice)
 	if item.Type == assets.PackageItemTypeComponent {
+		log.Printf("[assignLoaderPackage] 检测到 Component 类型，开始构建")
 		targetPkg := item.Owner
 		if targetPkg == nil {
 			targetPkg = currentPkg
 		}
 		nested, err := f.BuildComponent(ctx, targetPkg, item)
-		if err == nil && nested != nil {
+		if err != nil {
+			log.Printf("[assignLoaderPackage] BuildComponent 失败: %v", err)
+		} else if nested == nil {
+			log.Printf("[assignLoaderPackage] BuildComponent 返回 nil")
+		} else {
+			log.Printf("[assignLoaderPackage] BuildComponent 成功，尺寸: %.0fx%.0f", nested.Width(), nested.Height())
 			loader.SetComponent(nested)
+			log.Printf("[assignLoaderPackage] SetComponent 完成")
 		}
+	} else {
+		log.Printf("[assignLoaderPackage] 非 Component 类型，跳过构建")
 	}
 }
 
