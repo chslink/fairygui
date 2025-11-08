@@ -221,7 +221,7 @@ func (m *Manager) ensureCloseButton() error {
 	obj.SetPosition(float64(m.width)-obj.Width()-margin, float64(m.height)-obj.Height()-margin)
 
 	if sprite := obj.DisplayObject(); sprite != nil && sprite.Dispatcher() != nil {
-		sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+		sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 			if err := m.Start(mainMenuSceneName); err != nil {
 				log.Printf("[scene manager] return to %s failed: %v", mainMenuSceneName, err)
 			}

@@ -128,12 +128,12 @@ func (d *TransitionDemo) Load(ctx context.Context, mgr *Manager) (*core.GCompone
 	}
 
 	if button := component.ChildByName("btn3"); button != nil {
-		button.On(laya.EventClick, func(laya.Event) {
+		button.On(laya.EventClick, func(*laya.Event) {
 			d.playGoodHit()
 		})
 	}
 	if button := component.ChildByName("btn4"); button != nil {
-		button.On(laya.EventClick, func(laya.Event) {
+		button.On(laya.EventClick, func(*laya.Event) {
 			d.playPowerUp()
 		})
 	}

@@ -81,7 +81,7 @@ func (s *MainMenu) attachButtons(component *core.GComponent, mgr *Manager) {
 		}
 		log.Printf("[mainmenu] wiring button %s -> %s", id, sceneName)
 		scene := sceneName
-		sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+		sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 			if err := mgr.Start(scene); err != nil {
 				log.Printf("[mainmenu] start scene %s failed: %v", scene, err)
 			}

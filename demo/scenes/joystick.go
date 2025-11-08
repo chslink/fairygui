@@ -77,7 +77,7 @@ func (d *JoystickDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent
 			d.textField.SetText(fmt.Sprintf("%.0f", degree))
 		}
 	}
-	d.upHandler = func(laya.Event) {
+	d.upHandler = func(*laya.Event) {
 		if d.textField != nil {
 			d.textField.SetText("")
 		}
@@ -219,7 +219,7 @@ func (m *JoystickModule) emit(evt laya.EventType, data any) {
 	}
 }
 
-func (m *JoystickModule) onTouchDown(evt laya.Event) {
+func (m *JoystickModule) onTouchDown(evt *laya.Event) {
 	if m.touchID != -1 {
 		return
 	}
@@ -257,7 +257,7 @@ func (m *JoystickModule) onTouchDown(evt laya.Event) {
 	m.registerStageListeners()
 }
 
-func (m *JoystickModule) onStageMove(evt laya.Event) {
+func (m *JoystickModule) onStageMove(evt *laya.Event) {
 	if m.touchID == -1 {
 		return
 	}
@@ -268,7 +268,7 @@ func (m *JoystickModule) onStageMove(evt laya.Event) {
 	m.handleMove(pe)
 }
 
-func (m *JoystickModule) onStageUp(evt laya.Event) {
+func (m *JoystickModule) onStageUp(evt *laya.Event) {
 	if m.touchID == -1 {
 		return
 	}

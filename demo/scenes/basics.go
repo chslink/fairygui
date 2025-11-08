@@ -83,7 +83,7 @@ func (d *BasicsDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent, 
 	if d.backBtn != nil {
 		d.backBtn.SetVisible(false)
 		if sprite := d.backBtn.DisplayObject(); sprite != nil {
-			sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				d.showMainMenu()
 			})
 		}
@@ -143,7 +143,7 @@ func (d *BasicsDemo) attachDemoButton(obj *core.GObject) {
 	if sprite := obj.DisplayObject(); sprite != nil {
 		d.mainButtons = append(d.mainButtons, obj)
 		scene := btnName
-		sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+		sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 			log.Printf("[basics] click demo button %s", btnName)
 			d.runDemo(scene)
 		})
@@ -236,7 +236,7 @@ func (d *BasicsDemo) initButton(component *core.GComponent) {
 	target := component.ChildByName("btn_Button")
 	if target != nil {
 		if sprite := target.DisplayObject(); sprite != nil {
-			sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				log.Printf("[basics] ✅ click button - EVENT RECEIVED!")
 			})
 		}
@@ -271,7 +271,7 @@ func (d *BasicsDemo) initText(component *core.GComponent) {
 		return
 	}
 	if sprite := copyBtn.DisplayObject(); sprite != nil {
-		sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+		sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 			var content string
 			if reader, ok := src.Data().(interface{ Text() string }); ok && reader != nil {
 				content = reader.Text()
@@ -286,7 +286,7 @@ func (d *BasicsDemo) initText(component *core.GComponent) {
 	if inputBox := component.ChildByName("n22"); inputBox != nil {
 		if sprite := inputBox.DisplayObject(); sprite != nil {
 			// 点击时请求焦点以显示光标
-			sprite.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				if input, ok := inputBox.Data().(*widgets.GTextInput); ok && input != nil {
 					input.RequestFocus()
 				}
@@ -420,7 +420,7 @@ func (d *BasicsDemo) initList(component *core.GComponent) {
 		}
 		updateLabel()
 
-		list.GComponent.GObject.On(laya.EventStateChanged, func(laya.Event) {
+		list.GComponent.GObject.On(laya.EventStateChanged, func(*laya.Event) {
 			updateLabel()
 		})
 	}
@@ -459,14 +459,14 @@ func (d *BasicsDemo) initWindow(component *core.GComponent) {
 	}
 	if btn := component.ChildByName("n0"); btn != nil {
 		if disp := btn.DisplayObject(); disp != nil {
-			disp.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				d.showWindowA()
 			})
 		}
 	}
 	if btn := component.ChildByName("n1"); btn != nil {
 		if disp := btn.DisplayObject(); disp != nil {
-			disp.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				d.showWindowB()
 			})
 		}
@@ -483,7 +483,7 @@ func (d *BasicsDemo) initPopup(component *core.GComponent) {
 	if btn := component.ChildByName("n0"); btn != nil {
 		if disp := btn.DisplayObject(); disp != nil {
 			anchor := btn
-			disp.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				d.showPopupMenu(anchor)
 			})
 		}
@@ -491,7 +491,7 @@ func (d *BasicsDemo) initPopup(component *core.GComponent) {
 	if btn := component.ChildByName("n1"); btn != nil {
 		if disp := btn.DisplayObject(); disp != nil {
 			anchor := btn
-			disp.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				d.showPopupOverlay(anchor)
 			})
 		}
@@ -703,7 +703,7 @@ func (d *BasicsDemo) attachWindowClose(comp *core.GComponent, hide func()) {
 	}
 	if closeBtn := frame.ChildByName("closeButton"); closeBtn != nil {
 		if disp := closeBtn.DisplayObject(); disp != nil {
-			disp.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				hide()
 			})
 		}
@@ -765,7 +765,7 @@ func (d *BasicsDemo) buildSimplePopupMenu(items []string) *core.GComponent {
 		item.SetData(label)
 		menu.AddChild(item)
 		if disp := item.DisplayObject(); disp != nil {
-			disp.Dispatcher().On(laya.EventClick, func(laya.Event) {
+			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				log.Printf("[basics] popup item selected: %s", label)
 				core.Root().HidePopup(menu.GObject)
 			})
@@ -901,7 +901,7 @@ func (d *BasicsDemo) startDrag(obj *core.GObject, pe laya.PointerEvent, opts dra
 	}
 }
 
-func (d *BasicsDemo) onStageDragMove(evt laya.Event) {
+func (d *BasicsDemo) onStageDragMove(evt *laya.Event) {
 	if d.dragCtx == nil || !d.dragCtx.active {
 		return
 	}
@@ -940,7 +940,7 @@ func (d *BasicsDemo) onStageDragMove(evt laya.Event) {
 	obj.SetPosition(newX, newY)
 }
 
-func (d *BasicsDemo) onStageDragUp(evt laya.Event) {
+func (d *BasicsDemo) onStageDragUp(evt *laya.Event) {
 	if d.dragCtx == nil || !d.dragCtx.active {
 		return
 	}
