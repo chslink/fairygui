@@ -314,10 +314,12 @@ func (b *GScrollBar) onGripMouseDown(evt laya.Event) {
 	}
 	b.dragging = true
 	local := display.GlobalToLocal(event.Position)
+	// 计算鼠标相对于滑块左上角的偏移量
+	// 与TypeScript版本一致：dragOffset = 鼠标在container中的位置 - 滑块在container中的位置
 	if b.vertical {
-		b.dragOffset = laya.Point{X: 0, Y: local.Y - b.grip.Y()}
+		b.dragOffset = laya.Point{X: local.X - b.grip.X(), Y: local.Y - b.grip.Y()}
 	} else {
-		b.dragOffset = laya.Point{X: local.X - b.grip.X(), Y: 0}
+		b.dragOffset = laya.Point{X: local.X - b.grip.X(), Y: local.Y - b.grip.Y()}
 	}
 	b.registerStageDrag()
 }
