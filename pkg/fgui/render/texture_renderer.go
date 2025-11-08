@@ -10,6 +10,7 @@ import (
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/widgets"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -107,39 +108,60 @@ func (r *TextureRenderer) renderSimple(
 		}
 	}
 
+	// 处理径向填充 - 使用 DrawTriangles 渲染
+	if cmd.FillMethod >= int(widgets.LoaderFillMethodRadial90) && cmd.FillMethod <= int(widgets.LoaderFillMethodRadial360) && cmd.FillAmount > 0 {
+		return r.renderRadialFill(target, img, parentGeo, dstW, dstH, srcW, srcH, alpha, tint, sprite, cmd, spriteOffsetX, spriteOffsetY)
+	}
+
 	// 构建完整的本地变换矩阵
 	// 顺序：缩放到目标尺寸 → 翻转 → sprite offset → 命令偏移 → 父变换
 	localGeo := ebiten.GeoM{}
 
-	// 1. 计算并应用缩放到目标尺寸
+	// 1. 处理ProgressBar填充（SetFillAmount逻辑）
+	// 参考TypeScript版本 GProgressBar.ts:143-150的setFillAmount实现
+	// 注意：填充影响最终的缩放比例，需要在缩放计算之前处理
+	actualDstW := dstW
+	actualDstH := dstH
+	if cmd.FillMethod > 0 && cmd.FillAmount >= 0 {
+		switch cmd.FillMethod {
+		case int(widgets.LoaderFillMethodHorizontal): // 水平填充
+			// 水平填充：只渲染宽度的一部分
+			actualDstW = dstW * cmd.FillAmount / 100.0
+		case int(widgets.LoaderFillMethodVertical): // 垂直填充
+			// 垂直填充：只渲染高度的一部分
+			actualDstH = dstH * cmd.FillAmount / 100.0
+		}
+	}
+
+	// 2. 计算并应用缩放到目标尺寸
 	sx := 1.0
 	sy := 1.0
 	if srcW > 0 {
-		sx = dstW / srcW
+		sx = actualDstW / srcW
 	}
 	if srcH > 0 {
-		sy = dstH / srcH
+		sy = actualDstH / srcH
 	}
 	if sx != 1.0 || sy != 1.0 {
 		localGeo.Scale(sx, sy)
 	}
 
-	// 2. 应用翻转
+	// 3. 应用翻转
 	if cmd.ScaleX != 1 || cmd.ScaleY != 1 {
 		localGeo.Scale(cmd.ScaleX, cmd.ScaleY)
 	}
 
-	// 3. 应用 sprite offset（在翻转之后，避免被镜像）
+	// 4. 应用 sprite offset（在翻转之后，避免被镜像）
 	if spriteOffsetX != 0 || spriteOffsetY != 0 {
 		localGeo.Translate(spriteOffsetX, spriteOffsetY)
 	}
 
-	// 4. 应用命令偏移（Widget 层指定的额外偏移）
+	// 5. 应用命令偏移（Widget 层指定的额外偏移）
 	if cmd.OffsetX != 0 || cmd.OffsetY != 0 {
 		localGeo.Translate(cmd.OffsetX, cmd.OffsetY)
 	}
 
-	// 5. 最后应用父变换
+	// 6. 最后应用父变换
 	localGeo.Concat(parentGeo)
 
 	renderImageWithGeo(target, img, localGeo, alpha, tint, sprite)
@@ -278,5 +300,65 @@ func (r *TextureRenderer) renderTiled(
 		0, 0, dstW, dstH,
 		alpha, tint, sprite, debugLabel)
 
+	return nil
+}
+
+// renderRadialFill 径向填充渲染（90/180/360度）
+func (r *TextureRenderer) renderRadialFill(
+	target *ebiten.Image,
+	img *ebiten.Image,
+	parentGeo ebiten.GeoM,
+	dstW, dstH, srcW, srcH float64,
+	alpha float64,
+	tint *color.NRGBA,
+	sprite *laya.Sprite,
+	cmd *laya.TextureCommand,
+	spriteOffsetX, spriteOffsetY float64,
+) error {
+	// 计算填充点
+	points := computeFillPoints(dstW, dstH, cmd.FillMethod, cmd.FillOrigin, cmd.FillClockwise, cmd.FillAmount/100.0)
+	if len(points) < 6 {
+		return nil
+	}
+
+	// 构建顶点数组
+	vertexCount := len(points) / 2
+	vertices := make([]ebiten.Vertex, vertexCount)
+	for i := 0; i < vertexCount; i++ {
+		px := points[2*i]
+		py := points[2*i+1]
+
+		// 应用变换矩阵
+		x, y := parentGeo.Apply(px, py)
+
+		// 计算源坐标
+		var srcX, srcY float64
+		if dstW > 0 {
+			srcX = (px / dstW) * srcW
+		}
+		if dstH > 0 {
+			srcY = (py / dstH) * srcH
+		}
+
+		vertices[i] = ebiten.Vertex{
+			DstX:   float32(x),
+			DstY:   float32(y),
+			SrcX:   float32(srcX),
+			SrcY:   float32(srcY),
+			ColorR: float32(tint.R) / 255,
+			ColorG: float32(tint.G) / 255,
+			ColorB: float32(tint.B) / 255,
+			ColorA: float32(alpha * float64(tint.A) / 255),
+		}
+	}
+
+	// 构建三角形索引
+	indices := make([]uint16, 0, (vertexCount-2)*3)
+	for i := 1; i < vertexCount-1; i++ {
+		indices = append(indices, 0, uint16(i), uint16(i+1))
+	}
+
+	// 渲染三角形
+	target.DrawTriangles(vertices, indices, img, &ebiten.DrawTrianglesOptions{})
 	return nil
 }

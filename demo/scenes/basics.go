@@ -437,18 +437,36 @@ func (d *BasicsDemo) initProgress(component *core.GComponent) {
 				return
 			}
 			children := component.Children()
+			count := 0
 			for _, child := range children {
 				if bar, ok := child.Data().(*widgets.GProgressBar); ok {
+					count++
 					next := bar.Value() + 1
 					if next > bar.Max() {
 						next = bar.Min()
 					}
 					bar.SetValue(next)
+					// 调试：打印值变化，特别是径向进度条
+					if count <= 3 { // 只打印前3个，避免日志过多
+						log.Printf("[ProgressBar] child=%s, value: %.0f -> %.0f", child.Name(), bar.Value(), next)
+					}
+				}
+			}
+			if count == 0 {
+				log.Printf("[ProgressBar] 没有找到任何GProgressBar子对象，children=%d", len(children))
+				// 打印所有子对象名称用于调试
+				for i, child := range children {
+					if child != nil {
+						log.Printf("[ProgressBar] child[%d]: name=%s, dataType=%T", i, child.Name(), child.Data())
+					}
 				}
 			}
 		}
 		if scheduler := core.Root().Scheduler(); scheduler != nil {
 			scheduler.Every(33*time.Millisecond, d.progressTick)
+			log.Printf("[ProgressBar] 动画调度器已启动，33ms间隔")
+		} else {
+			log.Printf("[ProgressBar] 错误：无法获取Scheduler")
 		}
 	}
 }
@@ -1221,10 +1239,13 @@ func getProgressBar(obj *core.GObject) *widgets.GProgressBar {
 	if obj == nil {
 		return nil
 	}
+	// 首先检查对象本身是否是GProgressBar
 	if bar, ok := obj.Data().(*widgets.GProgressBar); ok {
 		return bar
 	}
-	if comp, ok := obj.Data().(*core.GComponent); ok && comp != nil {
+	// 检查是否是GComponent
+	if comp := core.ComponentFrom(obj); comp != nil {
+		// 检查子组件
 		if inner := comp.ChildByName("bar"); inner != nil {
 			if b, ok := inner.Data().(*widgets.GProgressBar); ok {
 				return b

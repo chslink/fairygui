@@ -3,6 +3,7 @@ package builder
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"path/filepath"
 	"strings"
@@ -398,7 +399,9 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 		// 设置 overflow
 		overflow := item.Component.Overflow
 		if overflow == core.OverflowScroll {
-			// 切换到 section 7 读取 scroll 配置
+			// 确保创建 ScrollPane（即使没有配置数据也创建默认的）
+			root.EnsureScrollPane(core.ScrollTypeBoth)
+			// 切换到 section 7 读取 scroll 配置（如果存在）
 			if buf := item.RawData; buf != nil {
 				saved := buf.Pos()
 				if buf.Seek(0, 7) {
@@ -491,11 +494,13 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 	switch widget := w.(type) {
 	case *widgets.GImage:
 		obj = widget.GObject
+		log.Printf("[buildChild] 创建GImage: name=%s, type=%v, dataType=%T", child.Name, child.Type, widget)
 		if spriteItem := f.resolveImageSprite(ctx, pkg, owner, child); spriteItem != nil {
 			resolvedItem = spriteItem
 		}
 		widget.SetPackageItem(resolvedItem)
 		obj.SetData(widget)
+		log.Printf("[buildChild] GImage Data已设置: %T", obj.Data())
 		callSetupBeforeAdd(widget)
 
 	case *widgets.GMovieClip:
@@ -732,6 +737,8 @@ func (f *Factory) resolvePackageItem(ctx context.Context, pkg *assets.Package, o
 	if pkg == nil || child.Src == "" {
 		// fall back to child.Data for components referencing packaged resources (e.g., buttons/lists)
 		if child.Data == "" {
+			// 调试：打印无法解析的child信息
+			// fmt.Printf("[Builder] resolvePackageItem返回nil: name=%s, src=%s, data=%s\n", child.Name, child.Src, child.Data)
 			return nil
 		}
 	}

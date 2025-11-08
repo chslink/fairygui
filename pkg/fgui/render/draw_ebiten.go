@@ -497,6 +497,41 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		// ✅ GImage 已完全迁移到命令模式
 		// updateGraphics() 总是生成 TextureCommand（除非 packageItem == nil）
 		// 命令由统一的 TextureRenderer 处理
+		// 关键修复：确保GImage更新其渲染命令
+		// updateGraphics() 会在需要时自动调用
+		// （例如在SetSize、SetFill等操作时）
+		// 但为了确保命令总是最新，这里可以显式调用，但可能会影响性能
+		// 所以我们依赖命令渲染路径在GImage case之前已经处理了命令
+		// 如果没有命令，说明可能需要触发updateGraphics()
+		if gfx == nil || gfx.IsEmpty() {
+			// 没有命令时，尝试触发updateGraphics()
+			// 但这可能会导致循环调用，所以需要谨慎处理
+			// 更好的方案是在GImage的关键操作中确保updateGraphics()被调用
+			// 例如在SetSize、SetFill等中
+			// 这里我们不直接调用，而是依赖外部触发
+			// fmt.Printf("[DEBUG GImage] no graphics commands for %s, packageItem=%v\n", obj.Name(), data.PackageItem() != nil)
+		} else {
+			// ✅ 关键修复：处理GImage的Graphics命令
+			// 这解决了ProgressBar中bar对象(GImage)不被渲染的问题
+			commands := gfx.Commands()
+			for _, cmd := range commands {
+				switch cmd.Type {
+				case laya.GraphicsCommandTexture:
+					// 使用 TextureRenderer 渲染纹理
+					texRenderer := NewTextureRenderer(atlas)
+					if err := texRenderer.Render(target, cmd.Texture, combined, alpha, sprite); err != nil {
+						return err
+					}
+				case laya.GraphicsCommandRect, laya.GraphicsCommandEllipse,
+					laya.GraphicsCommandPolygon, laya.GraphicsCommandPath,
+					laya.GraphicsCommandLine, laya.GraphicsCommandPie:
+					// 矢量命令：使用 renderGraphicsSprite
+					if !renderGraphicsSprite(target, sprite, combined, alpha) {
+						return fmt.Errorf("failed to render graphics command type %d", cmd.Type)
+					}
+				}
+			}
+		}
 	case *widgets.GMovieClip:
 		if err := renderMovieClipWidget(target, data, atlas, combined, alpha, sprite); err != nil {
 			return err
@@ -603,6 +638,11 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			if err := drawComponent(target, root, atlas, combined, alpha); err != nil {
 				return err
 			}
+		}
+	case *widgets.GProgressBar:
+		// GProgressBar 内嵌 GComponent，渲染其子对象
+		if err := drawComponent(target, data.GComponent, atlas, combined, alpha); err != nil {
+			return err
 		}
 	default:
 		if sprite != nil {

@@ -51,11 +51,11 @@ const (
 	ObjectTypeLabel
 	ObjectTypeButton
 	ObjectTypeComboBox
-	ObjectTypeProgressBar
-	ObjectTypeSlider
-	ObjectTypeScrollBar
-	ObjectTypeTree
-	ObjectTypeLoader3D
+	ObjectTypeProgressBar ObjectType = 14  // 明确指定，与TypeScript保持一致
+	ObjectTypeSlider     ObjectType = 15
+	ObjectTypeScrollBar  ObjectType = 16
+	ObjectTypeTree       ObjectType = 17
+	ObjectTypeLoader3D   ObjectType = 18
 )
 
 // Rect represents an axis-aligned rectangle.

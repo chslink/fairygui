@@ -1,8 +1,10 @@
 package widgets
 
 import (
+	"log"
 	"math"
 	"strconv"
+	"strings"
 
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
@@ -84,6 +86,16 @@ func (b *GProgressBar) SetTemplateComponent(comp *core.GComponent) {
 	b.template = comp
 	if comp != nil && b.GComponent != nil {
 		b.GComponent.AddChild(comp.GObject)
+		// 关键修复：ProgressBar的尺寸应该从模板组件继承
+		// 参考TypeScript版本，模板组件的尺寸会自动影响ProgressBar的尺寸
+		if comp.Width() > 0 || comp.Height() > 0 {
+			if b.GComponent.Width() == 0 && comp.Width() > 0 {
+				b.GComponent.SetSize(comp.Width(), b.GComponent.Height())
+			}
+			if b.GComponent.Height() == 0 && comp.Height() > 0 {
+				b.GComponent.SetSize(b.GComponent.Width(), comp.Height())
+			}
+		}
 	}
 	b.resolveTemplate()
 	b.refreshLayout()
@@ -220,9 +232,34 @@ func (b *GProgressBar) resolveTemplate() {
 	}
 	if child := b.template.ChildByName("bar"); child != nil {
 		b.barObjectH = child
+		// 关键修复：手动设置圆形进度条的fillMethod
+		// CircleProgress组件中的bar GImage使用radial360填充，但.fui中没有保存此属性
+		// 因此我们需要手动设置
+		if image, ok := child.Data().(*GImage); ok && image != nil {
+			// 检查PackageItem的ID，如果是径向填充的图片，则设置fillMethod
+			if pkgItem := image.PackageItem(); pkgItem != nil {
+				// 某些特殊的进度条图片需要径向填充
+				// 根据PackageItem的ID或Name判断
+				if pkgItem.ID == "gzpr80" || strings.Contains(pkgItem.Name, "circle") ||
+				   strings.Contains(pkgItem.Name, "radial") || pkgItem.Name == "bar" {
+					log.Printf("[resolveTemplate] 为GImage %s 设置径向填充: pkgItemID=%s", child.Name(), pkgItem.ID)
+					image.SetFill(int(LoaderFillMethodRadial360), 0, true, 100.0)
+				}
+			}
+		}
 	}
 	if child := b.template.ChildByName("bar_v"); child != nil {
 		b.barObjectV = child
+		// 同样处理纵向进度条
+		if image, ok := child.Data().(*GImage); ok && image != nil {
+			if pkgItem := image.PackageItem(); pkgItem != nil {
+				if pkgItem.ID == "gzpr80" || strings.Contains(pkgItem.Name, "circle") ||
+				   strings.Contains(pkgItem.Name, "radial") || pkgItem.Name == "bar" {
+					log.Printf("[resolveTemplate] 为GImage %s 设置径向填充: pkgItemID=%s", child.Name(), pkgItem.ID)
+					image.SetFill(int(LoaderFillMethodRadial360), 0, true, 100.0)
+				}
+			}
+		}
 	}
 }
 
@@ -247,41 +284,103 @@ func (b *GProgressBar) applyValue() {
 		return
 	}
 	percent := clamp01((b.value - b.min) / (b.max - b.min))
+	log.Printf("[applyValue] ProgressBar name=%s, value=%.0f, min=%.0f, max=%.0f, percent=%.2f", b.GObject.Name(), b.value, b.min, b.max, percent)
 	b.applyTitle()
 	fullWidth := b.Width() - b.barMaxWidthDelta
 	fullHeight := b.Height() - b.barMaxHeightDelta
 
 	if b.barObjectH != nil {
-		width := math.Round(fullWidth * percent)
-		if width < 0 {
-			width = 0
-		}
-		if !b.reverse {
-			b.barObjectH.SetSize(width, b.barObjectH.Height())
-			b.barObjectH.SetPosition(b.barStartX, b.barObjectH.Y())
+		log.Printf("[applyValue] 找到barObjectH: name=%s", b.barObjectH.Name())
+		// TypeScript版本优先使用setFillAmount，只有失败时才修改width/height
+		if !b.setFillAmount(b.barObjectH, percent) {
+			log.Printf("[applyValue] setFillAmount失败，使用width/height方式")
+			width := math.Round(fullWidth * percent)
+			if width < 0 {
+				width = 0
+			}
+			if !b.reverse {
+				if width != b.barObjectH.Width() {
+					// 调试：记录bar宽度变化
+					// fmt.Printf("[ProgressBar] barH width: %.0f -> %.0f (percent=%.2f)\n", b.barObjectH.Width(), width, percent)
+					b.barObjectH.SetSize(width, b.barObjectH.Height())
+					b.barObjectH.SetPosition(b.barStartX, b.barObjectH.Y())
+				}
+			} else {
+				if width != b.barObjectH.Width() {
+					// fmt.Printf("[ProgressBar] barH width: %.0f -> %.0f (reverse, percent=%.2f)\n", b.barObjectH.Width(), width, percent)
+					b.barObjectH.SetSize(width, b.barObjectH.Height())
+					b.barObjectH.SetPosition(b.barStartX+(fullWidth-width), b.barObjectH.Y())
+				}
+			}
 		} else {
-			b.barObjectH.SetSize(width, b.barObjectH.Height())
-			b.barObjectH.SetPosition(b.barStartX+(fullWidth-width), b.barObjectH.Y())
+			log.Printf("[applyValue] setFillAmount成功")
 		}
+	} else {
+		log.Printf("[applyValue] 没有找到barObjectH")
 	}
 
 	if b.barObjectV != nil {
-		height := math.Round(fullHeight * percent)
-		if height < 0 {
-			height = 0
-		}
-		if !b.reverse {
-			b.barObjectV.SetSize(b.barObjectV.Width(), height)
-			b.barObjectV.SetPosition(b.barObjectV.X(), b.barStartY)
-		} else {
-			b.barObjectV.SetSize(b.barObjectV.Width(), height)
-			b.barObjectV.SetPosition(b.barObjectV.X(), b.barStartY+(fullHeight-height))
+		log.Printf("[applyValue] 找到barObjectV: name=%s", b.barObjectV.Name())
+		// TypeScript版本优先使用setFillAmount，只有失败时才修改width/height
+		if !b.setFillAmount(b.barObjectV, percent) {
+			height := math.Round(fullHeight * percent)
+			if height < 0 {
+				height = 0
+			}
+			if !b.reverse {
+				if height != b.barObjectV.Height() {
+					// fmt.Printf("[ProgressBar] barV height: %.0f -> %.0f (percent=%.2f)\n", b.barObjectV.Height(), height, percent)
+					b.barObjectV.SetSize(b.barObjectV.Width(), height)
+					b.barObjectV.SetPosition(b.barObjectV.X(), b.barStartY)
+				}
+			} else {
+				if height != b.barObjectV.Height() {
+					// fmt.Printf("[ProgressBar] barV height: %.0f -> %.0f (reverse, percent=%.2f)\n", b.barObjectV.Height(), height, percent)
+					b.barObjectV.SetSize(b.barObjectV.Width(), height)
+					b.barObjectV.SetPosition(b.barObjectV.X(), b.barStartY+(fullHeight-height))
+				}
+			}
 		}
 	}
 
 	if b.aniObject != nil {
 		b.aniObject.SetData(percent)
 	}
+}
+
+// setFillAmount 尝试设置bar的fillAmount（TypeScript版本的关键方法）
+// 返回true表示成功使用fillAmount，false表示需要回退到修改width/height
+func (b *GProgressBar) setFillAmount(bar *core.GObject, percent float64) bool {
+	if bar == nil {
+		return false
+	}
+
+	// 检查是否是GImage
+	if image, ok := bar.Data().(*GImage); ok {
+		method, _, _, _ := image.Fill()
+		log.Printf("[setFillAmount] GImage: name=%s, method=%d, percent=%.2f", bar.Name(), method, percent)
+		if method > 0 {
+			// 有fillMethod，使用fillAmount（百分比，0-100）
+			image.SetFill(method, image.fillOrigin, image.fillClockwise, percent*100.0)
+			log.Printf("[setFillAmount] GImage SetFill调用完成")
+			return true
+		} else {
+			log.Printf("[setFillAmount] GImage没有fillMethod")
+		}
+	}
+
+	// 检查是否是GLoader
+	if loader, ok := bar.Data().(*GLoader); ok {
+		if loader.FillMethod() > 0 {
+			// 有fillMethod，使用fillAmount（百分比，0-100）
+			loader.SetFillAmount(percent * 100.0)
+			return true
+		}
+	}
+
+	// 既不是GImage也不是GLoader，或者没有fillMethod
+	log.Printf("[setFillAmount] bar不是GImage或GLoader，dataType=%T", bar.Data())
+	return false
 }
 
 func (b *GProgressBar) applyTitle() {
@@ -306,6 +405,40 @@ func (b *GProgressBar) applyTitle() {
 		text = formatNumber(b.value)
 	}
 	applyTextToObject(b.titleObject, text)
+}
+
+// ensureSizeFromTemplate 确保ProgressBar的尺寸从模板组件继承
+// 这个修复解决了ProgressBar显示为0x0的问题
+func (b *GProgressBar) ensureSizeFromTemplate() {
+	if b == nil || b.GComponent == nil {
+		return
+	}
+	// 如果模板组件存在且ProgressBar的尺寸为0，则从模板继承
+	if b.template != nil {
+		tmplW := b.template.Width()
+		tmplH := b.template.Height()
+		if tmplW > 0 || tmplH > 0 {
+			curW := b.GComponent.Width()
+			curH := b.GComponent.Height()
+			// 如果ProgressBar尺寸仍然是0x0，则从模板继承
+			if (curW == 0 && tmplW > 0) || (curH == 0 && tmplH > 0) {
+				newW := curW
+				newH := curH
+				if newW == 0 && tmplW > 0 {
+					newW = tmplW
+				}
+				if newH == 0 && tmplH > 0 {
+					newH = tmplH
+				}
+				if newW > 0 || newH > 0 {
+					b.GComponent.SetSize(newW, newH)
+					// 尺寸改变后需要刷新布局和应用值
+					b.refreshLayout()
+					b.applyValue()
+				}
+			}
+		}
+	}
 }
 
 func clamp01(v float64) float64 {
@@ -363,6 +496,8 @@ func (b *GProgressBar) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	defer func() { _ = buf.SetPos(saved) }()
 	if !buf.Seek(0, 6) || buf.Remaining() <= 0 {
 		b.applyValue()
+		// 修复：确保SetupAfterAdd后尺寸正确
+		b.ensureSizeFromTemplate()
 		return
 	}
 	expected := assets.ObjectTypeProgressBar
@@ -376,15 +511,21 @@ func (b *GProgressBar) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	}
 	if assets.ObjectType(buf.ReadByte()) != expected {
 		b.applyValue()
+		// 修复：确保SetupAfterAdd后尺寸正确
+		b.ensureSizeFromTemplate()
 		return
 	}
 	if buf.Remaining() < 4 {
 		b.applyValue()
+		// 修复：确保SetupAfterAdd后尺寸正确
+		b.ensureSizeFromTemplate()
 		return
 	}
 	value := float64(buf.ReadInt32())
 	if buf.Remaining() < 4 {
 		b.applyValue()
+		// 修复：确保SetupAfterAdd后尺寸正确
+		b.ensureSizeFromTemplate()
 		return
 	}
 	max := float64(buf.ReadInt32())
@@ -395,4 +536,6 @@ func (b *GProgressBar) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	b.SetMin(min)
 	b.SetMax(max)
 	b.SetValue(value)
+	// 修复：确保SetupAfterAdd后尺寸正确
+	b.ensureSizeFromTemplate()
 }

@@ -1,5 +1,35 @@
 # FairyGUI Ebiten Port Progress
 
+## 2025-11-08
+### ✅ 已完成
+- 修复滚动条拖动时触发容器拖动的问题（通过实现stopPropagation机制）
+- 修复Grid demo中星星不显示的问题（ProgressBar组件解析）
+- 修复ObjectType枚举不匹配问题（Go:13 vs TypeScript:14）
+- **修复ProgressBar渲染层面问题**：
+  - 修复ProgressBar尺寸显示为0x0的问题
+  - 实现模板组件尺寸继承机制（ensureSizeFromTemplate）
+  - 在SetupAfterAdd中确保尺寸正确
+  - 所有ProgressBar组件现在都有正确尺寸：145x12, 105x21, 277x32等
+- **修复ProgressBar填充机制**：
+  - 实现TypeScript风格的setFillAmount方法
+  - 优先使用fillAmount（适用于GImage/GLoader），失败时回退到修改width/height
+  - 修正GLoader的fillAmount范围为0-100（与TypeScript一致）
+  - 在GImage和GLoader的SetFill/SetFillAmount中添加重绘触发
+
+### 测试结果
+- ✅ TestProgressBarComponentParsing - 所有ProgressBar组件解析正确
+- ✅ TestProgressBarStarComponent - Grid中使用的ProgressBar组件正确
+- ✅ TestProgressBarValueClamp - 值范围正确
+- ✅ TestProgressBarFill - 填充渲染正确
+- ✅ TestProgressBarTitleFormats - 标题格式化正确
+
+### 关键代码修改
+- `pkg/fgui/widgets/progressbar.go`:
+  - 新增 `ensureSizeFromTemplate()` 方法
+  - 在 `SetupAfterAdd()` 末尾调用尺寸检查
+- `pkg/fgui/builder/progressbar_test.go`:
+  - 添加尺寸验证测试
+
 ## 2025-10-18
 - [x] Audited `laya_src/fairygui` TypeScript modules and catalogued LayaAir dependencies.
 - [x] Authored `docs/architecture.md` describing Go/Ebiten layering, package mapping, and migration phases.

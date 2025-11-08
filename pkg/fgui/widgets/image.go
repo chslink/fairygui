@@ -1,6 +1,8 @@
 package widgets
 
 import (
+	"log"
+
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
@@ -97,6 +99,8 @@ func (i *GImage) SetFill(method int, origin int, clockwise bool, amount float64)
 	i.fillOrigin = origin
 	i.fillClockwise = clockwise
 	i.fillAmount = amount
+	// 触发重绘以应用fillAmount
+	i.updateGraphics()
 }
 
 // Fill returns the stored fill parameters.
@@ -156,6 +160,11 @@ func (i *GImage) updateGraphics() {
 		OffsetY:        i.flipOffsetY(),
 		ScaleByTile:    i.scaleByTile,
 		TileGridIndice: i.tileGridIndice,
+		// 填充相关参数
+		FillMethod:     i.fillMethod,
+		FillAmount:     i.fillAmount,
+		FillOrigin:     i.fillOrigin,
+		FillClockwise:  i.fillClockwise,
 	}
 
 	// 设置 Scale9Grid（如果存在）
@@ -240,11 +249,16 @@ func (i *GImage) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	}
 	if buf.Remaining() > 0 {
 		method := int(buf.ReadByte())
+		log.Printf("[SetupBeforeAdd] GImage name=%s, method=%d, remaining=%d", i.GObject.Name(), method, buf.Remaining())
 		if method != 0 && buf.Remaining() >= 6 {
 			origin := int(buf.ReadByte())
 			clockwise := buf.ReadBool()
 			amount := float64(buf.ReadFloat32())
+			log.Printf("[SetupBeforeAdd] GImage name=%s, SetFill called: method=%d, origin=%d, clockwise=%v, amount=%.2f",
+				i.GObject.Name(), method, origin, clockwise, amount)
 			i.SetFill(method, origin, clockwise, amount)
+		} else {
+			log.Printf("[SetupBeforeAdd] GImage name=%s, skip SetFill: method=%d, need6bytes=%v", i.GObject.Name(), method, buf.Remaining() >= 6)
 		}
 	}
 }

@@ -346,14 +346,16 @@ func (l *GLoader) FillClockwise() bool {
 	return l.fillClockwise
 }
 
-// SetFillAmount stores the fill amount (0..1).
+// SetFillAmount stores the fill amount (0..100) to match TypeScript behavior.
 func (l *GLoader) SetFillAmount(amount float64) {
 	if amount < 0 {
 		amount = 0
-	} else if amount > 1 {
-		amount = 1
+	} else if amount > 100 {
+		amount = 100
 	}
 	l.fillAmount = amount
+	// 触发重绘以应用fillAmount
+	l.updateGraphics()
 }
 
 // FillAmount returns the radial fill amount.

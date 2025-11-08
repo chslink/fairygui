@@ -102,6 +102,11 @@ type TextureCommand struct {
 	Color          string
 	ScaleX         float64
 	ScaleY         float64
+	// 填充相关参数（用于ProgressBar等组件的填充显示）
+	FillMethod  int
+	FillAmount  float64
+	FillOrigin  int
+	FillClockwise bool
 }
 
 // GraphicsCommand 表示一条绘制命令。
