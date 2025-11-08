@@ -72,7 +72,7 @@ func TestButton4CheckModeWithGearXY(t *testing.T) {
 
 	// 添加事件监听器用于调试
 	clickCount := 0
-	button4Comp.GObject.On("click", func(evt laya.Event) {
+	button4Comp.GObject.On("click", func(evt *laya.Event) {
 		clickCount++
 		t.Logf("点击事件触发，次数: %d", clickCount)
 	})

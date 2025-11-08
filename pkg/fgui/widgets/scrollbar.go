@@ -299,7 +299,11 @@ func (b *GScrollBar) getContainerDisplayObject() *laya.Sprite {
 	return nil
 }
 
-func (b *GScrollBar) onGripMouseDown(evt laya.Event) {
+func (b *GScrollBar) onGripMouseDown(evt *laya.Event) {
+	// 与TypeScript版本一致：阻止事件冒泡
+	// TypeScript: evt.stopPropagation();
+	evt.StopPropagation()
+
 	if b.grip == nil || b.target == nil {
 		return
 	}
@@ -322,7 +326,7 @@ func (b *GScrollBar) onGripMouseDown(evt laya.Event) {
 	b.registerStageDrag()
 }
 
-func (b *GScrollBar) onStageMouseMove(evt laya.Event) {
+func (b *GScrollBar) onStageMouseMove(evt *laya.Event) {
 	if !b.dragging || b.grip == nil || b.target == nil {
 		return
 	}
@@ -358,7 +362,7 @@ func (b *GScrollBar) onStageMouseMove(evt laya.Event) {
 	}
 }
 
-func (b *GScrollBar) onStageMouseUp(evt laya.Event) {
+func (b *GScrollBar) onStageMouseUp(evt *laya.Event) {
 	if !b.dragging {
 		return
 	}
@@ -366,7 +370,7 @@ func (b *GScrollBar) onStageMouseUp(evt laya.Event) {
 	b.unregisterStageDrag()
 }
 
-func (b *GScrollBar) onBarMouseDown(evt laya.Event) {
+func (b *GScrollBar) onBarMouseDown(evt *laya.Event) {
 	pe, ok := evt.Data.(laya.PointerEvent)
 	if !ok || b.target == nil || b.bar == nil {
 		return
@@ -402,12 +406,12 @@ func (b *GScrollBar) registerStageDrag() {
 	}
 	dispatcher := stage.Root().Dispatcher()
 	if b.stageMoveListener == nil {
-		b.stageMoveListener = func(evt laya.Event) {
+		b.stageMoveListener = func(evt *laya.Event) {
 			b.onStageMouseMove(evt)
 		}
 	}
 	if b.stageUpListener == nil {
-		b.stageUpListener = func(evt laya.Event) {
+		b.stageUpListener = func(evt *laya.Event) {
 			b.onStageMouseUp(evt)
 		}
 	}

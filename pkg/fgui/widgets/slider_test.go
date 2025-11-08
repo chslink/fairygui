@@ -81,7 +81,7 @@ func TestSliderChangeOnClick(t *testing.T) {
 
 	// simulate click at 150px
 	event := laya.PointerEvent{Position: laya.Point{X: 150, Y: 0}}
-	slider.onBarMouseDown(laya.Event{Data: event})
+	slider.onBarMouseDown(&laya.Event{Data: event})
 	if math.Abs(slider.Value()-75) > 0.01 {
 		t.Fatalf("expected value around 75, got %.2f", slider.Value())
 	}

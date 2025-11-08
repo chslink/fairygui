@@ -142,7 +142,7 @@ func (d *VirtualListDemo) renderMailItem(index int, obj *core.GObject) {
 func (d *VirtualListDemo) bindButtons(view *core.GComponent) {
 	// 添加选择按钮
 	if btn := view.ChildByName("btnAddSelect"); btn != nil {
-		btn.On(laya.EventClick, func(evt laya.Event) {
+		btn.On(laya.EventClick, func(evt *laya.Event) {
 			if d.list != nil {
 				d.list.AddSelection(500)
 				log.Printf("🎯 添加选择: index=500")
@@ -152,7 +152,7 @@ func (d *VirtualListDemo) bindButtons(view *core.GComponent) {
 
 	// 滚动到顶部按钮
 	if btn := view.ChildByName("btnScrollToTop"); btn != nil {
-		btn.On(laya.EventClick, func(evt laya.Event) {
+		btn.On(laya.EventClick, func(evt *laya.Event) {
 			if d.list != nil && d.list.GComponent.ScrollPane() != nil {
 				d.list.GComponent.ScrollPane().SetPos(0, 0, false)
 				log.Printf("⬆️  滚动到顶部")
@@ -162,7 +162,7 @@ func (d *VirtualListDemo) bindButtons(view *core.GComponent) {
 
 	// 滚动到底部按钮
 	if btn := view.ChildByName("btnScrollToBottom"); btn != nil {
-		btn.On(laya.EventClick, func(evt laya.Event) {
+		btn.On(laya.EventClick, func(evt *laya.Event) {
 			if d.list != nil && d.list.GComponent.ScrollPane() != nil {
 				scrollPane := d.list.GComponent.ScrollPane()
 				// 滚动到最大Y位置
@@ -178,7 +178,7 @@ func (d *VirtualListDemo) bindButtons(view *core.GComponent) {
 
 	// 刷新列表按钮
 	if btn := view.ChildByName("btnRefresh"); btn != nil {
-		btn.On(laya.EventClick, func(evt laya.Event) {
+		btn.On(laya.EventClick, func(evt *laya.Event) {
 			if d.list != nil {
 				d.list.RefreshVirtualList()
 				log.Printf("🔄 刷新虚拟列表")

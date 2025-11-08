@@ -172,7 +172,7 @@ func TestNestedComponentEventCapture(t *testing.T) {
 
 	// 测试事件捕获
 	clickCount := 0
-	n5.DisplayObject().Dispatcher().On(laya.EventClick, func(evt laya.Event) {
+	n5.DisplayObject().Dispatcher().On(laya.EventClick, func(evt *laya.Event) {
 		clickCount++
 		t.Logf("✓ n5 捕获到点击事件")
 	})
@@ -282,7 +282,7 @@ func TestSimpleButtonEventCapture(t *testing.T) {
 	}
 
 	clickCount := 0
-	btnBack.DisplayObject().Dispatcher().On(laya.EventClick, func(evt laya.Event) {
+	btnBack.DisplayObject().Dispatcher().On(laya.EventClick, func(evt *laya.Event) {
 		clickCount++
 	})
 

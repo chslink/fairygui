@@ -321,7 +321,7 @@ func (t *GTextInput) RequestFocus() {
 			sprite.Dispatcher().Off(laya.EventMouseDown, nil)
 
 			// 添加键盘事件监听器
-			sprite.Dispatcher().On(laya.EventKeyDown, func(evt laya.Event) {
+			sprite.Dispatcher().On(laya.EventKeyDown, func(evt *laya.Event) {
 				// 从 Event.Data 中获取 KeyboardEvent
 				if keyEvt, ok := evt.Data.(laya.KeyboardEvent); ok {
 					t.HandleKeyboardEvent(keyEvt)
@@ -329,7 +329,7 @@ func (t *GTextInput) RequestFocus() {
 			})
 
 			// 添加鼠标按下事件监听器
-			sprite.Dispatcher().On(laya.EventMouseDown, func(evt laya.Event) {
+			sprite.Dispatcher().On(laya.EventMouseDown, func(evt *laya.Event) {
 				// 从 Event.Data 中获取鼠标事件
 				if pointerEvt, ok := evt.Data.(laya.PointerEvent); ok {
 					// 转换为本地坐标

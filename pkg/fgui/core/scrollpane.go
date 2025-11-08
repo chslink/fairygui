@@ -643,7 +643,7 @@ func (p *ScrollPane) registerEvents() {
 	}
 	dispatcher := display.Dispatcher()
 	if p.wheelListener == nil {
-		p.wheelListener = func(evt laya.Event) {
+		p.wheelListener = func(evt *laya.Event) {
 			pe, ok := evt.Data.(laya.PointerEvent)
 			if !ok {
 				return
@@ -653,8 +653,8 @@ func (p *ScrollPane) registerEvents() {
 		dispatcher.On(laya.EventMouseWheel, p.wheelListener)
 	}
 	if p.mouseDownListener == nil {
-		p.mouseDownListener = func(evt laya.Event) {
-			p.onMouseDown(evt)
+		p.mouseDownListener = func(evt *laya.Event) {
+			p.onMouseDown(*evt)
 		}
 		dispatcher.On(laya.EventMouseDown, p.mouseDownListener)
 	}
@@ -786,13 +786,6 @@ func (p *ScrollPane) onMouseDown(evt laya.Event) {
 	if !ok {
 		return
 	}
-
-	// 关键修复：检查是否点击了滚动条
-	// 如果Target是滚动条或其子组件，不处理此事件
-	if p.isPointerOnScrollBar(pe.Target) {
-		return
-	}
-
 	display := p.owner.DisplayObject()
 	if display == nil || p.container == nil {
 		return
@@ -898,13 +891,13 @@ func (p *ScrollPane) registerStageDragEvents() {
 	}
 	dispatcher := stage.Root().Dispatcher()
 	if p.stageMoveListener == nil {
-		p.stageMoveListener = func(evt laya.Event) {
-			p.onStageMouseMove(evt)
+		p.stageMoveListener = func(evt *laya.Event) {
+			p.onStageMouseMove(*evt)
 		}
 	}
 	if p.stageUpListener == nil {
-		p.stageUpListener = func(evt laya.Event) {
-			p.onStageMouseUp(evt)
+		p.stageUpListener = func(evt *laya.Event) {
+			p.onStageMouseUp(*evt)
 		}
 	}
 	dispatcher.On(laya.EventMouseMove, p.stageMoveListener)
@@ -1013,49 +1006,4 @@ func (p *ScrollPane) updateScrollBarVisible() {
 			p.hzScrollBar.SetVisible(true)
 		}
 	}
-}
-
-// isPointerOnScrollBar 检查指针是否在滚动条上
-// 如果Target是滚动条或其子组件，返回true
-func (p *ScrollPane) isPointerOnScrollBar(target *laya.Sprite) bool {
-	if target == nil {
-		return false
-	}
-
-	// 检查是否是垂直滚动条或其子组件
-	if p.vtScrollBar != nil {
-		if p.vtScrollBar.DisplayObject() != nil {
-			if p.isSpriteOrAncestor(target, p.vtScrollBar.DisplayObject()) {
-				return true
-			}
-		}
-	}
-
-	// 检查是否是水平滚动条或其子组件
-	if p.hzScrollBar != nil {
-		if p.hzScrollBar.DisplayObject() != nil {
-			if p.isSpriteOrAncestor(target, p.hzScrollBar.DisplayObject()) {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-// isSpriteOrAncestor 检查child是否是parent的子节点（直接或间接）
-func (p *ScrollPane) isSpriteOrAncestor(child, parent *laya.Sprite) bool {
-	if child == nil || parent == nil {
-		return false
-	}
-
-	// 如果child就是parent本身
-	if child == parent {
-		return true
-	}
-
-	// 向上遍历检查是否是parent的子节点
-	// 这里简化处理：直接比较指针
-	// 在实际的DisplayObject树中，需要递归检查parent
-	return child == parent
 }

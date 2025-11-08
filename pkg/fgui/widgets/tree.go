@@ -508,7 +508,7 @@ func (t *GTree) attachNodeEvents(node *GTreeNode) {
 	if node.mouseDown != nil {
 		obj.Off(laya.EventMouseDown, node.mouseDown)
 	}
-	mouseDown := func(evt laya.Event) {
+	mouseDown := func(evt *laya.Event) {
 		t.expandedStatusInEvent = node.Expanded()
 	}
 	node.mouseDown = mouseDown
@@ -517,7 +517,7 @@ func (t *GTree) attachNodeEvents(node *GTreeNode) {
 	if node.clickFn != nil {
 		obj.Off(laya.EventClick, node.clickFn)
 	}
-	click := func(evt laya.Event) {
+	click := func(evt *laya.Event) {
 		t.handleCellClick(node)
 	}
 	node.clickFn = click

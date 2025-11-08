@@ -17,7 +17,7 @@ func TestStageTouchEvents(t *testing.T) {
 
 	var begin, move, end int
 	var lastBegin laya.PointerEvent
-	sprite.Dispatcher().On(laya.EventTouchBegin, func(evt laya.Event) {
+	sprite.Dispatcher().On(laya.EventTouchBegin, func(evt *laya.Event) {
 		begin++
 		if pe, ok := evt.Data.(laya.PointerEvent); ok {
 			lastBegin = pe
@@ -25,15 +25,15 @@ func TestStageTouchEvents(t *testing.T) {
 			t.Fatalf("expected pointer event payload")
 		}
 	})
-	sprite.Dispatcher().On(laya.EventTouchMove, func(evt laya.Event) {
+	sprite.Dispatcher().On(laya.EventTouchMove, func(evt *laya.Event) {
 		move++
 	})
-	sprite.Dispatcher().On(laya.EventTouchEnd, func(evt laya.Event) {
+	sprite.Dispatcher().On(laya.EventTouchEnd, func(evt *laya.Event) {
 		end++
 	})
 
 	var stageBeginTarget *laya.Sprite
-	env.Stage.Root().Dispatcher().On(laya.EventTouchBegin, func(evt laya.Event) {
+	env.Stage.Root().Dispatcher().On(laya.EventTouchBegin, func(evt *laya.Event) {
 		if pe, ok := evt.Data.(laya.PointerEvent); ok {
 			stageBeginTarget = pe.Target
 		}
@@ -84,10 +84,10 @@ func TestStageKeyboardFocus(t *testing.T) {
 	env.Stage.SetFocus(focus)
 
 	var keyDown, keyUp int
-	focus.Dispatcher().On(laya.EventKeyDown, func(evt laya.Event) {
+	focus.Dispatcher().On(laya.EventKeyDown, func(evt *laya.Event) {
 		keyDown++
 	})
-	focus.Dispatcher().On(laya.EventKeyUp, func(evt laya.Event) {
+	focus.Dispatcher().On(laya.EventKeyUp, func(evt *laya.Event) {
 		keyUp++
 	})
 
@@ -125,7 +125,7 @@ func TestStagePointerCapture(t *testing.T) {
 	env.Stage.SetCapture(capture)
 
 	var captureDown int
-	capture.Dispatcher().On(laya.EventMouseDown, func(evt laya.Event) {
+	capture.Dispatcher().On(laya.EventMouseDown, func(evt *laya.Event) {
 		if pe, ok := evt.Data.(laya.PointerEvent); ok {
 			if pe.Target != capture {
 				t.Fatalf("expected capture target, got %+v", pe.Target)
@@ -135,7 +135,7 @@ func TestStagePointerCapture(t *testing.T) {
 	})
 
 	var rootTarget *laya.Sprite
-	env.Stage.Root().Dispatcher().On(laya.EventStageMouseDown, func(evt laya.Event) {
+	env.Stage.Root().Dispatcher().On(laya.EventStageMouseDown, func(evt *laya.Event) {
 		if pe, ok := evt.Data.(laya.PointerEvent); ok {
 			rootTarget = pe.Target
 		}

@@ -141,7 +141,7 @@ func TestGRootAdvanceRoutesStage(t *testing.T) {
 	stage.AddChild(child.DisplayObject())
 
 	var down bool
-	child.DisplayObject().Dispatcher().On(laya.EventMouseDown, func(evt laya.Event) {
+	child.DisplayObject().Dispatcher().On(laya.EventMouseDown, func(evt *laya.Event) {
 		down = true
 	})
 

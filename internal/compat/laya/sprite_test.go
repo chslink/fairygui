@@ -37,7 +37,7 @@ func TestStageMouseEvents(t *testing.T) {
 
 	var order []string
 	stageMoveCalled := false
-	stage.Root().Dispatcher().On(laya.EventMouseMove, func(evt laya.Event) {
+	stage.Root().Dispatcher().On(laya.EventMouseMove, func(evt *laya.Event) {
 		stageMoveCalled = true
 		if pe, ok := evt.Data.(laya.PointerEvent); ok {
 			if pe.Target != child {
@@ -48,33 +48,33 @@ func TestStageMouseEvents(t *testing.T) {
 		}
 	})
 
-	stage.Root().Dispatcher().On(laya.EventStageMouseDown, func(evt laya.Event) {
+	stage.Root().Dispatcher().On(laya.EventStageMouseDown, func(evt *laya.Event) {
 		order = append(order, "stage-down")
 		if pe, ok := evt.Data.(laya.PointerEvent); !ok || pe.Target != child {
 			t.Fatalf("stage down should target child")
 		}
 	})
-	stage.Root().Dispatcher().On(laya.EventStageMouseUp, func(evt laya.Event) {
+	stage.Root().Dispatcher().On(laya.EventStageMouseUp, func(evt *laya.Event) {
 		order = append(order, "stage-up")
 	})
 
-	container.Dispatcher().On(laya.EventMouseDown, func(evt laya.Event) {
+	container.Dispatcher().On(laya.EventMouseDown, func(evt *laya.Event) {
 		order = append(order, "parent-down")
 	})
-	container.Dispatcher().On(laya.EventMouseUp, func(evt laya.Event) {
+	container.Dispatcher().On(laya.EventMouseUp, func(evt *laya.Event) {
 		order = append(order, "parent-up")
 	})
-	container.Dispatcher().On(laya.EventClick, func(evt laya.Event) {
+	container.Dispatcher().On(laya.EventClick, func(evt *laya.Event) {
 		order = append(order, "parent-click")
 	})
 
-	child.Dispatcher().On(laya.EventMouseDown, func(evt laya.Event) {
+	child.Dispatcher().On(laya.EventMouseDown, func(evt *laya.Event) {
 		order = append(order, "child-down")
 	})
-	child.Dispatcher().On(laya.EventMouseUp, func(evt laya.Event) {
+	child.Dispatcher().On(laya.EventMouseUp, func(evt *laya.Event) {
 		order = append(order, "child-up")
 	})
-	child.Dispatcher().On(laya.EventClick, func(evt laya.Event) {
+	child.Dispatcher().On(laya.EventClick, func(evt *laya.Event) {
 		order = append(order, "child-click")
 	})
 
@@ -115,7 +115,7 @@ func TestStageMouseWheel(t *testing.T) {
 	stage.AddChild(child)
 
 	count := 0
-	child.Dispatcher().On(laya.EventMouseWheel, func(evt laya.Event) {
+	child.Dispatcher().On(laya.EventMouseWheel, func(evt *laya.Event) {
 		count++
 		pe, ok := evt.Data.(laya.PointerEvent)
 		if !ok {
@@ -266,10 +266,10 @@ func TestStageRollEvents(t *testing.T) {
 	stage.AddChild(child)
 
 	var rollOver, rollOut int
-	child.Dispatcher().On(laya.EventRollOver, func(evt laya.Event) {
+	child.Dispatcher().On(laya.EventRollOver, func(evt *laya.Event) {
 		rollOver++
 	})
-	child.Dispatcher().On(laya.EventRollOut, func(evt laya.Event) {
+	child.Dispatcher().On(laya.EventRollOut, func(evt *laya.Event) {
 		rollOut++
 	})
 

@@ -588,30 +588,30 @@ func (b *GButton) bindEvents() {
 			return
 		}
 		b.baseScaleX, b.baseScaleY = obj.Scale()
-		obj.On(laya.EventRollOver, func(evt laya.Event) {
+		obj.On(laya.EventRollOver, func(evt *laya.Event) {
 			b.onRollOver(evt)
 		})
-		obj.On(laya.EventRollOut, func(evt laya.Event) {
+		obj.On(laya.EventRollOut, func(evt *laya.Event) {
 			b.onRollOut(evt)
 		})
-		obj.On(laya.EventMouseDown, func(evt laya.Event) {
+		obj.On(laya.EventMouseDown, func(evt *laya.Event) {
 			b.onMouseDown(evt)
 		})
-		obj.On(laya.EventMouseUp, func(evt laya.Event) {
+		obj.On(laya.EventMouseUp, func(evt *laya.Event) {
 			b.onMouseUp(evt)
 		})
-		obj.On(laya.EventClick, func(evt laya.Event) {
+		obj.On(laya.EventClick, func(evt *laya.Event) {
 			b.onClick(evt)
 		})
 	})
 }
 
-func (b *GButton) onRollOver(evt laya.Event) {
+func (b *GButton) onRollOver(evt *laya.Event) {
 	b.hovered = true
 	b.updateVisualState()
 }
 
-func (b *GButton) onRollOut(evt laya.Event) {
+func (b *GButton) onRollOut(evt *laya.Event) {
 	b.hovered = false
 	if b.pressed {
 		b.applyDownScale(false)
@@ -619,7 +619,7 @@ func (b *GButton) onRollOut(evt laya.Event) {
 	b.updateVisualState()
 }
 
-func (b *GButton) onMouseDown(evt laya.Event) {
+func (b *GButton) onMouseDown(evt *laya.Event) {
 	if !b.GComponent.GObject.Touchable() {
 		return
 	}
@@ -631,7 +631,7 @@ func (b *GButton) onMouseDown(evt laya.Event) {
 	}
 }
 
-func (b *GButton) onMouseUp(evt laya.Event) {
+func (b *GButton) onMouseUp(evt *laya.Event) {
 	if !b.pressed {
 		return
 	}
@@ -640,7 +640,7 @@ func (b *GButton) onMouseUp(evt laya.Event) {
 	b.updateVisualState()
 }
 
-func (b *GButton) onClick(evt laya.Event) {
+func (b *GButton) onClick(evt *laya.Event) {
 	if !b.changeStateOnClick {
 		return
 	}

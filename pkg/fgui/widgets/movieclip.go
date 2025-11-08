@@ -69,8 +69,8 @@ func NewMovieClip() *GMovieClip {
 	if sprite := obj.DisplayObject(); sprite != nil {
 		sprite.SetMouseEnabled(false)
 		dispatcher := sprite.Dispatcher()
-		dispatcher.On(laya.EventDisplay, func(laya.Event) { clip.ensureTicker() })
-		dispatcher.On(laya.EventUndisplay, func(laya.Event) { clip.stopTicker() })
+		dispatcher.On(laya.EventDisplay, func(*laya.Event) { clip.ensureTicker() })
+		dispatcher.On(laya.EventUndisplay, func(*laya.Event) { clip.stopTicker() })
 	}
 	return clip
 }

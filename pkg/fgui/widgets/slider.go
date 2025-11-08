@@ -333,7 +333,7 @@ func (s *GSlider) applyTitle() {
 	applyTextToObject(s.titleObject, text)
 }
 
-func (s *GSlider) onGripMouseDown(evt laya.Event) {
+func (s *GSlider) onGripMouseDown(evt *laya.Event) {
 	if s.gripObject == nil || s.GComponent == nil {
 		return
 	}
@@ -348,7 +348,7 @@ func (s *GSlider) onGripMouseDown(evt laya.Event) {
 	s.registerStageDrag()
 }
 
-func (s *GSlider) onStageMouseMove(evt laya.Event) {
+func (s *GSlider) onStageMouseMove(evt *laya.Event) {
 	if !s.dragging || s.GComponent == nil {
 		return
 	}
@@ -372,7 +372,7 @@ func (s *GSlider) onStageMouseMove(evt laya.Event) {
 	s.updateFromInteraction(percent)
 }
 
-func (s *GSlider) onStageMouseUp(evt laya.Event) {
+func (s *GSlider) onStageMouseUp(evt *laya.Event) {
 	if !s.dragging {
 		return
 	}
@@ -380,7 +380,7 @@ func (s *GSlider) onStageMouseUp(evt laya.Event) {
 	s.unregisterStageDrag()
 }
 
-func (s *GSlider) onBarMouseDown(evt laya.Event) {
+func (s *GSlider) onBarMouseDown(evt *laya.Event) {
 	if !s.changeOnClick || s.GComponent == nil {
 		return
 	}
@@ -436,12 +436,12 @@ func (s *GSlider) registerStageDrag() {
 	}
 	dispatcher := stage.Root().Dispatcher()
 	if s.stageMoveListener == nil {
-		s.stageMoveListener = func(evt laya.Event) {
+		s.stageMoveListener = func(evt *laya.Event) {
 			s.onStageMouseMove(evt)
 		}
 	}
 	if s.stageUpListener == nil {
-		s.stageUpListener = func(evt laya.Event) {
+		s.stageUpListener = func(evt *laya.Event) {
 			s.onStageMouseUp(evt)
 		}
 	}

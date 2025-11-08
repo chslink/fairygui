@@ -428,7 +428,7 @@ func (t *GTextField) attachLinkHandler() {
 	if sprite == nil {
 		return
 	}
-	handler := func(evt laya.Event) {
+	handler := func(evt *laya.Event) {
 		pe, ok := evt.Data.(laya.PointerEvent)
 		if !ok {
 			return

@@ -112,7 +112,7 @@ func TestGObjectTouchableUpdatesSprite(t *testing.T) {
 func TestGObjectEventHelpers(t *testing.T) {
 	obj := NewGObject()
 	var seen int
-	listener := func(evt laya.Event) {
+	listener := func(evt *laya.Event) {
 		seen++
 	}
 

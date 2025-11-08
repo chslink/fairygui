@@ -69,7 +69,7 @@ func (d *JoystickDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent
 		}
 	}
 
-	d.moveHandler = func(evt laya.Event) {
+	d.moveHandler = func(evt *laya.Event) {
 		if d.textField == nil {
 			return
 		}
@@ -175,7 +175,7 @@ func NewJoystickModule(view *core.GComponent, stage *laya.Stage) (*JoystickModul
 	module.initX = center.X() + center.Width()/2
 	module.initY = center.Y() + center.Height()/2
 
-	module.touchListener = func(evt laya.Event) {
+	module.touchListener = func(evt *laya.Event) {
 		module.onTouchDown(evt)
 	}
 	touchArea.On(laya.EventMouseDown, module.touchListener)
@@ -373,12 +373,12 @@ func (m *JoystickModule) registerStageListeners() {
 		return
 	}
 	if m.moveListener == nil {
-		m.moveListener = func(evt laya.Event) {
+		m.moveListener = func(evt *laya.Event) {
 			m.onStageMove(evt)
 		}
 	}
 	if m.upListener == nil {
-		m.upListener = func(evt laya.Event) {
+		m.upListener = func(evt *laya.Event) {
 			m.onStageUp(evt)
 		}
 	}

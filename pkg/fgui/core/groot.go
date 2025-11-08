@@ -355,7 +355,7 @@ func (r *GRoot) registerStageListeners() {
 		return
 	}
 	root := r.stage.Root()
-	r.stageMouseDown = func(evt laya.Event) {
+	r.stageMouseDown = func(evt *laya.Event) {
 		if pe, ok := evt.Data.(laya.PointerEvent); ok {
 			if pe.Hit != nil {
 				r.CheckPopups(pe.Hit)
@@ -366,7 +366,7 @@ func (r *GRoot) registerStageListeners() {
 			r.CheckPopups(nil)
 		}
 	}
-	r.stageMouseUp = func(evt laya.Event) {
+	r.stageMouseUp = func(evt *laya.Event) {
 		r.justClosed = r.justClosed[:0]
 	}
 	root.Dispatcher().On(laya.EventStageMouseDown, r.stageMouseDown)

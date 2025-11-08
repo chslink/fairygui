@@ -322,8 +322,17 @@ func (s *Sprite) Emit(evt EventType, data any) {
 
 // EmitWithBubble dispatches an event on the sprite and parents up to the root.
 func (s *Sprite) EmitWithBubble(evt EventType, data any) {
+	// 创建事件对象
+	event := &Event{Type: evt, Data: data}
+
+	// 遍历从当前节点到根节点的所有父级
 	for current := s; current != nil; current = current.parent {
-		current.dispatcher.Emit(evt, data)
+		// 在分发前检查事件是否已停止传播
+		if event.stopped {
+			break
+		}
+		// 分发事件到当前节点的所有监听器
+		current.dispatcher.Emit(evt, event)
 	}
 }
 

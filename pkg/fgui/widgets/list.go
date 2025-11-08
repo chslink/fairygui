@@ -350,7 +350,7 @@ func (l *GList) attachItemClick(obj *core.GObject) {
 	if handler, ok := l.itemHandlers[obj]; ok && handler != nil {
 		obj.Off(laya.EventClick, handler)
 	}
-	handler := func(evt laya.Event) {
+	handler := func(evt *laya.Event) {
 		index := l.indexOf(obj)
 		if index >= 0 {
 			l.handleItemClick(index)

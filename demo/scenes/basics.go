@@ -251,7 +251,7 @@ func (d *BasicsDemo) initText(component *core.GComponent) {
 	rich := component.ChildByName("n12")
 	if rich != nil {
 		if sprite := rich.DisplayObject(); sprite != nil {
-			sprite.Dispatcher().On(laya.EventLink, func(evt laya.Event) {
+			sprite.Dispatcher().On(laya.EventLink, func(evt *laya.Event) {
 				link := ""
 				if str, ok := evt.Data.(string); ok {
 					link = str
@@ -813,10 +813,10 @@ func (d *BasicsDemo) ensureStageDragHandlers() {
 	if dispatcher == nil {
 		return
 	}
-	d.stageMove = func(evt laya.Event) {
+	d.stageMove = func(evt *laya.Event) {
 		d.onStageDragMove(evt)
 	}
-	d.stageUp = func(evt laya.Event) {
+	d.stageUp = func(evt *laya.Event) {
 		d.onStageDragUp(evt)
 	}
 	dispatcher.On(laya.EventMouseMove, d.stageMove)
@@ -846,7 +846,7 @@ func (d *BasicsDemo) makeDraggable(obj *core.GObject, opts dragOptions) {
 	}
 	obj.SetTouchable(true)
 	if disp := obj.DisplayObject(); disp != nil {
-		disp.Dispatcher().On(laya.EventMouseDown, func(evt laya.Event) {
+		disp.Dispatcher().On(laya.EventMouseDown, func(evt *laya.Event) {
 			if d.dragCtx != nil && d.dragCtx.active {
 				return
 			}

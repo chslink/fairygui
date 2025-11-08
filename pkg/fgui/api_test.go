@@ -56,7 +56,7 @@ func TestAdvanceShortcut(t *testing.T) {
 	stage.AddChild(obj.DisplayObject())
 
 	var clicked bool
-	obj.DisplayObject().Dispatcher().Once(laya.EventMouseDown, func(evt laya.Event) {
+	obj.DisplayObject().Dispatcher().Once(laya.EventMouseDown, func(evt *laya.Event) {
 		clicked = true
 	})
 

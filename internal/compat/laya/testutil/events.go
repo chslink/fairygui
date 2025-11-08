@@ -19,7 +19,7 @@ func AttachEventLog(log *EventLog, sprite *laya.Sprite, events ...laya.EventType
 	dispatcher := sprite.Dispatcher()
 	for _, evt := range events {
 		func(e laya.EventType) {
-			dispatcher.On(e, func(ev laya.Event) {
+			dispatcher.On(e, func(ev *laya.Event) {
 				log.Records = append(log.Records, EventRecord{
 					Source: sprite,
 					Type:   e,

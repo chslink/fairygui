@@ -110,7 +110,7 @@ func (d *TransitionDemo) Load(ctx context.Context, mgr *Manager) (*core.GCompone
 		if sprite == nil || sprite.Dispatcher() == nil {
 			return
 		}
-		sprite.Dispatcher().On(laya.EventClick, func(evt laya.Event) {
+		sprite.Dispatcher().On(laya.EventClick, func(evt *laya.Event) {
 			d.playTarget(target, nil)
 		})
 	}

@@ -43,12 +43,33 @@ const (
 
 // Event carries the runtime payload for a dispatched event.
 type Event struct {
-	Type EventType
-	Data any
+	Type     EventType
+	Data     any
+	stopped  bool  // 标记事件是否已停止传播
 }
 
+// StopPropagation 阻止事件继续向父级冒泡
+// 用法与TypeScript版本一致：event.stopPropagation()
+func (e *Event) StopPropagation() {
+	e.stopped = true
+}
+
+// IsPropagationStopped 检查事件是否已停止传播
+func (e *Event) IsPropagationStopped() bool {
+	return e.stopped
+}
+
+// StopPropagation 工具函数，从Event值创建指针并停止传播
+func StopPropagation(evt Event) {
+	if e, ok := any(&evt).(*Event); ok {
+		e.StopPropagation()
+	}
+}
+
+
 // Listener reacts to an emitted event.
-type Listener func(Event)
+// Changed to receive *Event to support StopPropagation()
+type Listener func(*Event)
 
 // EventDispatcher dispatches named events to registered listeners.
 type EventDispatcher interface {
@@ -125,10 +146,19 @@ func (d *BasicEventDispatcher) Emit(evt EventType, data any) {
 		return
 	}
 
-	event := Event{Type: evt, Data: data}
+	// 如果data已经是*Event指针，直接使用
+	// 否则创建新的Event对象
+	var event *Event
+	if e, ok := data.(*Event); ok {
+		event = e
+	} else {
+		event = &Event{Type: evt, Data: data}
+	}
+
 	remaining := list[:0]
 	for _, entry := range list {
 		if entry.fn != nil {
+			// 传递*Event指针，这样监听器可以调用StopPropagation()
 			entry.fn(event)
 		}
 		if !entry.once {

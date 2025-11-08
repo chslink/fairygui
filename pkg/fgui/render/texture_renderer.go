@@ -97,14 +97,14 @@ func (r *TextureRenderer) renderSimple(
 	cmd *laya.TextureCommand,
 	spriteOffsetX, spriteOffsetY float64,
 ) error {
-	if sprite != nil {
-		if owner := sprite.Owner(); owner != nil {
-			if gobj, ok := owner.(*core.GObject); ok {
-				name := gobj.Name()
-				if name == "n1" || name == "n2" || name == "n3" {
-				}
-			}
-		}
+	if sprite != nil {
+		if owner := sprite.Owner(); owner != nil {
+			if gobj, ok := owner.(*core.GObject); ok {
+				name := gobj.Name()
+				if name == "n1" || name == "n2" || name == "n3" {
+				}
+			}
+		}
 	}
 
 	// 构建完整的本地变换矩阵

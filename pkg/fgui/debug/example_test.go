@@ -168,7 +168,7 @@ func TestEventSimulator(t *testing.T) {
 
 	// 记录点击事件
 	clicked := false
-	button.GComponent.GObject.On(laya.EventClick, func(evt laya.Event) {
+	button.GComponent.GObject.On(laya.EventClick, func(evt *laya.Event) {
 		clicked = true
 	})
 
