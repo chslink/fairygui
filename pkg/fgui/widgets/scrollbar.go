@@ -308,19 +308,17 @@ func (b *GScrollBar) onGripMouseDown(evt laya.Event) {
 	if !ok {
 		return
 	}
-	display := b.getContainerDisplayObject()
+	b.dragging = true
+	// 与TypeScript版本一致：使用ScrollBar的DisplayObject进行坐标转换
+	// TypeScript: this.globalToLocal(Laya.stage.mouseX, Laya.stage.mouseY, this._dragOffset)
+	display := b.GComponent.GObject.DisplayObject()
 	if display == nil {
 		return
 	}
-	b.dragging = true
 	local := display.GlobalToLocal(event.Position)
 	// 计算鼠标相对于滑块左上角的偏移量
-	// 与TypeScript版本一致：dragOffset = 鼠标在container中的位置 - 滑块在container中的位置
-	if b.vertical {
-		b.dragOffset = laya.Point{X: local.X - b.grip.X(), Y: local.Y - b.grip.Y()}
-	} else {
-		b.dragOffset = laya.Point{X: local.X - b.grip.X(), Y: local.Y - b.grip.Y()}
-	}
+	// 公式：dragOffset = 鼠标在ScrollBar中的位置 - 滑块在ScrollBar中的位置
+	b.dragOffset = laya.Point{X: local.X - b.grip.X(), Y: local.Y - b.grip.Y()}
 	b.registerStageDrag()
 }
 
@@ -332,7 +330,8 @@ func (b *GScrollBar) onStageMouseMove(evt laya.Event) {
 	if !ok {
 		return
 	}
-	display := b.getContainerDisplayObject()
+	// 与TypeScript版本一致：使用ScrollBar的DisplayObject进行坐标转换
+	display := b.GComponent.GObject.DisplayObject()
 	if display == nil {
 		return
 	}
