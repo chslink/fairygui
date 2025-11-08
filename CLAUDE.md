@@ -25,6 +25,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 开发环境限制
 
+**重要规则**：
+- **Demo是GUI项目，需要人工操作** - 不要直接运行demo进行自动化测试
+- 应使用单元测试验证功能
+- GUI验证需要人工在GUI环境中点击进入相应场景
 
 **工作流程**：
 1. Claude 输出需要执行的测试/demo 命令
