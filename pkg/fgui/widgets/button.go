@@ -77,7 +77,8 @@ func NewButton() *GButton {
 		mode:               ButtonModeCommon,
 		changeStateOnClick: true,
 		downEffectValue:    0.8,
-		soundVolumeScale:   1,
+		soundVolumeScale:   core.GetUIConfig().ButtonSoundVolumeScale,
+		sound:              core.GetUIConfig().ButtonSound,
 	}
 	btn.titleColor = "#ffffff"
 	btn.titleFontSize = 12
@@ -641,6 +642,17 @@ func (b *GButton) onMouseUp(evt *laya.Event) {
 }
 
 func (b *GButton) onClick(evt *laya.Event) {
+	// 播放按钮点击音效
+	if b.sound != "" {
+		// 尝试从 UIPackage 获取音效文件
+		if pi := assets.GetItemByURL(b.sound); pi != nil && pi.File != "" {
+			core.Root().PlayOneShotSound(pi.File, b.soundVolumeScale)
+		} else {
+			// 如果没有找到 PackageItem，直接使用 sound 作为文件路径
+			core.Root().PlayOneShotSound(b.sound, b.soundVolumeScale)
+		}
+	}
+
 	if !b.changeStateOnClick {
 		return
 	}

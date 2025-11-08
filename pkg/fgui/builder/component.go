@@ -3,7 +3,6 @@ package builder
 import (
 	"context"
 	"fmt"
-	"log"
 	"math"
 	"path/filepath"
 	"strings"
@@ -1426,20 +1425,15 @@ func (f *Factory) assignLoaderPackage(ctx context.Context, loader *widgets.GLoad
 	if loader == nil {
 		return
 	}
-	log.Printf("[assignLoaderPackage] 开始处理 GLoader，URL=%s", loader.URL())
 	loader.SetComponent(nil)
 	loader.SetPackageItem(nil)
 	if item == nil {
-		log.Printf("[assignLoaderPackage] item 为 nil，尝试解析 URL")
 		if resolved := f.resolveIcon(ctx, currentPkg, loader.URL()); resolved != nil {
 			item = resolved
-			log.Printf("[assignLoaderPackage] 解析成功: type=%v, id=%s", resolved.Type, resolved.ID)
 		} else {
-			log.Printf("[assignLoaderPackage] 解析失败，返回")
 			return
 		}
 	} else {
-		log.Printf("[assignLoaderPackage] item 已提供: type=%v, id=%s", item.Type, item.ID)
 	}
 	loader.SetPackageItem(item)
 	loader.SetScale9Grid(nil)
@@ -1449,23 +1443,17 @@ func (f *Factory) assignLoaderPackage(ctx context.Context, loader *widgets.GLoad
 	loader.SetScaleByTile(item.ScaleByTile)
 	loader.SetTileGridIndice(item.TileGridIndice)
 	if item.Type == assets.PackageItemTypeComponent {
-		log.Printf("[assignLoaderPackage] 检测到 Component 类型，开始构建")
 		targetPkg := item.Owner
 		if targetPkg == nil {
 			targetPkg = currentPkg
 		}
 		nested, err := f.BuildComponent(ctx, targetPkg, item)
 		if err != nil {
-			log.Printf("[assignLoaderPackage] BuildComponent 失败: %v", err)
 		} else if nested == nil {
-			log.Printf("[assignLoaderPackage] BuildComponent 返回 nil")
 		} else {
-			log.Printf("[assignLoaderPackage] BuildComponent 成功，尺寸: %.0fx%.0f", nested.Width(), nested.Height())
 			loader.SetComponent(nested)
-			log.Printf("[assignLoaderPackage] SetComponent 完成")
 		}
 	} else {
-		log.Printf("[assignLoaderPackage] 非 Component 类型，跳过构建")
 	}
 }
 

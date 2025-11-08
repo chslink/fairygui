@@ -383,6 +383,7 @@ func (c *GComponent) ChildAt(index int) *GObject {
 }
 
 // ChildByName returns the first child with the given name.
+// 对应 TypeScript 版本的 getChild
 func (c *GComponent) ChildByName(name string) *GObject {
 	if name == "" {
 		return nil
@@ -393,6 +394,47 @@ func (c *GComponent) ChildByName(name string) *GObject {
 		}
 	}
 	return nil
+}
+
+// GetChild is an alias for ChildByName to match TypeScript API.
+// 对应 TypeScript 版本的 getChild
+func (c *GComponent) GetChild(name string) *GObject {
+	return c.ChildByName(name)
+}
+
+// GetChildAt returns the child at the specified index.
+// 对应 TypeScript 版本的 getChildAt
+func (c *GComponent) GetChildAt(index int) *GObject {
+	if index < 0 || index >= len(c.children) {
+		return nil
+	}
+	return c.children[index]
+}
+
+// GetController is an alias for ControllerByName to match TypeScript API.
+// 对应 TypeScript 版本的 getController
+func (c *GComponent) GetController(name string) *Controller {
+	return c.ControllerByName(name)
+}
+
+// ControllerByName is an alias for GetController.
+// 对应 TypeScript 版本的 getController
+func (c *GComponent) ControllerByName(name string) *Controller {
+	if name == "" {
+		return nil
+	}
+	for _, controller := range c.controllers {
+		if controller != nil && controller.Name == name {
+			return controller
+		}
+	}
+	return nil
+}
+
+// NumChildren returns the number of children.
+// 对应 TypeScript 版本的 numChildren
+func (c *GComponent) NumChildren() int {
+	return len(c.children)
 }
 
 // Controllers returns the controllers on this component.
@@ -470,16 +512,6 @@ func (c *GComponent) upsertTransition(index int, info TransitionInfo) {
 	if info.AutoPlay {
 		tx.Play(info.AutoPlayTimes, info.AutoPlayDelay)
 	}
-}
-
-// ControllerByName looks up a controller with the given name.
-func (c *GComponent) ControllerByName(name string) *Controller {
-	for _, ctrl := range c.controllers {
-		if ctrl != nil && ctrl.Name == name {
-			return ctrl
-		}
-	}
-	return nil
 }
 
 // ControllerAt returns the controller at the provided index.

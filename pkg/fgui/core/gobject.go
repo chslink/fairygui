@@ -450,6 +450,69 @@ func (g *GObject) Emit(evt laya.EventType, data any) {
 	g.display.Dispatcher().Emit(evt, data)
 }
 
+// OnClick registers a click event listener (convenience method).
+// 对应 TypeScript 版本的 onClick(this, handler)
+// Usage: obj.OnClick(func() { ... })
+func (g *GObject) OnClick(fn func()) {
+	if g == nil || fn == nil {
+		return
+	}
+	g.On(laya.EventClick, func(evt *laya.Event) {
+		fn()
+	})
+}
+
+// OnClickWithData registers a click event listener with event data.
+// 对应 TypeScript 版本的 onClick(this, handler)
+// Usage: obj.OnClickWithData(func(evt *laya.Event) { ... })
+func (g *GObject) OnClickWithData(fn func(*laya.Event)) {
+	if g == nil || fn == nil {
+		return
+	}
+	g.On(laya.EventClick, fn)
+}
+
+// OffClick removes a click event listener.
+func (g *GObject) OffClick(fn func()) {
+	if g == nil || fn == nil {
+		return
+	}
+	g.Off(laya.EventClick, func(evt *laya.Event) {
+		fn()
+	})
+}
+
+// OnLink registers a link-click event listener for text fields (convenience method).
+// 对应 TypeScript 版本的 on(Laya.Event.LINK, this, handler)
+func (g *GObject) OnLink(fn func(string)) {
+	if g == nil || fn == nil {
+		return
+	}
+	g.On(laya.EventLink, func(evt *laya.Event) {
+		if link, ok := evt.Data.(string); ok {
+			fn(link)
+		}
+	})
+}
+
+// OnStateChanged registers a state change event listener (convenience method).
+// 对应 TypeScript 版本的 on(fgui.Events.STATE_CHANGED, this, handler)
+func (g *GObject) OnStateChanged(fn func(*laya.Event)) {
+	if g == nil || fn == nil {
+		return
+	}
+	g.On(laya.EventStateChanged, func(evt *laya.Event) {
+		fn(evt)
+	})
+}
+
+// Cast converts a GObject to a specific type.
+// 对应 TypeScript 版本的 fgui.GObject.cast
+// Usage: button := fgui.Cast(obj).asButton
+func Cast(obj *GObject) *GObject {
+	return obj
+}
+
 // Grayed reports whether the object is displayed in a grayed state.
 func (g *GObject) Grayed() bool {
 	return g.grayed
@@ -856,6 +919,75 @@ func (g *GObject) SetData(value any) {
 
 // Data returns the user data associated with the object.
 func (g *GObject) Data() any {
+	return g.data
+}
+
+// AsComponent returns the object as *GComponent if it is one, otherwise nil.
+func (g *GObject) AsComponent() *GComponent {
+	if g == nil {
+		return nil
+	}
+	if comp, ok := g.data.(*GComponent); ok {
+		return comp
+	}
+	return nil
+}
+
+// AsButton returns the object as *widgets.GButton if it is one, otherwise nil.
+func (g *GObject) AsButton() interface{} {
+	if g == nil {
+		return nil
+	}
+	// Import is avoided to prevent circular dependencies
+	// Return interface{} and let caller type assert if needed
+	return g.data
+}
+
+// AsList returns the object as *widgets.GList if it is one, otherwise nil.
+func (g *GObject) AsList() interface{} {
+	if g == nil {
+		return nil
+	}
+	return g.data
+}
+
+// AsTextField returns the object as *widgets.GTextField if it is one, otherwise nil.
+func (g *GObject) AsTextField() interface{} {
+	if g == nil {
+		return nil
+	}
+	return g.data
+}
+
+// AsLabel returns the object as *widgets.GLabel if it is one, otherwise nil.
+func (g *GObject) AsLabel() interface{} {
+	if g == nil {
+		return nil
+	}
+	return g.data
+}
+
+// AsImage returns the object as *widgets.GImage if it is one, otherwise nil.
+func (g *GObject) AsImage() interface{} {
+	if g == nil {
+		return nil
+	}
+	return g.data
+}
+
+// AsMovieClip returns the object as *widgets.GMovieClip if it is one, otherwise nil.
+func (g *GObject) AsMovieClip() interface{} {
+	if g == nil {
+		return nil
+	}
+	return g.data
+}
+
+// AsLoader returns the object as *widgets.GLoader if it is one, otherwise nil.
+func (g *GObject) AsLoader() interface{} {
+	if g == nil {
+		return nil
+	}
 	return g.data
 }
 

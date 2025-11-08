@@ -17,7 +17,7 @@
       <Button title="Click Me" icon="ui://9leh0eyfrpmb6"/>
     </component>
     <component id="n7" name="n7" src="rpmb12" fileName="components/Button4.xml" xy="278,298"/>
-    <text id="n8" name="n8" xy="38,308" size="167,32" fontSize="22" text="Transition Effect:"/>
+    <text id="n8" name="n8" xy="38,308" size="202,32" fontSize="22" text="Transition Effect:"/>
     <component id="n11" name="n11" src="rpmb11" fileName="components/Button3.xml" xy="330,22" size="88,40">
       <Button title="点我" icon="ui://9leh0eyfrpmb6"/>
     </component>
@@ -27,9 +27,9 @@
     <component id="n13" name="n13" src="rpmb13" fileName="components/Button5.xml" xy="489,20">
       <Button icon="ui://9leh0eyfrpmbu"/>
     </component>
-    <component id="n15" name="n15" src="rpmb15" fileName="components/Button7.xml" xy="704,19"/>
+    <component id="n15" name="n15" src="rpmb15" fileName="components/Button7.xml" xy="705,19"/>
     <component id="n16" name="n16" src="rpmb19" fileName="components/OnOffButton.xml" xy="473,300">
-      <Button title="On" selectedTitle="Off"/>
+      <Button title="On" selectedTitle="Off" sound="ui://9leh0eyfgojg7u"/>
     </component>
     <component id="n17" name="n17" src="rpmb17" fileName="components/Button9.xml" xy="627,289">
       <Button title="Fade In Out"/>
@@ -43,8 +43,8 @@
     <component id="n20" name="n20" src="rpmb1a" fileName="components/RadioButton.xml" xy="408,220" size="86,19">
       <Button title="Option3" controller="RadioGroup" page="2"/>
     </component>
-    <text id="n21" name="n21" xy="410,125" size="121,32" fontSize="22" text="RadioGroup"/>
-    <text id="n22" name="n22" xy="728,123" size="52,32" fontSize="22" text="Tabs"/>
+    <text id="n21" name="n21" xy="410,125" size="114,32" fontSize="22" text="RadioGroup"/>
+    <text id="n22" name="n22" xy="728,123" size="48,32" fontSize="22" text="Tabs"/>
     <component id="n23" name="n23" src="rpmb14" fileName="components/Button6.xml" xy="725,161">
       <Button checked="true" title="Tab1" controller="tab" page="0"/>
     </component>
@@ -66,7 +66,7 @@
     <component id="n32" name="n32" src="rpmb13" fileName="components/Button5.xml" xy="48,413" touchable="false" grayed="true">
       <Button icon="ui://9leh0eyfrpmbu"/>
     </component>
-    <text id="n33" name="n33" xy="38,373" size="358,32" fontSize="22" text="Disable button: grayed+no touchable"/>
+    <text id="n33" name="n33" xy="38,373" size="389,32" fontSize="22" text="Disable button: grayed+no touchable"/>
     <component id="n34" name="n34" src="poiq7e" fileName="components/Button1.xml" xy="832,28" size="145,48">
       <Button title="简单按钮"/>
     </component>

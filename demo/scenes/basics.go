@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
+	"github.com/chslink/fairygui/pkg/fgui"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/gears"
 	"github.com/chslink/fairygui/pkg/fgui/tween"
@@ -64,6 +65,12 @@ func (d *BasicsDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent, 
 	if _, err := env.Package(ctx, "Basics"); err != nil {
 		return nil, err
 	}
+
+	// 设置默认滚动条和点击音效（对应TypeScript版本的第12-16行）
+	fgui.SetDefaultScrollBars("ui://Basics/ScrollBar_VT", "ui://Basics/ScrollBar_HZ")
+	fgui.SetDefaultPopupMenu("ui://Basics/PopupMenu")
+	fgui.SetDefaultButtonSound("ui://Basics/click")
+
 	pkg, err := env.Package(ctx, "Basics")
 	if err != nil {
 		return nil, err
@@ -78,19 +85,18 @@ func (d *BasicsDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent, 
 	}
 	d.view = view
 	d.container = childAsComponent(view, "container")
-	d.controller = view.ControllerByName("c1")
-	d.backBtn = view.ChildByName("btn_Back")
+	d.controller = view.GetController("c1")
+	d.backBtn = view.GetChild("btn_Back")
 	if d.backBtn != nil {
 		d.backBtn.SetVisible(false)
-		if sprite := d.backBtn.DisplayObject(); sprite != nil {
-			sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
-				d.showMainMenu()
-			})
-		}
+		d.backBtn.OnClick(func() {
+			d.showMainMenu()
+		})
 	}
 
 	// Wire main buttons.
-	for _, child := range view.Children() {
+	for i := 0; i < view.NumChildren(); i++ {
+		child := view.GetChildAt(i)
 		if child == nil {
 			continue
 		}
@@ -105,6 +111,11 @@ func (d *BasicsDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent, 
 }
 
 func (d *BasicsDemo) Dispose() {
+	// 清理默认滚动条和点击音效配置（对应TypeScript版本的第42-47行）
+	// 清理默认滚动条和点击音效配置（对应TypeScript版本的第42-47行）
+	fgui.SetDefaultScrollBars("", "")
+	fgui.SetDefaultPopupMenu("")
+	fgui.SetDefaultButtonSound("")
 	d.progressAlive = false
 	d.progressTick = nil
 	if d.winA != nil {
@@ -140,14 +151,12 @@ func (d *BasicsDemo) attachDemoButton(obj *core.GObject) {
 		return
 	}
 	log.Printf("[basics] attach demo button %s", btnName)
-	if sprite := obj.DisplayObject(); sprite != nil {
-		d.mainButtons = append(d.mainButtons, obj)
-		scene := btnName
-		sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
-			log.Printf("[basics] click demo button %s", btnName)
-			d.runDemo(scene)
-		})
-	}
+	d.mainButtons = append(d.mainButtons, obj)
+	scene := btnName
+	obj.OnClick(func() {
+		log.Printf("[basics] click demo button %s", btnName)
+		d.runDemo(scene)
+	})
 }
 
 func (d *BasicsDemo) runDemo(kind string) {
@@ -233,13 +242,10 @@ func (d *BasicsDemo) initButton(component *core.GComponent) {
 	}
 	// 参考 TypeScript 原版：BasicsDemo.ts playButton()
 	// 只给 n34 添加简单的点击事件
-	target := component.ChildByName("btn_Button")
-	if target != nil {
-		if sprite := target.DisplayObject(); sprite != nil {
-			sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
-				log.Printf("[basics] ✅ click button - EVENT RECEIVED!")
-			})
-		}
+	if target := component.GetChild("btn_Button"); target != nil {
+		target.OnClick(func() {
+			log.Printf("[basics] ✅ click button - EVENT RECEIVED!")
+		})
 	}
 }
 
@@ -248,50 +254,36 @@ func (d *BasicsDemo) initText(component *core.GComponent) {
 		return
 	}
 	const linkTemplate = "[img]ui://9leh0eyft9fj5f[/img][color=#FF0000]你点击了链接[/color]：%s"
-	rich := component.ChildByName("n12")
-	if rich != nil {
-		if sprite := rich.DisplayObject(); sprite != nil {
-			sprite.Dispatcher().On(laya.EventLink, func(evt *laya.Event) {
-				link := ""
-				if str, ok := evt.Data.(string); ok {
-					link = str
-				} else if evt.Data != nil {
-					link = fmt.Sprint(evt.Data)
-				}
-				if setter, ok := rich.Data().(interface{ SetText(string) }); ok && setter != nil {
-					setter.SetText(fmt.Sprintf(linkTemplate, link))
-				}
-			})
-		}
-	}
-	copyBtn := component.ChildByName("n25")
-	dest := component.ChildByName("n24")
-	src := component.ChildByName("n22")
-	if copyBtn == nil || dest == nil || src == nil {
-		return
-	}
-	if sprite := copyBtn.DisplayObject(); sprite != nil {
-		sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
-			var content string
-			if reader, ok := src.Data().(interface{ Text() string }); ok && reader != nil {
-				content = reader.Text()
-			}
-			if writer, ok := dest.Data().(interface{ SetText(string) }); ok && writer != nil {
-				writer.SetText(content)
+	if rich := component.GetChild("n12"); rich != nil {
+		rich.OnLink(func(link string) {
+			if setter, ok := rich.Data().(interface{ SetText(string) }); ok && setter != nil {
+				setter.SetText(fmt.Sprintf(linkTemplate, link))
 			}
 		})
 	}
-
-	// 为输入框添加焦点处理
-	if inputBox := component.ChildByName("n22"); inputBox != nil {
-		if sprite := inputBox.DisplayObject(); sprite != nil {
-			// 点击时请求焦点以显示光标
-			sprite.Dispatcher().On(laya.EventClick, func(*laya.Event) {
-				if input, ok := inputBox.Data().(*widgets.GTextInput); ok && input != nil {
-					input.RequestFocus()
+	if copyBtn := component.GetChild("n25"); copyBtn != nil {
+		dest := component.GetChild("n24")
+		src := component.GetChild("n22")
+		if dest != nil && src != nil {
+			copyBtn.OnClick(func() {
+				var content string
+				if reader, ok := src.Data().(interface{ Text() string }); ok && reader != nil {
+					content = reader.Text()
+				}
+				if writer, ok := dest.Data().(interface{ SetText(string) }); ok && writer != nil {
+					writer.SetText(content)
 				}
 			})
 		}
+	}
+
+	// 为输入框添加焦点处理
+	if inputBox := component.GetChild("n22"); inputBox != nil {
+		inputBox.OnClickWithData(func(*laya.Event) {
+			if input, ok := inputBox.Data().(*widgets.GTextInput); ok && input != nil {
+				input.RequestFocus()
+			}
+		})
 		// 启动时自动请求焦点，直接显示光标
 		if input, ok := inputBox.Data().(*widgets.GTextInput); ok && input != nil {
 			input.RequestFocus()
@@ -322,11 +314,11 @@ func (d *BasicsDemo) initGrid(component *core.GComponent) {
 		}
 	}
 
-	fillList(component.ChildByName("list1"), func(item *core.GComponent, idx int) {
+	fillList(component.GetChild("list1"), func(item *core.GComponent, idx int) {
 		setComponentText(item, "t0", strconv.Itoa(idx+1))
 		setComponentText(item, "t1", names[idx])
 		setComponentColor(item, "t2", colors[rand.Intn(len(colors))])
-		if star := item.ChildByName("star"); star != nil {
+		if star := item.GetChild("star"); star != nil {
 			if bar := getProgressBar(star); bar != nil {
 				bar.SetMin(0)
 				bar.SetMax(100)
@@ -335,15 +327,15 @@ func (d *BasicsDemo) initGrid(component *core.GComponent) {
 		}
 	})
 
-	fillList(component.ChildByName("list2"), func(item *core.GComponent, idx int) {
-		if cb := item.ChildByName("cb"); cb != nil {
+	fillList(component.GetChild("list2"), func(item *core.GComponent, idx int) {
+		if cb := item.GetChild("cb"); cb != nil {
 			if btn, ok := cb.Data().(*widgets.GButton); ok {
 				btn.SetSelected(false)
 			}
 		}
 		// 参考 TypeScript 原版：BasicsDemo.ts playGrid()
 		// 设置 MovieClip 的播放状态：偶数索引播放，奇数索引停止
-		if mc := item.ChildByName("mc"); mc != nil {
+		if mc := item.GetChild("mc"); mc != nil {
 			if clip, ok := mc.Data().(*widgets.GMovieClip); ok && clip != nil {
 				clip.SetPlaying(idx%2 == 0)
 			}
@@ -403,7 +395,7 @@ func (d *BasicsDemo) initList(component *core.GComponent) {
 
 		var baseLabel string
 		var labelField *widgets.GTextField
-		if labelObj := component.ChildByName(cfg.label); labelObj != nil {
+		if labelObj := component.GetChild(cfg.label); labelObj != nil {
 			if txt, ok := labelObj.Data().(*widgets.GTextField); ok {
 				labelField = txt
 				baseLabel = txt.Text()
@@ -475,19 +467,15 @@ func (d *BasicsDemo) initWindow(component *core.GComponent) {
 	if component == nil {
 		return
 	}
-	if btn := component.ChildByName("n0"); btn != nil {
-		if disp := btn.DisplayObject(); disp != nil {
-			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
-				d.showWindowA()
-			})
-		}
+	if btn := component.GetChild("n0"); btn != nil {
+		btn.OnClick(func() {
+			d.showWindowA()
+		})
 	}
-	if btn := component.ChildByName("n1"); btn != nil {
-		if disp := btn.DisplayObject(); disp != nil {
-			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
-				d.showWindowB()
-			})
-		}
+	if btn := component.GetChild("n1"); btn != nil {
+		btn.OnClick(func() {
+			d.showWindowB()
+		})
 	}
 }
 
@@ -498,21 +486,15 @@ func (d *BasicsDemo) initPopup(component *core.GComponent) {
 	if d.popupItems == nil {
 		d.popupItems = []string{"Item 1", "Item 2", "Item 3", "Item 4"}
 	}
-	if btn := component.ChildByName("n0"); btn != nil {
-		if disp := btn.DisplayObject(); disp != nil {
-			anchor := btn
-			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
-				d.showPopupMenu(anchor)
-			})
-		}
+	if btn := component.GetChild("n0"); btn != nil {
+		btn.OnClick(func() {
+			d.showPopupMenu(btn)
+		})
 	}
-	if btn := component.ChildByName("n1"); btn != nil {
-		if disp := btn.DisplayObject(); disp != nil {
-			anchor := btn
-			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
-				d.showPopupOverlay(anchor)
-			})
-		}
+	if btn := component.GetChild("n1"); btn != nil {
+		btn.OnClick(func() {
+			d.showPopupOverlay(btn)
+		})
 	}
 }
 
@@ -522,11 +504,11 @@ func (d *BasicsDemo) initDragDrop(component *core.GComponent) {
 	}
 	d.ensureStageDragHandlers()
 
-	btnA := component.ChildByName("a")
+	btnA := component.GetChild("a")
 	d.makeDraggable(btnA, dragOptions{})
 
-	btnBObj := component.ChildByName("b")
-	btnCObj := component.ChildByName("c")
+	btnBObj := component.GetChild("b")
+	btnCObj := component.GetChild("c")
 	if btnBObj != nil && btnCObj != nil {
 		d.makeDraggable(btnBObj, dragOptions{
 			Payload: func() any {
@@ -555,9 +537,9 @@ func (d *BasicsDemo) initDragDrop(component *core.GComponent) {
 		})
 	}
 
-	btnD := component.ChildByName("d")
+	btnD := component.GetChild("d")
 	if btnD != nil {
-		boundsObj := component.ChildByName("bounds")
+		boundsObj := component.GetChild("bounds")
 		parent := btnD.Parent()
 		d.makeDraggable(btnD, dragOptions{
 			Bounds: func() *laya.Rect {
@@ -628,7 +610,7 @@ func (d *BasicsDemo) populateWindowA() {
 	if d.winA == nil || d.winA.component == nil {
 		return
 	}
-	listObj := d.winA.component.ChildByName("n6")
+	listObj := d.winA.component.GetChild("n6")
 	if listObj == nil {
 		return
 	}
@@ -676,7 +658,7 @@ func (d *BasicsDemo) setMainButtonsVisible(visible bool) {
 		btn.SetVisible(visible)
 	}
 	if d.view != nil {
-		if group := d.view.ChildByName("btns"); group != nil {
+		if group := d.view.GetChild("btns"); group != nil {
 			group.SetVisible(visible)
 		}
 	}
@@ -719,7 +701,7 @@ func (d *BasicsDemo) attachWindowClose(comp *core.GComponent, hide func()) {
 	if frame == nil {
 		return
 	}
-	if closeBtn := frame.ChildByName("closeButton"); closeBtn != nil {
+	if closeBtn := frame.GetChild("closeButton"); closeBtn != nil {
 		if disp := closeBtn.DisplayObject(); disp != nil {
 			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				hide()
@@ -1176,7 +1158,7 @@ func childAsComponent(parent *core.GComponent, name string) *core.GComponent {
 	if parent == nil {
 		return nil
 	}
-	child := parent.ChildByName(name)
+	child := parent.GetChild(name)
 	if child == nil {
 		return nil
 	}
@@ -1202,7 +1184,7 @@ func setComponentText(comp *core.GComponent, childName, value string) {
 	if comp == nil {
 		return
 	}
-	child := comp.ChildByName(childName)
+	child := comp.GetChild(childName)
 	if child == nil {
 		return
 	}
@@ -1221,7 +1203,7 @@ func setComponentText(comp *core.GComponent, childName, value string) {
 }
 
 func setComponentColor(comp *core.GComponent, childName, color string) {
-	child := comp.ChildByName(childName)
+	child := comp.GetChild(childName)
 	if child == nil {
 		return
 	}
@@ -1246,7 +1228,7 @@ func getProgressBar(obj *core.GObject) *widgets.GProgressBar {
 	// 检查是否是GComponent
 	if comp := core.ComponentFrom(obj); comp != nil {
 		// 检查子组件
-		if inner := comp.ChildByName("bar"); inner != nil {
+		if inner := comp.GetChild("bar"); inner != nil {
 			if b, ok := inner.Data().(*widgets.GProgressBar); ok {
 				return b
 			}
@@ -1259,7 +1241,7 @@ func childAsList(parent *core.GComponent, name string) *widgets.GList {
 	if parent == nil {
 		return nil
 	}
-	child := parent.ChildByName(name)
+	child := parent.GetChild(name)
 	if child == nil {
 		return nil
 	}
@@ -1295,7 +1277,7 @@ func applyListEntries(list *widgets.GList, entries []listEntry) {
 			data.SetTitle(entry.title)
 		case *core.GComponent:
 			setComponentText(data, "title", entry.title)
-			if iconChild := data.ChildByName("icon"); iconChild != nil {
+			if iconChild := data.GetChild("icon"); iconChild != nil {
 				switch iconData := iconChild.Data().(type) {
 				case *widgets.GLoader:
 					iconData.SetURL(entry.icon)
@@ -1366,7 +1348,7 @@ func listItemTitle(list *widgets.GList, index int) string {
 			return text
 		}
 	case *core.GComponent:
-		if titleChild := data.ChildByName("title"); titleChild != nil {
+		if titleChild := data.GetChild("title"); titleChild != nil {
 			switch titleData := titleChild.Data().(type) {
 			case *widgets.GTextField:
 				if text := titleData.Text(); text != "" {

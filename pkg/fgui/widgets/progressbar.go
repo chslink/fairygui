@@ -1,7 +1,6 @@
 package widgets
 
 import (
-	"log"
 	"math"
 	"strconv"
 	"strings"
@@ -242,7 +241,6 @@ func (b *GProgressBar) resolveTemplate() {
 				// 根据PackageItem的ID或Name判断
 				if pkgItem.ID == "gzpr80" || strings.Contains(pkgItem.Name, "circle") ||
 				   strings.Contains(pkgItem.Name, "radial") || pkgItem.Name == "bar" {
-					log.Printf("[resolveTemplate] 为GImage %s 设置径向填充: pkgItemID=%s", child.Name(), pkgItem.ID)
 					image.SetFill(int(LoaderFillMethodRadial360), 0, true, 100.0)
 				}
 			}
@@ -255,7 +253,6 @@ func (b *GProgressBar) resolveTemplate() {
 			if pkgItem := image.PackageItem(); pkgItem != nil {
 				if pkgItem.ID == "gzpr80" || strings.Contains(pkgItem.Name, "circle") ||
 				   strings.Contains(pkgItem.Name, "radial") || pkgItem.Name == "bar" {
-					log.Printf("[resolveTemplate] 为GImage %s 设置径向填充: pkgItemID=%s", child.Name(), pkgItem.ID)
 					image.SetFill(int(LoaderFillMethodRadial360), 0, true, 100.0)
 				}
 			}
@@ -284,16 +281,13 @@ func (b *GProgressBar) applyValue() {
 		return
 	}
 	percent := clamp01((b.value - b.min) / (b.max - b.min))
-	log.Printf("[applyValue] ProgressBar name=%s, value=%.0f, min=%.0f, max=%.0f, percent=%.2f", b.GObject.Name(), b.value, b.min, b.max, percent)
 	b.applyTitle()
 	fullWidth := b.Width() - b.barMaxWidthDelta
 	fullHeight := b.Height() - b.barMaxHeightDelta
 
 	if b.barObjectH != nil {
-		log.Printf("[applyValue] 找到barObjectH: name=%s", b.barObjectH.Name())
 		// TypeScript版本优先使用setFillAmount，只有失败时才修改width/height
 		if !b.setFillAmount(b.barObjectH, percent) {
-			log.Printf("[applyValue] setFillAmount失败，使用width/height方式")
 			width := math.Round(fullWidth * percent)
 			if width < 0 {
 				width = 0
@@ -313,14 +307,11 @@ func (b *GProgressBar) applyValue() {
 				}
 			}
 		} else {
-			log.Printf("[applyValue] setFillAmount成功")
 		}
 	} else {
-		log.Printf("[applyValue] 没有找到barObjectH")
 	}
 
 	if b.barObjectV != nil {
-		log.Printf("[applyValue] 找到barObjectV: name=%s", b.barObjectV.Name())
 		// TypeScript版本优先使用setFillAmount，只有失败时才修改width/height
 		if !b.setFillAmount(b.barObjectV, percent) {
 			height := math.Round(fullHeight * percent)
@@ -358,14 +349,11 @@ func (b *GProgressBar) setFillAmount(bar *core.GObject, percent float64) bool {
 	// 检查是否是GImage
 	if image, ok := bar.Data().(*GImage); ok {
 		method, _, _, _ := image.Fill()
-		log.Printf("[setFillAmount] GImage: name=%s, method=%d, percent=%.2f", bar.Name(), method, percent)
 		if method > 0 {
 			// 有fillMethod，使用fillAmount（百分比，0-100）
 			image.SetFill(method, image.fillOrigin, image.fillClockwise, percent*100.0)
-			log.Printf("[setFillAmount] GImage SetFill调用完成")
 			return true
 		} else {
-			log.Printf("[setFillAmount] GImage没有fillMethod")
 		}
 	}
 
@@ -379,7 +367,6 @@ func (b *GProgressBar) setFillAmount(bar *core.GObject, percent float64) bool {
 	}
 
 	// 既不是GImage也不是GLoader，或者没有fillMethod
-	log.Printf("[setFillAmount] bar不是GImage或GLoader，dataType=%T", bar.Data())
 	return false
 }
 

@@ -26,17 +26,26 @@ type UIConfig struct {
 	DefaultScrollBounceEffect bool
 	// 图片缩放时使用的全局Filter模式（默认使用线性过滤获得更好的抗锯齿效果）
 	ImageFilter ImageFilter
+	// 默认按钮点击音效 URL
+	ButtonSound string
+	// 默认按钮点击音效音量（0-1）
+	ButtonSoundVolumeScale float64
+	// 默认右键菜单资源 URL
+	PopupMenu string
 }
 
 // globalUIConfig 全局配置实例
 var globalUIConfig = &UIConfig{
-	HorizontalScrollBar:       "",
-	VerticalScrollBar:         "",
-	DefaultScrollBarDisplay:   ScrollBarDisplayVisible,
-	DefaultScrollStep:         25,
-	DefaultScrollTouchEffect:  true,
-	DefaultScrollBounceEffect: true,
-	ImageFilter:               ImageFilterLinear, // 默认使用线性过滤获得更好的抗锯齿效果
+	HorizontalScrollBar:         "",
+	VerticalScrollBar:           "",
+	DefaultScrollBarDisplay:     ScrollBarDisplayVisible,
+	DefaultScrollStep:           25,
+	DefaultScrollTouchEffect:    true,
+	DefaultScrollBounceEffect:   true,
+	ImageFilter:                 ImageFilterLinear, // 默认使用线性过滤获得更好的抗锯齿效果
+	PopupMenu:                   "",                // 默认右键菜单资源
+	ButtonSound:                 "",                // 默认按钮点击音效
+	ButtonSoundVolumeScale:      1,                 // 默认按钮点击音效音量
 }
 
 // GetUIConfig 返回全局 UIConfig 实例
@@ -55,4 +64,16 @@ func SetDefaultScrollBars(vertical, horizontal string) {
 // 默认值是 ImageFilterLinear（更好的抗锯齿效果）
 func SetImageFilter(filter ImageFilter) {
 	globalUIConfig.ImageFilter = filter
+}
+
+// SetDefaultButtonSound 设置默认按钮点击音效
+// 对应 TypeScript 版本的 fgui.UIConfig.buttonSound
+func SetDefaultButtonSound(soundURL string) {
+	globalUIConfig.ButtonSound = soundURL
+}
+
+// SetDefaultPopupMenu 设置默认右键菜单资源
+// 对应 TypeScript 版本的 fgui.UIConfig.popupMenu
+func SetDefaultPopupMenu(menuURL string) {
+	globalUIConfig.PopupMenu = menuURL
 }

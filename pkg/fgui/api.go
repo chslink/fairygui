@@ -6,6 +6,7 @@ import (
 
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
+	"github.com/chslink/fairygui/pkg/fgui/audio"
 	"github.com/chslink/fairygui/pkg/fgui/builder"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 )
@@ -216,6 +217,45 @@ func NewFileLoader(root string) *assets.FileLoader {
 	return assets.NewFileLoader(root)
 }
 
+// GetPackageByName 通过包名获取包
+// 对应 TypeScript 版本的 UIPackage.getByName
+func GetPackageByName(name string) *assets.Package {
+	return assets.GetPackageByName(name)
+}
+
+// GetPackageByID 通过包ID获取包
+// 对应 TypeScript 版本的 UIPackage.getItemByID
+func GetPackageByID(id string) *assets.Package {
+	return assets.GetPackageByID(id)
+}
+
+// GetItemByURL 通过URL获取资源项
+// 对应 TypeScript 版本的 UIPackage.getItemByURL
+func GetItemByURL(url string) *assets.PackageItem {
+	return assets.GetItemByURL(url)
+}
+
+// CreateObject 从包中创建对象
+// 对应 TypeScript 版本的 UIPackage.createObject
+func CreateObject(pkgName, resName string) *core.GObject {
+	pkg := assets.GetPackageByName(pkgName)
+	if pkg == nil {
+		return nil
+	}
+	item := pkg.ItemByName(resName)
+	if item == nil {
+		return nil
+	}
+	// 使用默认工厂创建
+	factory := builder.NewFactory(nil, nil)
+	ctx := context.Background()
+	comp, err := factory.BuildComponent(ctx, pkg, item)
+	if err != nil {
+		return nil
+	}
+	return comp.GObject
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // UIConfig API
 // ────────────────────────────────────────────────────────────────────────────
@@ -238,4 +278,81 @@ func SetDefaultScrollBars(vertical, horizontal string) {
 	if horizontal != "" {
 		config.HorizontalScrollBar = horizontal
 	}
+}
+
+// SetDefaultButtonSound 设置全局默认按钮点击音效
+// 对应 TypeScript 版本的 UIConfig.buttonSound
+//
+// Parameters:
+//   - soundURL: 按钮点击音效的资源URL (格式: ui://packageId/itemId)
+//
+// Example:
+//   fgui.SetDefaultButtonSound("ui://Basics/click")
+func SetDefaultButtonSound(soundURL string) {
+	config := core.GetUIConfig()
+	config.ButtonSound = soundURL
+}
+
+// SetDefaultPopupMenu 设置全局默认右键菜单资源
+// 对应 TypeScript 版本的 UIConfig.popupMenu
+//
+// Parameters:
+//   - menuURL: 右键菜单的资源URL (格式: ui://packageId/itemId)
+//
+// Example:
+//   fgui.SetDefaultPopupMenu("ui://Basics/PopupMenu")
+func SetDefaultPopupMenu(menuURL string) {
+	config := core.GetUIConfig()
+	config.PopupMenu = menuURL
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Audio API
+// ────────────────────────────────────────────────────────────────────────────
+
+// GetAudioPlayer 获取音频播放器单例
+func GetAudioPlayer() *audio.AudioPlayer {
+	return audio.GetInstance()
+}
+
+// InitAudio 初始化音频系统
+// 必须在游戏开始时调用一次
+//
+// Parameters:
+//   - sampleRate: 采样率，默认48000
+func InitAudio(sampleRate int) {
+	audio.GetInstance().Init(sampleRate)
+}
+
+// RegisterButtonSoundPlayer 注册音频播放器为按钮音效播放器
+// 这使得所有按钮点击都会播放配置的音效
+func RegisterButtonSoundPlayer() {
+	audio.RegisterAsDefaultButtonSoundPlayer()
+}
+
+// RegisterAudio 注册音频资源
+// 将音频数据注册到音频播放器中，后续可以通过名称播放
+//
+// Parameters:
+//   - name: 音频资源名称
+//   - data: 音频字节数据（支持MP3、Wav、Ogg格式）
+//
+// Example:
+//   data, _ := os.ReadFile("click.wav")
+//   fgui.RegisterAudio("button_click", data)
+func RegisterAudio(name string, data []byte) {
+	audio.RegisterAudio(name, data)
+}
+
+// SetAudioLoader 设置音频系统的资源加载器
+// 用于自动从FUI包中加载音效数据
+//
+// Parameters:
+//   - loader: 资源加载器（通常使用 fgui.NewFileLoader）
+//
+// Example:
+//   loader := fgui.NewFileLoader("./assets")
+//   fgui.SetAudioLoader(loader)
+func SetAudioLoader(loader assets.Loader) {
+	audio.SetLoader(loader)
 }
