@@ -178,14 +178,26 @@ func (b *GScrollBar) updateGrip() {
 	if b.bar == nil || b.grip == nil {
 		return
 	}
-	total := b.length()
+
+	// 与TypeScript版本保持一致：直接使用bar的高度/宽度
+	// 不需要额外计算length()和extraMargin()
+	var total float64
+	if b.vertical {
+		total = b.bar.Height()
+	} else {
+		total = b.bar.Width()
+	}
 	if total <= 0 {
 		return
 	}
+
+	// 计算滑块长度
 	gripLength := total
 	if !b.fixedGrip {
 		gripLength = total * b.displayPerc
 	}
+
+	// 应用最小尺寸限制（TypeScript版本中minSize用于限制gripLength）
 	minSize := b.minSize()
 	if gripLength < minSize {
 		gripLength = minSize
@@ -194,17 +206,19 @@ func (b *GScrollBar) updateGrip() {
 		gripLength = total
 	}
 
+	// 设置滑块尺寸和位置（与TypeScript版本逻辑一致）
 	if b.vertical {
-
 		b.grip.SetSize(b.grip.Width(), gripLength)
-
+		// TypeScript: this._grip.y = this._bar.y + (this._bar.height - this._grip.height) * this._scrollPerc
 		offset := (total - gripLength) * b.scrollPerc
 		gripY := b.bar.Y() + offset
 		b.grip.SetPosition(b.grip.X(), gripY)
-
 	} else {
+		b.grip.SetSize(gripLength, b.grip.Height())
+		// TypeScript: this._grip.x = this._bar.x + (this._bar.width - this._grip.width) * this._scrollPerc
 		offset := (total - gripLength) * b.scrollPerc
-		b.grip.SetPosition(b.bar.X()+offset, b.grip.Y())
+		gripX := b.bar.X() + offset
+		b.grip.SetPosition(gripX, b.grip.Y())
 	}
 	b.grip.DisplayObject().SetVisible(b.displayPerc > 0 && b.displayPerc < 1)
 }
@@ -268,10 +282,9 @@ func (b *GScrollBar) extraMargin() float64 {
 }
 
 func (b *GScrollBar) minSize() float64 {
-	if b.vertical {
-		return 10 + b.extraMargin()
-	}
-	return 10 + b.extraMargin()
+	// 与TypeScript版本一致：minSize返回arrow按钮的高度/宽度总和
+	// 注意：TypeScript版本没有额外的+10
+	return b.extraMargin()
 }
 
 // getContainerDisplayObject 返回用于坐标转换的 DisplayObject
@@ -323,7 +336,9 @@ func (b *GScrollBar) onStageMouseMove(evt laya.Event) {
 	}
 	local := display.GlobalToLocal(pe.Position)
 	if b.vertical {
-		track := b.length() - b.grip.Height()
+		// 与TypeScript版本一致：直接使用bar的高度
+		// TypeScript: var track: number = this._bar.height - this._grip.height;
+		track := b.bar.Height() - b.grip.Height()
 		if track <= 0 {
 			return
 		}
@@ -331,7 +346,8 @@ func (b *GScrollBar) onStageMouseMove(evt laya.Event) {
 		perc := (curY - b.bar.Y()) / track
 		b.target.SetPercY(perc, false)
 	} else {
-		track := b.length() - b.grip.Width()
+		// TypeScript: track = this._bar.width - this._grip.width
+		track := b.bar.Width() - b.grip.Width()
 		if track <= 0 {
 			return
 		}
