@@ -334,6 +334,9 @@ func (s *GSlider) applyTitle() {
 }
 
 func (s *GSlider) onGripMouseDown(evt *laya.Event) {
+	// 与TypeScript版本一致：阻止事件冒泡
+	evt.StopPropagation()
+
 	if s.gripObject == nil || s.GComponent == nil {
 		return
 	}

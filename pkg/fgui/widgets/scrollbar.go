@@ -148,9 +148,17 @@ func (b *GScrollBar) resolveTemplate() {
 	}
 	if child := searchRoot.ChildByName("arrow1"); child != nil {
 		b.arrow1 = child
+		// 绑定上箭头按钮事件
+		if b.arrow1.DisplayObject() != nil {
+			b.arrow1.DisplayObject().Dispatcher().On(laya.EventMouseDown, b.onArrowButton1Click)
+		}
 	}
 	if child := searchRoot.ChildByName("arrow2"); child != nil {
 		b.arrow2 = child
+		// 绑定下箭头按钮事件
+		if b.arrow2.DisplayObject() != nil {
+			b.arrow2.DisplayObject().Dispatcher().On(laya.EventMouseDown, b.onArrowButton2Click)
+		}
 	}
 	if searchRoot.GObject != nil {
 		searchRoot.GObject.DisplayObject().Dispatcher().On(laya.EventMouseDown, b.onBarMouseDown)
@@ -392,6 +400,38 @@ func (b *GScrollBar) onBarMouseDown(evt *laya.Event) {
 		} else {
 			b.target.ScrollRight()
 		}
+	}
+}
+
+// onArrowButton1Click 上箭头按钮点击事件
+// 对应TypeScript: __arrowButton1Click
+func (b *GScrollBar) onArrowButton1Click(evt *laya.Event) {
+	// 与TypeScript版本一致：阻止事件冒泡
+	evt.StopPropagation()
+
+	if b.target == nil {
+		return
+	}
+	if b.vertical {
+		b.target.ScrollUp()
+	} else {
+		b.target.ScrollLeft()
+	}
+}
+
+// onArrowButton2Click 下箭头按钮点击事件
+// 对应TypeScript: __arrowButton2Click
+func (b *GScrollBar) onArrowButton2Click(evt *laya.Event) {
+	// 与TypeScript版本一致：阻止事件冒泡
+	evt.StopPropagation()
+
+	if b.target == nil {
+		return
+	}
+	if b.vertical {
+		b.target.ScrollDown()
+	} else {
+		b.target.ScrollRight()
 	}
 }
 
