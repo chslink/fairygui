@@ -11,6 +11,7 @@ import (
 
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
+	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
@@ -177,6 +178,18 @@ func renderImageWithGeo(target *ebiten.Image, img *ebiten.Image, geo ebiten.GeoM
 	}
 	opts := &ebiten.DrawImageOptions{GeoM: geo}
 	applyTintColor(opts, tint, alpha, sprite)
+
+	// 应用全局Filter配置（获得更好的抗锯齿效果）
+	// 从 UIConfig 中获取全局Filter设置
+	if uiConfig := core.GetUIConfig(); uiConfig != nil {
+		switch uiConfig.ImageFilter {
+		case core.ImageFilterLinear:
+			opts.Filter = ebiten.FilterLinear
+		case core.ImageFilterNearest:
+			opts.Filter = ebiten.FilterNearest
+		}
+	}
+
 	target.DrawImage(img, opts)
 }
 

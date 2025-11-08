@@ -1363,6 +1363,18 @@ func drawPackageItem(target *ebiten.Image, item *assets.PackageItem, geo ebiten.
 		GeoM: geo,
 	}
 	applyTintColor(opts, nil, alpha, sprite)
+
+	// 应用全局Filter配置（获得更好的抗锯齿效果）
+	// 从 UIConfig 中获取全局Filter设置
+	if uiConfig := core.GetUIConfig(); uiConfig != nil {
+		switch uiConfig.ImageFilter {
+		case core.ImageFilterLinear:
+			opts.Filter = ebiten.FilterLinear
+		case core.ImageFilterNearest:
+			opts.Filter = ebiten.FilterNearest
+		}
+	}
+
 	target.DrawImage(img, opts)
 	return nil
 }

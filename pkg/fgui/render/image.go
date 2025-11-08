@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
+	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
@@ -210,6 +211,18 @@ func drawImagePatch(target *ebiten.Image, baseGeo ebiten.GeoM, img *ebiten.Image
 
 	opts := &ebiten.DrawImageOptions{GeoM: geo}
 	applyTintColor(opts, tint, alpha, sprite)
+
+	// 应用全局Filter配置（获得更好的抗锯齿效果）
+	// 从 UIConfig 中获取全局Filter设置
+	if uiConfig := core.GetUIConfig(); uiConfig != nil {
+		switch uiConfig.ImageFilter {
+		case core.ImageFilterLinear:
+			opts.Filter = ebiten.FilterLinear
+		case core.ImageFilterNearest:
+			opts.Filter = ebiten.FilterNearest
+		}
+	}
+
 	target.DrawImage(subImg, opts)
 }
 
@@ -562,5 +575,17 @@ func drawImagePatchWithGeo(target *ebiten.Image, geo ebiten.GeoM, img *ebiten.Im
 	opts := &ebiten.DrawImageOptions{}
 	opts.GeoM = geo
 	applyTintColor(opts, tint, alpha, sprite)
+
+	// 应用全局Filter配置（获得更好的抗锯齿效果）
+	// 从 UIConfig 中获取全局Filter设置
+	if uiConfig := core.GetUIConfig(); uiConfig != nil {
+		switch uiConfig.ImageFilter {
+		case core.ImageFilterLinear:
+			opts.Filter = ebiten.FilterLinear
+		case core.ImageFilterNearest:
+			opts.Filter = ebiten.FilterNearest
+		}
+	}
+
 	target.DrawImage(subImg, opts)
 }
