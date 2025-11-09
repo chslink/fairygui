@@ -513,6 +513,13 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		if resolvedItem != nil {
 			widget.SetPackageItem(resolvedItem)
 			f.applyButtonTemplate(ctx, widget, pkg, owner, resolvedItem)
+			// 关键修复：为子组件也调用 ConstructExtension，读取扩展属性（如 downEffect）
+			// 对应 TypeScript 版本：所有 GButton 实例都会调用 constructExtension
+			if buf := resolvedItem.RawData; buf != nil {
+				if err := widget.ConstructExtension(buf); err != nil {
+					fmt.Printf("builder: child GButton ConstructExtension failed: %v\n", err)
+				}
+			}
 		}
 		callSetupBeforeAdd(widget)
 		callSetupAfterAdd(widget)

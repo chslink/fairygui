@@ -313,12 +313,30 @@ func (b *GButton) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 		b.SetRelatedPageID(*page)
 	}
 
-	// 关键修复：将外层按钮的 sound 传递给模板按钮
-	// 这样点击模板时会播放正确的音效
+	// 关键修复：禁用模板按钮的音效以避免重复播放
+	// 当按钮有模板时，模板作为内部显示组件，不应该播放音效
+	// 只有外层实例（n13）才播放音效
 	if b.template != nil {
 		if templateBtn, ok := b.template.GObject.Data().(*GButton); ok && templateBtn != nil {
-			templateBtn.SetSound(b.sound)
-			templateBtn.SetSoundVolumeScale(b.soundVolumeScale)
+			// 将模板的音效设置为空，这样模板就不会播放音效了
+			templateBtn.SetSound("")
+		}
+	}
+
+	// 关键修复：读取并设置 checked/selected 状态
+	// 对应 TypeScript 版本 GButton.setup_afterAdd 第 431 行：this.selected = buffer.readBool();
+	// 跳过 sound 相关的读取（它们在 ConstructExtension 中处理）
+	_ = buf.ReadS()                             // sound (跳过，在 ConstructExtension 中处理)
+	if buf.Remaining() >= 1 {
+		if buf.ReadBool() { // has soundVolumeScale
+			_ = buf.ReadFloat32() // 跳过 soundVolumeScale
+		}
+	}
+	// 关键：读取并设置 selected 状态
+	if buf.Remaining() >= 1 {
+		selected := buf.ReadBool()
+		if selected {
+			b.SetSelected(true)
 		}
 	}
 
@@ -370,8 +388,12 @@ func (b *GButton) ConstructExtension(buf *utils.ByteBuffer) error {
 		b.SetDownEffectValue(float64(buf.ReadFloat32()))
 	}
 
+	// 关键修复：初始化 downScaled 状态
+	// 对应 TypeScript 版本：当 downEffect == 2 时，缩放效果会通过 setState 应用
+	// 在Go版本中，我们通过 applyDownScale 函数手动应用缩放，需要正确初始化 downScaled
 	if b.DownEffect() == 2 {
 		b.SetPivotWithAnchor(0.5, 0.5, b.PivotAsAnchor())
+		// 注意：downScaled 初始为 false，在 applyDownScale 中根据实际状态切换
 	}
 
 	// 查找 button controller（如果还没有设置）
@@ -733,7 +755,10 @@ func (b *GButton) onMouseDown(evt *laya.Event) {
 		return
 	}
 	b.pressed = true
-	b.applyDownScale(true)
+	// 关键修复：只有当 downEffect == 2（scale）时才应用缩放效果
+	if b.downEffect == 2 {
+		b.applyDownScale(true)
+	}
 	b.updateVisualState()
 	if popup := b.linkedPopup; popup != nil {
 		core.Root().TogglePopup(popup, b.GComponent.GObject, core.PopupDirectionAuto)
@@ -745,7 +770,10 @@ func (b *GButton) onMouseUp(evt *laya.Event) {
 		return
 	}
 	b.pressed = false
-	b.applyDownScale(false)
+	// 关键修复：只有当 downEffect == 2（scale）时才应用缩放效果
+	if b.downEffect == 2 {
+		b.applyDownScale(false)
+	}
 	b.updateVisualState()
 }
 
@@ -779,9 +807,9 @@ func (b *GButton) onClick(evt *laya.Event) {
 }
 
 func (b *GButton) applyDownScale(down bool) {
-	if !b.downScaled {
-		return
-	}
+	// 关键修复：不要提前返回 downScaled
+	// downScaled 只是用来记录当前是否已经缩放，不是执行条件
+	// 对应 TypeScript 版本：down 时如果没缩放就缩放，up 时如果缩放就恢复
 	obj := b.GComponent.GObject
 	if obj == nil {
 		return
@@ -791,9 +819,17 @@ func (b *GButton) applyDownScale(down bool) {
 		factor = 1
 	}
 	if down {
-		obj.SetScale(b.baseScaleX*factor, b.baseScaleY*factor)
+		// 按下时：如果还没有缩放，就应用缩放
+		if !b.downScaled {
+			obj.SetScale(b.baseScaleX*factor, b.baseScaleY*factor)
+			b.downScaled = true
+		}
 	} else {
-		obj.SetScale(b.baseScaleX, b.baseScaleY)
+		// 弹起时：如果已经缩放，就恢复
+		if b.downScaled {
+			obj.SetScale(b.baseScaleX, b.baseScaleY)
+			b.downScaled = false
+		}
 	}
 }
 
