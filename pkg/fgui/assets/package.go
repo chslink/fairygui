@@ -533,6 +533,17 @@ func parseComponentData(item *PackageItem) {
 					_ = buf.SetPos(actionNext)
 				}
 
+				// 关键修复：读取并存储控制器的 selected 索引
+				// 对应 XML 中的 selected="1" 属性
+				// 这确保 OnOffButton 等组件能正确设置初始状态
+				// 在 TypeScript 版本中，控制器有一个 selected 字段
+				// 默认为-1表示未设置
+				if buf.Remaining() >= 2 {
+					ctrl.Selected = int(buf.ReadInt16())
+				} else {
+					ctrl.Selected = -1 // 默认未设置
+				}
+
 				controllers = append(controllers, ctrl)
 				_ = buf.SetPos(nextPos)
 			}

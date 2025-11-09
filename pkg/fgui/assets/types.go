@@ -251,8 +251,12 @@ type ComponentChild struct {
 
 // ControllerData describes a component controller.
 type ControllerData struct {
-	Name      string
-	PageNames []string
-	PageIDs   []string
-	AutoRadio bool
+	Name        string
+	PageNames   []string
+	PageIDs     []string
+	AutoRadio   bool
+	// Selected 是控制器的初始选中页面索引
+	// 对应 XML 中的 selected="1" 属性
+	// 默认为-1表示未设置
+	Selected int
 }

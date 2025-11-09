@@ -48,7 +48,7 @@ type GObject struct {
 	parent             *GComponent
 	alpha              float64
 	visible            bool
-	internalVisible    bool // gear-controlled visibility (separate from user-controlled visible)
+internalVisible    bool // gear-controlled visibility (separate from user-controlled visible)
 	touchable          bool
 	grayed             bool
 	rotation           float64
@@ -83,6 +83,10 @@ type GObject struct {
 	customData         string
 	blendMode          BlendMode
 	sortingOrder       int // Z-order for rendering and interaction (0 = normal order)
+
+	// displayLock for preventing GearDisplay from hiding objects during tween animations
+	displayLockToken uint32
+	displayLockCount int
 }
 
 type ownerSizeChanged interface {
@@ -519,10 +523,19 @@ func (g *GObject) Grayed() bool {
 }
 
 // SetGrayed toggles the grayed state.
+// 参考 TypeScript 版本：GObject.ts set grayed (在 TypeScript 中会触发 handleGrayedChanged)
 func (g *GObject) SetGrayed(value bool) {
+	if g == nil {
+		return
+	}
 	g.grayed = value
 	if g.display != nil {
 		g.display.SetGray(value)
+	}
+	// 关键修复：如果是 GComponent，将 grayed 状态传播到子组件
+	// 参考 TypeScript 版本：GComponent.ts handleGrayedChanged
+	if comp := componentFromObject(g); comp != nil {
+		comp.handleGrayedChanged()
 	}
 }
 
@@ -1487,7 +1500,7 @@ func (g *GObject) CheckGearDisplay() {
 }
 
 // CheckGearController reports whether the specified gear slot is driven by the controller.
-func (g *GObject) CheckGearController(index int, ctrl *Controller) bool {
+func (g *GObject) CheckGearController(index int, ctrl gears.Controller) bool {
 	if g == nil || index < 0 || index >= gears.SlotCount || ctrl == nil {
 		return false
 	}
@@ -1737,4 +1750,47 @@ func (g *GObject) SetSortingOrder(value int) {
 	if g.parent != nil {
 		g.parent.childSortingOrderChanged(g, oldValue, value)
 	}
+}
+
+// AddDisplayLock increments the display lock counter and returns a token.
+// This prevents GearDisplay from hiding the object during tween animations.
+// 参考 TypeScript 版本 GObject.addDisplayLock()
+func (g *GObject) AddDisplayLock() uint32 {
+	if g == nil {
+		return 0
+	}
+	g.displayLockCount++
+	g.displayLockToken++
+	if g.displayLockToken == 0 {
+		g.displayLockToken = 1
+	}
+	return g.displayLockToken
+}
+
+// ReleaseDisplayLock decrements the display lock counter when the token matches.
+// 参考 TypeScript 版本 GObject.releaseDisplayLock()
+func (g *GObject) ReleaseDisplayLock(token uint32) {
+	if g == nil || token == 0 {
+		return
+	}
+	if token == g.displayLockToken && g.displayLockCount > 0 {
+		g.displayLockCount--
+	}
+}
+
+// hasActiveDisplayLock reports whether the object has an active display lock.
+// This is used by GearDisplay to prevent hiding during tween animations.
+func (g *GObject) hasActiveDisplayLock() bool {
+	if g == nil {
+		return false
+	}
+	return g.displayLockCount > 0
+}
+
+// GetDisplayLockCount returns the current display lock count (for testing/debugging).
+func (g *GObject) GetDisplayLockCount() int {
+	if g == nil {
+		return 0
+	}
+	return g.displayLockCount
 }

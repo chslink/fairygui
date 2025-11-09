@@ -961,3 +961,29 @@ type PixelHitResolver interface {
 	PixelData(itemID string) *assets.PixelHitTestData
 	Configure(comp *GComponent, hit HitTest, data *assets.PixelHitTestData)
 }
+
+// handleGrayedChanged 传播灰色状态到子组件
+// 参考 TypeScript 版本：GComponent.ts handleGrayedChanged (776-788行)
+func (c *GComponent) handleGrayedChanged() {
+	if c == nil {
+		return
+	}
+	// 首先尝试使用 "grayed" 控制器（如果存在）
+	grayedController := c.ControllerByName("grayed")
+	if grayedController != nil {
+		if c.Grayed() {
+			grayedController.SetSelectedIndex(1)
+		} else {
+			grayedController.SetSelectedIndex(0)
+		}
+		return
+	}
+	// 如果没有 "grayed" 控制器，将 grayed 状态传播到所有子组件
+	v := c.Grayed()
+	cnt := len(c.children)
+	for i := 0; i < cnt; i++ {
+		if child := c.children[i]; child != nil {
+			child.SetGrayed(v)
+		}
+	}
+}

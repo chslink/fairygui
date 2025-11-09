@@ -179,6 +179,12 @@ func (g *GearXY) Apply() {
 		if ox == x && oy == y {
 			return
 		}
+		// 关键修复：如果对象有GearDisplay（index 0），在启动tween前添加displayLock
+		// 这防止在动画期间GearDisplay改变对象的可见性
+		// 参考 TypeScript 版本 GearXY.apply() 中的逻辑
+		if g.Owner().CheckGearController(IndexDisplay, g.Controller()) {
+			cfg.DisplayLockToken = g.Owner().AddDisplayLock()
+		}
 		tw := tween.To2(ox, oy, x, y, cfg.Duration)
 		tw.SetDelay(cfg.Delay)
 		tw.SetEase(cfg.EaseType)
@@ -193,6 +199,11 @@ func (g *GearXY) Apply() {
 			g.Owner().SetGearLocked(true)
 			g.Owner().SetPosition(x, y)
 			g.Owner().SetGearLocked(false)
+			// 动画完成后释放displayLock
+			if cfg.DisplayLockToken != 0 {
+				g.Owner().ReleaseDisplayLock(cfg.DisplayLockToken)
+				cfg.DisplayLockToken = 0
+			}
 			cfg.Tweener = nil
 		})
 		cfg.Tweener = tw

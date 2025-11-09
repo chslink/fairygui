@@ -46,6 +46,9 @@ type Owner interface {
 	SetTouchable(touchable bool)
 	GetProp(id ObjectPropID) any
 	SetProp(id ObjectPropID, value any)
+	CheckGearController(index int, ctrl Controller) bool
+	AddDisplayLock() uint32
+	ReleaseDisplayLock(token uint32)
 }
 
 // Controller is a soft dependency that exposes the selected page.

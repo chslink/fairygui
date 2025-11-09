@@ -794,6 +794,11 @@ func (b *GButton) onMouseUp(evt *laya.Event) {
 }
 
 func (b *GButton) onClick(evt *laya.Event) {
+	// 如果按钮不可点击（touchable=false），不处理点击事件
+	if !b.GComponent.GObject.Touchable() {
+		return
+	}
+
 	// 播放按钮点击音效
 	if b.sound != "" {
 		// 尝试从 UIPackage 获取音效文件

@@ -270,7 +270,17 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 		// PageNames 用于显示名称（如 "up","down","over"...）
 		// 不能把 pageNames 替换 pageIDs！
 		ctrl.SetPages(ctrlData.PageIDs, ctrlData.PageNames)
+
 		root.AddController(ctrl)
+
+		// 关键修复：设置控制器的初始选中页面
+		// 对应 XML 中的 selected="1" 属性
+		// 这确保 OnOffButton 等组件能正确设置初始状态
+		// 在TypeScript版本中，控制器有初始的selected页面
+		// 注意：Selected可能为-1（未设置）、0、1、2、3等
+		if ctrlData.Selected >= 0 && ctrlData.Selected < ctrl.PageCount() {
+			ctrl.SetSelectedIndex(ctrlData.Selected)
+		}
 	}
 
 	for idx := range item.Component.Children {
@@ -524,6 +534,16 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		callSetupBeforeAdd(widget)
 		callSetupAfterAdd(widget)
 
+		// 关键修复：应用 ComponentChild 的基础属性到按钮组件
+		// 这确保 touchable、grayed 等属性在按钮模板实例化时正确应用
+		// 例如：n32 按钮有 touchable="false" grayed="true" 属性，
+		// 需要应用到 Button5 模板实例
+		obj.SetTouchable(child.Touchable)
+		obj.SetGrayed(child.Grayed)
+		// 同时应用其他可能的基础属性
+		obj.SetVisible(child.Visible)
+		obj.SetAlpha(float64(child.Alpha))
+
 	case *widgets.GLoader:
 		obj = widget.GObject
 		obj.SetData(widget)
@@ -680,6 +700,18 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 				}
 				// 注意：nested 已经有正确的尺寸，但如果 child 指定了尺寸覆盖，
 				// 后面的代码会处理（第573-590行）
+
+				// 关键修复：应用 ComponentChild 的基础属性到嵌套组件实例
+				// 这确保 touchable、grayed 等属性在组件模板实例化时正确应用
+				// 例如：n32 组件有 touchable="false" grayed="true" 属性，
+				// 需要应用到 Button5 模板实例
+				if nested.GObject != nil {
+					nested.GObject.SetTouchable(child.Touchable)
+					nested.GObject.SetGrayed(child.Grayed)
+					// 同时应用其他可能的基础属性
+					nested.GObject.SetVisible(child.Visible)
+					nested.GObject.SetAlpha(float64(child.Alpha))
+				}
 			}
 		default:
 			// unsupported widget types fall back to existing behaviour.

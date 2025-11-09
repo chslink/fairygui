@@ -143,11 +143,24 @@ func (g *GearDisplay) Pages() []string {
 }
 
 // Connected mirrors FairyGUI semantics, signalling whether the object should remain visible.
+// 如果对象有displayLock，即使visibleCounter为0也返回true，防止在动画期间被隐藏
+// 参考 TypeScript 版本 GearDisplay.ts connected 属性的实现
 func (g *GearDisplay) Connected() bool {
 	if g == nil {
 		return true
 	}
-	return g.Controller() == nil || g.visibleCounter > 0
+	// 如果没有控制器，始终可见
+	if g.Controller() == nil {
+		return true
+	}
+	// 如果有displayLock，强制保持可见（用于tween动画期间）
+	if owner, ok := g.Owner().(interface{ hasActiveDisplayLock() bool }); ok {
+		if owner.hasActiveDisplayLock() {
+			return true
+		}
+	}
+	// 否则根据visibleCounter决定
+	return g.visibleCounter > 0
 }
 
 // AddLock increments the visibility lock counter and returns a pseudo token.
