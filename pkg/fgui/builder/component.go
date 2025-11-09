@@ -282,36 +282,13 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 	f.setupRelations(item, root)
 	f.setupGears(item, root)
 
-	// 如果根组件是 GButton，设置 button controller 和其他属性
-	// 注意：不能调用 applyButtonTemplate，因为它会尝试构建模板组件导致无限递归
-	// 这里手动读取按钮属性（mode, sound等）
-	if btnWidget, ok := root.GObject.Data().(*widgets.GButton); ok && btnWidget != nil {
-		// 设置 button controller（如果还没有设置）
-		if btnWidget.ButtonController() == nil {
-			for _, ctrl := range btnWidget.Controllers() {
-				if strings.EqualFold(ctrl.Name, "button") {
-					btnWidget.SetButtonController(ctrl)
-					break
-				}
-			}
-		}
-
-		// 读取按钮扩展属性（对应 applyButtonTemplate 中 section 6 的内容）
+	// ===== 关键修改：在构建完成后调用 ConstructExtension =====
+	// 对应 TypeScript GComponent.ts 第 1207 行
+	// 只有特殊组件类型（Button、Label等）实现了 ExtensionConstructor
+	if widget, ok := root.GObject.Data().(widgets.ExtensionConstructor); ok {
 		if buf := item.RawData; buf != nil {
-			saved := buf.Pos()
-			defer buf.SetPos(saved)
-			if buf.Seek(0, 6) {
-				mode := widgets.ButtonMode(buf.ReadByte())
-				btnWidget.SetMode(mode)
-				if sound := buf.ReadS(); sound != nil && *sound != "" {
-					btnWidget.SetSound(*sound)
-				}
-				btnWidget.SetSoundVolumeScale(float64(buf.ReadFloat32()))
-				btnWidget.SetDownEffect(int(buf.ReadByte()))
-				btnWidget.SetDownEffectValue(float64(buf.ReadFloat32()))
-				if btnWidget.DownEffect() == 2 {
-					btnWidget.SetPivotWithAnchor(0.5, 0.5, btnWidget.PivotAsAnchor())
-				}
+			if err := widget.ConstructExtension(buf); err != nil {
+				fmt.Printf("builder: ConstructExtension failed: %v\n", err)
 			}
 		}
 	}
@@ -959,26 +936,8 @@ func (f *Factory) applyButtonTemplate(ctx context.Context, widget *widgets.GButt
 			break
 		}
 	}
-	buf := item.RawData
-	if buf == nil {
-		return
-	}
-	saved := buf.Pos()
-	defer buf.SetPos(saved)
-	if !buf.Seek(0, 6) {
-		return
-	}
-	mode := widgets.ButtonMode(buf.ReadByte())
-	widget.SetMode(mode)
-	if sound := buf.ReadS(); sound != nil && *sound != "" {
-		widget.SetSound(*sound)
-	}
-	widget.SetSoundVolumeScale(float64(buf.ReadFloat32()))
-	widget.SetDownEffect(int(buf.ReadByte()))
-	widget.SetDownEffectValue(float64(buf.ReadFloat32()))
-	if widget.DownEffect() == 2 {
-		widget.SetPivotWithAnchor(0.5, 0.5, widget.PivotAsAnchor())
-	}
+	// 关键修改：移除 section 6 的重复读取
+	// 这部分现在由 GButton.ConstructExtension 统一处理
 }
 
 func (f *Factory) applyLabelTemplate(ctx context.Context, widget *widgets.GLabel, pkg *assets.Package, owner *assets.PackageItem, item *assets.PackageItem) {

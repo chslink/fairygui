@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
@@ -83,13 +84,15 @@ func NewButton() *GButton {
 	btn.titleColor = "#ffffff"
 	btn.titleFontSize = 12
 	btn.GComponent.SetData(btn)
+
 	// 修复：按钮是交互式组件，需要拦截鼠标事件
 	// 虽然TypeScript版本没有显式设置，但按钮需要能够接收点击
 	btn.GComponent.GObject.SetTouchable(true)
 	if sprite := btn.GComponent.GObject.DisplayObject(); sprite != nil {
 		sprite.SetMouseThrough(false)
 	}
-	btn.bindEvents()
+	// 关键修改：不再立即绑定事件
+	// 事件绑定将在 ConstructExtension 中完成
 	return btn
 }
 
@@ -264,17 +267,14 @@ func (b *GButton) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	_ = buf.ReadInt16() // skip controller index
 	_ = buf.ReadS()     // skip relatedPageId
 
-	if sound := buf.ReadS(); sound != nil && *sound != "" {
-		b.SetSound(*sound)
+	// 关键修改：跳过在 ConstructExtension 中处理的属性
+	// 这些属性在组件完整构建后由 ConstructExtension 统一设置
+	// sound, soundVolumeScale, downEffect, downEffectValue, selected
+	_ = buf.ReadS()    // skip sound
+	if buf.ReadBool() { // has soundVolumeScale
+		_ = buf.ReadFloat32()
 	}
-	if buf.ReadBool() {
-		if vol := buf.ReadFloat32(); buf.Remaining() >= 0 {
-			b.SetSoundVolumeScale(float64(vol))
-		}
-	}
-	if selected := buf.ReadBool(); buf.Remaining() >= 0 {
-		b.SetSelected(selected)
-	}
+	_ = buf.ReadBool() // skip selected
 }
 
 // SetupAfterAdd applies button configuration that depends on other objects.
@@ -319,6 +319,100 @@ func (b *GButton) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	if sprite := b.GComponent.GObject.DisplayObject(); sprite != nil {
 		sprite.SetMouseThrough(false)
 	}
+}
+
+// ConstructExtension 在组件完整构建后读取扩展属性并绑定事件
+// 对应 TypeScript 版本 GButton.constructExtension()
+func (b *GButton) ConstructExtension(buf *utils.ByteBuffer) error {
+	if b == nil || buf == nil {
+		return nil
+	}
+
+	// 读取 section 6 的按钮扩展属性
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+
+	if !buf.Seek(0, 6) || buf.Remaining() <= 0 {
+		return nil
+	}
+
+	// 读取按钮属性（之前在 SetupBeforeAdd 中读取）
+	mode := ButtonMode(buf.ReadByte())
+	b.SetMode(mode)
+
+	// 音效相关设置
+	if sound := buf.ReadS(); sound != nil {
+		b.SetSound(*sound)
+	}
+	if buf.Remaining() >= 4 {
+		b.SetSoundVolumeScale(float64(buf.ReadFloat32()))
+	}
+
+	// Down effect 设置
+	if buf.Remaining() >= 1 {
+		b.SetDownEffect(int(buf.ReadByte()))
+	}
+	if buf.Remaining() >= 4 {
+		b.SetDownEffectValue(float64(buf.ReadFloat32()))
+	}
+
+	if b.DownEffect() == 2 {
+		b.SetPivotWithAnchor(0.5, 0.5, b.PivotAsAnchor())
+	}
+
+	// 查找 button controller（如果还没有设置）
+	// 注意：controllers 已经在 BuildComponent 中添加到组件
+	if b.ButtonController() == nil {
+		for _, ctrl := range b.Controllers() {
+			if strings.EqualFold(ctrl.Name, "button") {
+				b.SetButtonController(ctrl)
+				break
+			}
+		}
+	}
+
+	// 查找 titleObject 和 iconObject
+	// 优先从 template 中查找
+	if template := b.TemplateComponent(); template != nil {
+		if titleObj := template.ChildByName("title"); titleObj != nil {
+			b.SetTitleObject(titleObj)
+		} else {
+			// 如果 template 中没有，从 Button 的子组件中查找
+			if titleObj := b.GComponent.ChildByName("title"); titleObj != nil {
+				b.SetTitleObject(titleObj)
+			}
+		}
+		if iconObj := template.ChildByName("icon"); iconObj != nil {
+			b.SetIconObject(iconObj)
+		} else {
+			// 如果 template 中没有，从 Button 的子组件中查找
+			if iconObj := b.GComponent.ChildByName("icon"); iconObj != nil {
+				b.SetIconObject(iconObj)
+			}
+		}
+
+		// 如果 buttons 没有 controller，尝试从 template 查找
+		if b.ButtonController() == nil {
+			if ctrl := template.ControllerByName("button"); ctrl != nil {
+				b.SetButtonController(ctrl)
+			} else if ctrl := template.ControllerByName("Button"); ctrl != nil {
+				b.SetButtonController(ctrl)
+			}
+		}
+	} else {
+		// 没有 template，直接从 Button 的子组件中查找
+		if titleObj := b.GComponent.ChildByName("title"); titleObj != nil {
+			b.SetTitleObject(titleObj)
+		}
+		if iconObj := b.GComponent.ChildByName("icon"); iconObj != nil {
+			b.SetIconObject(iconObj)
+		}
+	}
+
+	// 关键：在构建完成后绑定事件
+	b.bindEvents()
+
+	return nil
 }
 
 // SetChangeStateOnClick updates whether the button should toggle on click.

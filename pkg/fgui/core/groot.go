@@ -485,12 +485,23 @@ func ownerAsGObject(sprite *laya.Sprite) *GObject {
 }
 
 // PlayOneShotSound plays a sound effect once without tracking.
-// This uses the global buttonSoundPlayer if set, similar to transition sounds.
-// 参见 TypeScript 版本: GRoot.inst.playOneShotSound(pi.file)
+// 匹配 TypeScript 版本的 GRoot.playOneShotSound 行为：
+// - 拒绝处理 ui:// URL（调用方应该先解析为文件路径）
+// - 直接播放音效，不通过回调系统
+//
+// 参考 TypeScript GRoot.ts:310-315
 func (r *GRoot) PlayOneShotSound(url string, volume float64) {
 	if url == "" {
 		return
 	}
+	// 匹配 TypeScript 行为：拒绝 ui:// URL
+	// 调用方（如 GButton）应该先解析为文件路径
+	if len(url) >= 5 && url[:5] == "ui://" {
+		return
+	}
+
+	// 直接调用音频播放器，不通过 buttonSoundPlayer 回调
+	// 这避免了重复播放的问题
 	if buttonSoundPlayer != nil {
 		buttonSoundPlayer(url, volume)
 	}
