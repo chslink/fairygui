@@ -53,6 +53,8 @@ type GButton struct {
 	downEffect         int
 	downEffectValue    float64
 	downScaled         bool
+	// 关键：存储控制器监听器ID，以便在设置新控制器时能够取消注册
+	controllerListenerID int
 	titleColor         string
 	titleOutlineColor  string
 	titleFontSize      int
@@ -494,7 +496,21 @@ func (b *GButton) RelatedController() *core.Controller {
 
 // SetRelatedController assigns the controller used for radio/check behaviour.
 func (b *GButton) SetRelatedController(ctrl *core.Controller) {
+	// 关键修复：取消注册之前控制器的监听器（如果有）
+	if b.relatedController != nil && b.controllerListenerID != 0 {
+		b.relatedController.RemoveSelectionListener(b.controllerListenerID)
+		b.controllerListenerID = 0
+	}
+
 	b.relatedController = ctrl
+
+	// 关键修复：注册新控制器的监听器以实现 Radio/Check 互斥
+	// 当控制器状态变化时，HandleControllerChanged 会被调用，更新按钮状态
+	if b.relatedController != nil {
+		b.controllerListenerID = b.relatedController.AddSelectionListener(func(c *core.Controller) {
+			b.HandleControllerChanged(c)
+		})
+	}
 }
 
 // RelatedPageID returns the controller page that this button toggles.
@@ -835,6 +851,31 @@ func (b *GButton) applyDownScale(down bool) {
 
 func (b *GButton) emitStateChanged(payload any) {
 	b.GComponent.GObject.Emit(laya.EventStateChanged, payload)
+}
+
+// HandleControllerChanged 当相关控制器状态变化时调用
+// 对应 TypeScript 版本 GButton.handleControllerChanged()
+// 作用：实现 Radio/Check 按钮组的互斥逻辑
+func (b *GButton) HandleControllerChanged(c *core.Controller) {
+	// 调用父类的处理（如果需要）
+	// GComponent 可能需要处理一些通用逻辑
+
+	// 关键：如果变化的控制器是当前按钮的 relatedController
+	if b.relatedController == c {
+		// 检查控制器的当前页面是否匹配自己的页面
+		// 如果匹配，则设置为选中；否则设置为未选中
+		// 这实现了 Radio 按钮组的互斥：点击一个按钮会设置控制器页面，
+		// 然后所有按钮都会收到通知，并更新自己的选中状态
+		if c.SelectedPageID() == b.relatedPageID {
+			b.SetSelected(true)
+		} else {
+			// 只有在非 Check 模式下才取消选中
+			// Check 模式有自己的互斥逻辑（通过 SetOppositePageID）
+			if b.mode != ButtonModeCheck {
+				b.SetSelected(false)
+			}
+		}
+	}
 }
 
 func (b *GButton) syncRelatedController() {
