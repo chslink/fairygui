@@ -3,6 +3,7 @@ package builder
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"path/filepath"
 	"strings"
@@ -40,27 +41,52 @@ type FactoryObjectCreator struct {
 // CreateObject 实现ObjectCreator接口
 func (c *FactoryObjectCreator) CreateObject(url string) *core.GObject {
 	if c.factory == nil {
+		log.Printf("[FactoryObjectCreator] CreateObject失败: factory为nil, url=%s", url)
 		return nil
 	}
 
 	var item *assets.PackageItem
 
+	log.Printf("[FactoryObjectCreator] CreateObject: 开始创建对象, url=%s, pkg=%p(%s)", url, c.pkg, c.pkg.Name)
+
 	// 首先尝试全局URL查找（支持ui://packageId/itemId格式）
 	if strings.HasPrefix(url, "ui://") {
 		item = assets.GetItemByURL(url)
+		log.Printf("[FactoryObjectCreator] 全局查找结果: item=%v", item != nil)
 	}
 
 	// 如果没找到，尝试在当前包中查找
 	if item == nil && c.pkg != nil {
 		// 尝试通过名称查找
 		item = c.pkg.ItemByName(url)
+		log.Printf("[FactoryObjectCreator] 在包%s(地址=%p)中按名称查找结果: item=%v", c.pkg.Name, c.pkg, item != nil)
 		if item == nil {
 			// 尝试通过ID查找
-			item = c.pkg.ItemByID(url)
+			// 关键修复：如果URL是ui://xxx格式，需要提取xxx部分来查找ID
+			searchID := url
+			if strings.HasPrefix(url, "ui://") {
+				// 提取ui://后面的部分作为ID
+				searchID = url[5:] // 去掉"ui://"前缀
+				log.Printf("[FactoryObjectCreator] 从URL中提取ID: %s -> %s", url, searchID)
+			}
+			item = c.pkg.ItemByID(searchID)
+			log.Printf("[FactoryObjectCreator] 在包%s(地址=%p)中按ID(%s)查找结果: item=%v", c.pkg.Name, c.pkg, searchID, item != nil)
+			if item == nil {
+				// 尝试直接遍历 Items 数组验证是否存在
+				log.Printf("[FactoryObjectCreator] 遍历包%s中的所有Items查找ID=%s", c.pkg.Name, searchID)
+				for _, it := range c.pkg.Items {
+					if it.ID == searchID {
+						log.Printf("[FactoryObjectCreator] ❌ 找到匹配项! 但ItemByID返回nil! it=%v", it)
+						item = it
+						break
+					}
+				}
+			}
 		}
 	}
 
 	if item == nil {
+		log.Printf("[FactoryObjectCreator] ❌ 错误: 未找到资源项, url=%s", url)
 		return nil
 	}
 
@@ -69,13 +95,20 @@ func (c *FactoryObjectCreator) CreateObject(url string) *core.GObject {
 	if item.Owner != nil {
 		pkg = item.Owner
 	}
+	log.Printf("[FactoryObjectCreator] 找到资源项: %s (类型=%v), 使用包: %s", item.Name, item.Type, pkg.Name)
 
 	// 使用Factory构建组件
 	comp, err := c.factory.BuildComponent(c.ctx, pkg, item)
 	if err != nil {
+		log.Printf("[FactoryObjectCreator] ❌ BuildComponent失败: %v", err)
+		return nil
+	}
+	if comp == nil {
+		log.Printf("[FactoryObjectCreator] ❌ BuildComponent返回nil")
 		return nil
 	}
 
+	log.Printf("[FactoryObjectCreator] ✅ 成功创建对象: %s", comp.GObject.Name())
 	return comp.GObject
 }
 
@@ -227,6 +260,12 @@ func (f *Factory) BuildComponent(ctx context.Context, pkg *assets.Package, item 
 		if root != nil {
 			// 设置 Data 为 widget 实例
 			root.GObject.SetData(widget)
+
+			// 关键修复：如果是GComboBox根组件，需要立即设置factory
+			// 否则ConstructExtension中factory为nil，无法创建dropdown
+			if comboBox, ok := widget.(*widgets.GComboBox); ok {
+				comboBox.SetFactoryInternal(f)
+			}
 		} else {
 			// 降级到普通组件
 			root = core.NewGComponent()
@@ -477,6 +516,7 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 	}
 
 	var obj *core.GObject
+
 	switch widget := w.(type) {
 	case *widgets.GImage:
 		obj = widget.GObject
@@ -629,6 +669,24 @@ func (f *Factory) buildChild(ctx context.Context, pkg *assets.Package, owner *as
 		callSetupAfterAdd(widget)
 
 	case *widgets.GComboBox:
+		// 关键修复：对于GComboBox组件，也使用buildNestedComponent获取正确实例
+		// 而不是使用在switch语句中创建的实例
+		if resolvedItem != nil {
+			if nested, nestedItem := f.buildNestedComponent(ctx, pkg, owner, child); nested != nil {
+				// 使用buildNestedComponent返回的实例，它已经正确设置了dropdown/list
+				obj = nested.GObject
+				if nestedItem != nil {
+					resolvedItem = nestedItem
+				}
+				// 重要：buildNestedComponent返回的实例需要调用SetupAfterAdd来设置items
+				if comboBoxWidget, ok := obj.Data().(*widgets.GComboBox); ok && comboBoxWidget != nil {
+					callSetupAfterAdd(comboBoxWidget)
+				}
+				break
+			}
+		}
+		// 如果没有resolvedItem，使用当前widget实例（降级方案）
+		widget.SetFactoryInternal(f)
 		obj = widget.GComponent.GObject
 		obj.SetData(widget)
 		if resolvedItem != nil {
@@ -852,6 +910,13 @@ func (f *Factory) buildNestedComponent(ctx context.Context, pkg *assets.Package,
 		return nil, nil
 	}
 	nested.SetResourceID(nestedItem.ID)
+
+	// 关键修复：如果是GComboBox嵌套组件，需要传递factory
+	// 否则ConstructExtension中factory为nil，无法创建dropdown
+	if comboBox, ok := nested.GObject.Data().(*widgets.GComboBox); ok {
+		comboBox.SetFactoryInternal(f)
+	}
+
 	return nested, nestedItem
 }
 
@@ -1160,6 +1225,18 @@ func (f *Factory) applyComboBoxTemplate(ctx context.Context, widget *widgets.GCo
 	if widget == nil {
 		return
 	}
+
+	// 关键修复：设置factory供ConstructExtension使用（TypeScript模式）
+	// 在TypeScript中，dropdown在constructExtension中创建，Go中需要factory引用
+	// 使用public方法设置factory（避免反射）
+	widget.SetFactoryInternal(f)
+
+	// 关键修复：如果dropdown和list已经设置，跳过重复设置
+	// 这避免了在多次构造时字段被覆盖
+	if widget.Dropdown() != nil && widget.List() != nil {
+		return
+	}
+
 	if item != nil {
 		widget.SetPackageItem(item)
 	}
@@ -1179,6 +1256,11 @@ func (f *Factory) applyComboBoxTemplate(ctx context.Context, widget *widgets.GCo
 		}
 		if targetPkg != nil {
 			if tmpl, err := f.BuildComponent(ctx, targetPkg, item); err == nil && tmpl != nil {
+				// 关键修复：如果模板是GComboBox，需要传递factory
+				// 否则ConstructExtension中factory为nil，无法创建dropdown
+				if comboBox, ok := tmpl.GObject.Data().(*widgets.GComboBox); ok {
+					comboBox.SetFactoryInternal(f)
+				}
 				widget.SetTemplateComponent(tmpl)
 			}
 		}
@@ -1212,39 +1294,7 @@ func (f *Factory) applyComboBoxTemplate(ctx context.Context, widget *widgets.GCo
 	widget.SetDropdownURL(url)
 
 	dropdownItem := f.resolveIcon(ctx, pkg, url)
-	if dropdownItem == nil {
-		return
-	}
 	widget.SetDropdownItem(dropdownItem)
-
-	targetPkg := dropdownItem.Owner
-	if targetPkg == nil {
-		targetPkg = pkg
-	}
-	if targetPkg == nil && owner != nil {
-		targetPkg = owner.Owner
-	}
-	if targetPkg == nil {
-		return
-	}
-	dropdownComp, err := f.BuildComponent(ctx, targetPkg, dropdownItem)
-	if err != nil || dropdownComp == nil {
-		return
-	}
-	widget.SetDropdownComponent(dropdownComp)
-
-	if listObj := dropdownComp.ChildByName("list"); listObj != nil {
-		switch data := listObj.Data().(type) {
-		case *widgets.GList:
-			widget.SetList(data)
-		case *core.GComponent:
-			if embedded := data.ChildByName("list"); embedded != nil {
-				if list, ok := embedded.Data().(*widgets.GList); ok {
-					widget.SetList(list)
-				}
-			}
-		}
-	}
 }
 
 func (f *Factory) populateTree(ctx context.Context, tree *widgets.GTree, pkg *assets.Package, owner *assets.PackageItem, child *assets.ComponentChild, buf *utils.ByteBuffer) {

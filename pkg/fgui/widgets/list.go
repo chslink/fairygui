@@ -1416,6 +1416,14 @@ func (l *GList) SetObjectCreator(creator ObjectCreator) {
 	}
 }
 
+// GetObjectCreator 返回对象创建器
+func (l *GList) GetObjectCreator() ObjectCreator {
+	if l == nil {
+		return nil
+	}
+	return l.creator
+}
+
 // RefreshVirtualList 刷新虚拟列表
 func (l *GList) RefreshVirtualList() {
 	if !l.virtual {

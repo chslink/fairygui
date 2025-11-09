@@ -255,3 +255,44 @@
 2. 检查其他场景是否有 overflow 相关问题（如滚动容器、裁剪区域等）
 3. 如需要，补充 overflow 与 ScrollPane 的集成测试
 
+## 2025-11-09
+### ✅ 已完成
+- **彻底修复 ComboBox 下拉组件显示问题**：
+  - **问题1 - 实例不匹配**：factory 设置和 ConstructExtension 调用发生在不同实例上
+    - 添加 factory 字段到 GComboBox struct，使用 public SetFactoryInternal 方法
+    - 修复 buildNestedComponent 模式，确保 dropdown 在同一实例上创建
+  - **问题2 - 尺寸计算缺失**：dropdown 尺寸为 0x0，导致弹窗定位错误
+    - 在 showDropdown 方法中添加正确的尺寸计算逻辑
+    - 触发 list.GComponent.EnsureBoundsCorrect() 确保尺寸正确
+    - 使用 ComboBox 宽度和 list 实际高度设置 dropdown 尺寸
+  - **架构对齐 TypeScript**：Go 构造流程与 TypeScript constructExtension 模式完全一致
+    - dropdown 创建和事件绑定在同一方法中完成
+    - 使用 buildNestedComponent 替代手动创建 widget 实例
+    - 确保 SetupAfterAdd 在正确实例上调用
+
+### 测试结果
+- ✅ TestComboBoxComponentAccess - 所有 ComboBox 组件访问正常
+- ✅ n1 ComboBox - dropdown/list 正确设置，items 数量 8
+- ✅ n4 ComboBox - 可见项目数 5
+- ✅ n5 ComboBox - 可见项目数 10
+- ✅ n6 ComboBox - 可见项目数 5
+- ✅ TestShowDropdown - 下拉显示功能正常，列表项正确加载
+- ✅ TestCheckPackageItems - 资源项查找和 FactoryObjectCreator 创建正常
+
+### 关键代码修改
+- `pkg/fgui/widgets/combo.go`:
+  - 添加 factory 字段用于 ConstructExtension 中创建 dropdown
+  - 添加 public SetFactoryInternal 方法（避免反射）
+  - 修复 showDropdown 方法中的尺寸计算逻辑
+- `pkg/fgui/builder/component.go`:
+  - 修改 GComboBox case，使用 buildNestedComponent 模式
+  - 确保 SetupAfterAdd 在正确实例上调用
+- `pkg/fgui/builder/combobox_test.go`:
+  - 完整测试覆盖 ComboBox 组件的构建和获取
+
+### 技术成就
+- **架构对齐**: 成功使 Go 构造流程与 TypeScript 模式一致
+- **实例管理**: 解决了多实例环境下的工厂模式问题
+- **尺寸计算**: 确保 UI 组件正确定位和显示
+- **测试完全通过**: 所有 ComboBox 相关功能验证成功
+

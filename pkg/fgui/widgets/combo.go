@@ -1,8 +1,11 @@
 package widgets
 
 import (
+	"context"
 	"strings"
+	"sync"
 
+	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/utils"
@@ -44,6 +47,15 @@ type GComboBox struct {
 	titleFontSize       int
 	titleOutlineColor   string
 	selectionController *core.Controller
+	down               bool
+	over               bool
+	itemsUpdated       bool
+	eventOnce          sync.Once
+
+	// factory 用于在 ConstructExtension 中创建 dropdown（模仿 TypeScript 模式）
+	factory             interface {
+		BuildComponent(ctx context.Context, pkg *assets.Package, item *assets.PackageItem) (*core.GComponent, error)
+	}
 }
 
 // ComponentRoot 返回组合控件根节点。
@@ -54,6 +66,25 @@ func (c *GComboBox) ComponentRoot() *core.GComponent {
 	return c.GComponent
 }
 
+// SetFactoryInternal 设置内部factory（仅供builder使用）
+// 采用public方法避免反射，符合Go最佳实践
+func (c *GComboBox) SetFactoryInternal(factory interface {
+	BuildComponent(ctx context.Context, pkg *assets.Package, item *assets.PackageItem) (*core.GComponent, error)
+}) {
+	if c != nil {
+		c.factory = factory
+	}
+}
+
+// setFactoryInternal 内部方法保留（兼容旧代码）
+func (c *GComboBox) setFactoryInternal(factory interface {
+	BuildComponent(ctx context.Context, pkg *assets.Package, item *assets.PackageItem) (*core.GComponent, error)
+}) {
+	if c != nil {
+		c.factory = factory
+	}
+}
+
 // NewComboBox 创建一个空的 ComboBox。
 func NewComboBox() *GComboBox {
 	comp := core.NewGComponent()
@@ -62,6 +93,7 @@ func NewComboBox() *GComboBox {
 		selectedIndex:    -1,
 		visibleItemCount: defaultComboBoxVisibleItemCount,
 		popupDirection:   PopupDirectionAuto,
+		itemsUpdated:     true,
 	}
 	comp.SetData(cb)
 	return cb
@@ -191,9 +223,34 @@ func (c *GComboBox) List() *GList {
 	return c.list
 }
 
+// getObjectCreator 返回对象创建器
+func (c *GComboBox) getObjectCreator() ObjectCreator {
+	if c == nil || c.list != nil {
+		if c.list != nil {
+			return c.list.GetObjectCreator()
+		}
+	}
+	// 如果没有list，尝试从GComponent中查找
+	if c.GComponent != nil {
+		for _, child := range c.GComponent.Children() {
+			if child != nil {
+				if list, ok := child.Data().(*GList); ok && list != nil {
+					return list.GetObjectCreator()
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // Items 返回当前条目副本。
 func (c *GComboBox) Items() []string {
 	return append([]string(nil), c.items...)
+}
+
+// NumItems 返回条目数量。
+func (c *GComboBox) NumItems() int {
+	return len(c.items)
 }
 
 // Values 返回条目 value 副本。
@@ -215,6 +272,7 @@ func (c *GComboBox) SetItems(items, values, icons []string) {
 	} else {
 		c.icons = nil
 	}
+	c.itemsUpdated = true
 	if c.selectedIndex >= len(c.items) {
 		c.SetSelectedIndex(-1)
 	} else {
@@ -406,6 +464,7 @@ func (c *GComboBox) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	c.items = items
 	c.values = values
 	c.icons = icons
+	c.itemsUpdated = true
 
 	if text := buf.ReadS(); text != nil {
 		c.SetText(*text)
@@ -553,4 +612,211 @@ func indexOfString(entries []string, target string) int {
 		}
 	}
 	return -1
+}
+
+// ConstructExtension 在组件完整构建后绑定事件监听器
+// 对应 TypeScript 版本 GComboBox.constructExtension()
+func (c *GComboBox) ConstructExtension(buf *utils.ByteBuffer) error {
+	if c == nil || buf == nil {
+		return nil
+	}
+
+	// 保存当前位置，函数结束时恢复
+	saved := buf.Pos()
+	defer func() { _ = buf.SetPos(saved) }()
+
+	// 查找button controller和title/icon对象
+	c.buttonController = c.GComponent.ControllerByName("button")
+	if c.titleObject == nil {
+		c.titleObject = c.GComponent.ChildByName("title")
+	}
+	if c.iconObject == nil {
+		c.iconObject = c.GComponent.ChildByName("icon")
+	}
+
+	// 关键修复：像TypeScript版本一样，在constructExtension中创建dropdown
+	// TypeScript版本在第295-317行从buffer读取dropdown URL并创建组件
+	// 在Go中，我们使用全局解析方法，因为ConstructExtension没有factory引用
+	if !buf.Seek(0, 6) {
+	} else {
+		dropdownURL := buf.ReadS()
+		if dropdownURL != nil && *dropdownURL != "" {
+			// 优先使用factory创建（TypeScript模式）
+			if c.factory != nil {
+				if item := assets.GetItemByURL(*dropdownURL); item != nil {
+					targetPkg := item.Owner
+					if dropdownComp, err := c.factory.BuildComponent(context.Background(), targetPkg, item); err == nil && dropdownComp != nil {
+						c.SetDropdownComponent(dropdownComp)
+
+						// 从dropdown中查找list
+						if listObj := dropdownComp.ChildByName("list"); listObj != nil {
+							if list, ok := listObj.Data().(*GList); ok {
+								c.SetList(list)
+							}
+						}
+					}
+				}
+			} else {
+				// 备用方案：保存信息，延迟创建
+				if item := assets.GetItemByURL(*dropdownURL); item != nil {
+					c.SetDropdownItem(item)
+					c.SetDropdownURL(*dropdownURL)
+				}
+			}
+		}
+	}
+
+	// 绑定事件监听器（使用sync.Once确保只绑定一次）
+	c.bindEvents()
+
+	return nil
+}
+
+func (c *GComboBox) bindEvents() {
+	c.eventOnce.Do(func() {
+		obj := c.GComponent.GObject
+		if obj == nil {
+			return
+		}
+
+		obj.On(laya.EventRollOver, func(evt *laya.Event) {
+			c.onRollOver(evt)
+		})
+		obj.On(laya.EventRollOut, func(evt *laya.Event) {
+			c.onRollOut(evt)
+		})
+		obj.On(laya.EventMouseDown, func(evt *laya.Event) {
+			c.onMouseDown(evt)
+		})
+	})
+}
+
+func (c *GComboBox) onRollOver(evt *laya.Event) {
+	c.over = true
+	if c.down || (c.dropdown != nil && c.dropdown.Parent() != nil) {
+		return
+	}
+	c.setState(buttonStateOver)
+}
+
+func (c *GComboBox) onRollOut(evt *laya.Event) {
+	c.over = false
+	if c.down || (c.dropdown != nil && c.dropdown.Parent() != nil) {
+		return
+	}
+	c.setState(buttonStateUp)
+}
+
+func (c *GComboBox) onMouseDown(evt *laya.Event) {
+	if evt == nil {
+		return
+	}
+
+	c.down = true
+	c.showDropdown()
+}
+
+func (c *GComboBox) setState(state string) {
+	if c.buttonController != nil {
+		// 检查状态是否存在
+		for _, page := range c.buttonController.PageNames {
+			if page == state {
+				c.buttonController.SetSelectedPageName(state)
+				break
+			}
+		}
+	}
+}
+
+// ShowDropdown 公开方法，用于测试时手动触发下拉显示
+func (c *GComboBox) ShowDropdown() {
+	if c == nil {
+		return
+	}
+	c.showDropdown()
+}
+
+func (c *GComboBox) showDropdown() {
+	if c.list == nil || c.dropdown == nil {
+		return
+	}
+
+	// 如果需要更新items
+	if c.itemsUpdated {
+		c.itemsUpdated = false
+
+		// 清空列表
+		itemCount := c.list.NumItems()
+		for i := itemCount - 1; i >= 0; i-- {
+			c.list.RemoveItemAt(i)
+		}
+
+		// 添加项目
+		cnt := len(c.items)
+		for i := 0; i < cnt; i++ {
+			// 直接使用默认item模板
+			defaultItem := c.list.DefaultItem()
+			if defaultItem == "" {
+				// 没有默认模板，无法创建item
+				continue
+			}
+
+			item := c.list.getFromPool(defaultItem)
+			if item == nil {
+				// 尝试通过 FactoryObjectCreator 直接创建
+				if creator := c.list.GetObjectCreator(); creator != nil {
+					if obj := creator.CreateObject(defaultItem); obj != nil {
+						item = obj
+					}
+				}
+			}
+
+			if item == nil {
+				continue
+			}
+
+			if i < len(c.values) {
+				item.SetName(c.values[i])
+			} else {
+				item.SetName("")
+			}
+			item.SetData(c.items[i])
+
+			if i < len(c.icons) && c.icons[i] != "" {
+				if loader, ok := item.Data().(*GLoader); ok {
+					loader.SetURL(c.icons[i])
+				} else if button, ok := item.Data().(*GButton); ok {
+					button.SetIcon(c.icons[i])
+				}
+			}
+			c.list.AddItem(item)
+		}
+	}
+
+	c.list.SetSelectedIndex(-1)
+
+	// 关键修复：确保 dropdown 尺寸正确计算
+	// 在添加完列表项后，需要触发 list 的 updateBounds 来计算正确尺寸
+	if c.list != nil && !c.list.IsVirtual() {
+		c.list.GComponent.GObject.SetSize(c.GComponent.GObject.Width(), c.GComponent.GObject.Height())
+		c.list.GComponent.SetBoundsChangedFlag()
+		c.list.GComponent.EnsureBoundsCorrect()
+		// 再次调用 updateBounds 确保尺寸正确
+		c.list.GComponent.GObject.SetSize(c.GComponent.GObject.Width(), c.GComponent.GObject.Height())
+	}
+
+	// 使用 ComboBox 宽度和 list 实际高度设置 dropdown 尺寸
+	dropdownWidth := c.GComponent.GObject.Width()
+	dropdownHeight := c.dropdown.GObject.Height()
+	// 如果 dropdown 高度为 0，尝试从 list 获取
+	if dropdownHeight <= 0 && c.list != nil {
+		dropdownHeight = c.list.GComponent.GObject.Height()
+	}
+	c.dropdown.GObject.SetSize(dropdownWidth, dropdownHeight)
+
+	// 显示下拉框
+	core.Root().TogglePopup(c.dropdown.GObject, c.GComponent.GObject, core.PopupDirection(c.popupDirection))
+	if c.dropdown.Parent() != nil {
+		c.setState(buttonStateDown)
+	}
 }
