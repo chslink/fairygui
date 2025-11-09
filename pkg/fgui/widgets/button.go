@@ -267,14 +267,16 @@ func (b *GButton) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
 	_ = buf.ReadInt16() // skip controller index
 	_ = buf.ReadS()     // skip relatedPageId
 
-	// 关键修改：跳过在 ConstructExtension 中处理的属性
-	// 这些属性在组件完整构建后由 ConstructExtension 统一设置
-	// sound, soundVolumeScale, downEffect, downEffectValue, selected
-	_ = buf.ReadS()    // skip sound
-	if buf.ReadBool() { // has soundVolumeScale
-		_ = buf.ReadFloat32()
+	// 关键修复：从 XML <Button sound=""> 属性读取音效并覆盖模板默认值
+	// 对应 TypeScript 版本 GButton.setup_afterAdd 第 425-429 行
+	// 如果 XML 中指定了 sound 属性（包括空字符串），则覆盖 ConstructExtension 的值
+	if sound := buf.ReadS(); sound != nil {
+		b.SetSound(*sound) // 包括空字符串，这会禁用音效
 	}
-	_ = buf.ReadBool() // skip selected
+	if buf.ReadBool() { // has soundVolumeScale
+		b.SetSoundVolumeScale(float64(buf.ReadFloat32()))
+	}
+	_ = buf.ReadBool() // skip selected (在 ConstructExtension 中处理)
 }
 
 // SetupAfterAdd applies button configuration that depends on other objects.
@@ -311,6 +313,15 @@ func (b *GButton) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 		b.SetRelatedPageID(*page)
 	}
 
+	// 关键修复：将外层按钮的 sound 传递给模板按钮
+	// 这样点击模板时会播放正确的音效
+	if b.template != nil {
+		if templateBtn, ok := b.template.GObject.Data().(*GButton); ok && templateBtn != nil {
+			templateBtn.SetSound(b.sound)
+			templateBtn.SetSoundVolumeScale(b.soundVolumeScale)
+		}
+	}
+
 	// 修复：重新确保按钮的交互属性正确
 	// SetupBeforeAdd 调用了 GComponent.SetupBeforeAdd，它会读取 opaque 并可能设置 MouseThrough=true
 	// 这会覆盖按钮初始化时的 MouseThrough=false 设置，导致按钮不可点击
@@ -341,8 +352,11 @@ func (b *GButton) ConstructExtension(buf *utils.ByteBuffer) error {
 	b.SetMode(mode)
 
 	// 音效相关设置
+	// 关键修复：匹配 TypeScript 行为，只要 ReadS 不为 nil（包括空字符串""）就要设置
+	// TS 版本（GButton.setup_afterAdd 第 425-429 行）：if (str != null) this._sound = str;
+	// 包括空字符串的情况，空字符串表示"明确禁用音效"
 	if sound := buf.ReadS(); sound != nil {
-		b.SetSound(*sound)
+		b.SetSound(*sound) // 包括 sound = "" 的情况，这会覆盖全局音效设置
 	}
 	if buf.Remaining() >= 4 {
 		b.SetSoundVolumeScale(float64(buf.ReadFloat32()))

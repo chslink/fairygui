@@ -56,19 +56,15 @@ type game struct {
 }
 
 func newGame(ctx context.Context) (*game, error) {
-	// 初始化音频系统
+	// 初始化音频系统（必须首先调用，创建音频上下文）
 	fgui.InitAudio(48000) // 使用48000采样率
+
+	// 注册按钮音效播放器
 	fgui.RegisterButtonSoundPlayer()
 
-	// 注册示例音效（可以替换为实际的音频文件）
-	// 这里使用空数据作为示例，实际使用时需要加载真实的音频文件
-	// data, _ := os.ReadFile("path/to/click.wav")
-	// fgui.RegisterAudio("button_click", data)
-
+	// 设置音频系统的资源加载器（用于自动从包中加载音效）
 	assetsDir := filepath.Join("demo", "assets")
 	loader := fgui.NewFileLoader(assetsDir)
-
-	// 设置音频系统的资源加载器（用于自动从包中加载音效）
 	fgui.SetAudioLoader(loader)
 
 	atlas := render.NewAtlasManager(loader)

@@ -16,7 +16,9 @@
     <component id="n6" name="n6" src="rpmb10" fileName="components/Button2.xml" xy="158,19" size="113,40">
       <Button title="Click Me" icon="ui://9leh0eyfrpmb6"/>
     </component>
-    <component id="n7" name="n7" src="rpmb12" fileName="components/Button4.xml" xy="278,298"/>
+    <component id="n7" name="n7" src="rpmb12" fileName="components/Button4.xml" xy="278,298">
+      <Button sound="ui://9leh0eyfgojg7u"/>
+    </component>
     <text id="n8" name="n8" xy="38,308" size="202,32" fontSize="22" text="Transition Effect:"/>
     <component id="n11" name="n11" src="rpmb11" fileName="components/Button3.xml" xy="330,22" size="88,40">
       <Button title="点我" icon="ui://9leh0eyfrpmb6"/>
@@ -28,7 +30,7 @@
       <Button icon="ui://9leh0eyfrpmbu"/>
     </component>
     <component id="n15" name="n15" src="rpmb15" fileName="components/Button7.xml" xy="705,19"/>
-    <component id="n16" name="n16" src="rpmb19" fileName="components/OnOffButton.xml" xy="473,300">
+    <component id="n16" name="n16" src="rpmb19" fileName="components/OnOffButton.xml" xy="473,302">
       <Button title="On" selectedTitle="Off" sound="ui://9leh0eyfgojg7u"/>
     </component>
     <component id="n17" name="n17" src="rpmb17" fileName="components/Button9.xml" xy="627,289">
