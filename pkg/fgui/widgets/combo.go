@@ -636,7 +636,6 @@ func (c *GComboBox) ConstructExtension(buf *utils.ByteBuffer) error {
 
 	// 关键修复：像TypeScript版本一样，在constructExtension中创建dropdown
 	// TypeScript版本在第295-317行从buffer读取dropdown URL并创建组件
-	// 在Go中，我们使用全局解析方法，因为ConstructExtension没有factory引用
 	if !buf.Seek(0, 6) {
 	} else {
 		dropdownURL := buf.ReadS()
@@ -652,7 +651,33 @@ func (c *GComboBox) ConstructExtension(buf *utils.ByteBuffer) error {
 						if listObj := dropdownComp.ChildByName("list"); listObj != nil {
 							if list, ok := listObj.Data().(*GList); ok {
 								c.SetList(list)
+
+								// TypeScript版本第308行：给list添加点击事件监听
+								// 监听list的StateChanged事件（当选择改变时触发）
+								list.GComponent.GObject.On(laya.EventStateChanged, func(evt *laya.Event) {
+									c.onListItemClick(evt)
+								})
 							}
+						}
+
+						// TypeScript版本第310-314行：设置dropdown和list之间的关系
+						if c.list != nil {
+							// list宽度跟随dropdown
+							c.list.GComponent.GObject.AddRelation(dropdownComp.GObject, core.RelationTypeWidth, false)
+							// list高度不跟随dropdown
+							c.list.GComponent.GObject.RemoveRelation(dropdownComp.GObject, core.RelationTypeHeight)
+
+							// dropdown高度跟随list
+							dropdownComp.GObject.AddRelation(c.list.GComponent.GObject, core.RelationTypeHeight, false)
+							// dropdown宽度不跟随list
+							dropdownComp.GObject.RemoveRelation(c.list.GComponent.GObject, core.RelationTypeWidth)
+						}
+
+						// TypeScript版本第316行：监听dropdown的UNDISPLAY事件
+						if disp := dropdownComp.DisplayObject(); disp != nil {
+							disp.Dispatcher().On(laya.EventUndisplay, func(evt *laya.Event) {
+								c.onPopupWinClosed(evt)
+							})
 						}
 					}
 				}
@@ -679,6 +704,7 @@ func (c *GComboBox) bindEvents() {
 			return
 		}
 
+		// TypeScript版本第319-321行：绑定自身事件
 		obj.On(laya.EventRollOver, func(evt *laya.Event) {
 			c.onRollOver(evt)
 		})
@@ -713,7 +739,16 @@ func (c *GComboBox) onMouseDown(evt *laya.Event) {
 	}
 
 	c.down = true
-	c.showDropdown()
+
+	// TypeScript版本第452行：调用GRoot.checkPopups关闭其他popup
+	if root := core.Root(); root != nil && c.GComponent != nil && c.GComponent.GObject != nil {
+		root.CheckPopups(c.GComponent.GObject.DisplayObject())
+	}
+
+	// TypeScript版本第456-457行：显示dropdown
+	if c.dropdown != nil {
+		c.showDropdown()
+	}
 }
 
 func (c *GComboBox) setState(state string) {
@@ -725,6 +760,46 @@ func (c *GComboBox) setState(state string) {
 				break
 			}
 		}
+	}
+}
+
+// onPopupWinClosed 处理dropdown关闭事件
+// 对应TypeScript版本第411-416行
+func (c *GComboBox) onPopupWinClosed(evt *laya.Event) {
+	if c.over {
+		c.setState(buttonStateOver)
+	} else {
+		c.setState(buttonStateUp)
+	}
+}
+
+// onListItemClick 处理列表项点击事件（通过StateChanged事件）
+// 对应TypeScript版本第418-429行的CLICK_ITEM处理逻辑
+func (c *GComboBox) onListItemClick(evt *laya.Event) {
+	if c == nil || c.list == nil {
+		return
+	}
+
+	// 获取当前选中的索引
+	selectedIndex := c.list.SelectedIndex()
+	if selectedIndex < 0 {
+		return
+	}
+
+	// TypeScript版本第423-424行：隐藏popup
+	if c.dropdown != nil && c.dropdown.GObject != nil && c.dropdown.GObject.Parent() != nil {
+		if root := core.Root(); root != nil {
+			root.HidePopup(c.dropdown.GObject)
+		}
+	}
+
+	// TypeScript版本第426-427行：设置selectedIndex
+	c.selectedIndex = -1
+	c.SetSelectedIndex(selectedIndex)
+
+	// TypeScript版本第428行：派发STATE_CHANGED事件
+	if c.GComponent != nil && c.GComponent.GObject != nil {
+		c.GComponent.GObject.Emit(laya.EventStateChanged, nil)
 	}
 }
 
