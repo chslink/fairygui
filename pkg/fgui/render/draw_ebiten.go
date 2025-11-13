@@ -681,6 +681,11 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		if err := drawComponent(target, data.GComponent, atlas, combined, alpha); err != nil {
 			return err
 		}
+	case *widgets.GSlider:
+		// GSlider 内嵌 GComponent，渲染其子对象（grip, bar/bar_v, title）
+		if err := drawComponent(target, data.GComponent, atlas, combined, alpha); err != nil {
+			return err
+		}
 	case *widgets.GComboBox:
 		if root := data.ComponentRoot(); root != nil {
 			if err := drawComponent(target, root, atlas, combined, alpha); err != nil {
