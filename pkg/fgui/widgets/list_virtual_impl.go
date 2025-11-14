@@ -640,15 +640,23 @@ func (l *GList) updateVirtualItems1(oldFirstIndex, newFirstIndex, pos, max int, 
 			}
 		}
 
+		// 应用选中状态 - 关键修复：确保UI显示正确的选中状态
+		if ii.obj != nil && ii.selected {
+			// 根据对象类型应用选中状态
+			switch data := ii.obj.Data().(type) {
+			case *GButton:
+				data.SetSelected(true)
+			case interface{ SetSelected(bool) }:
+				data.SetSelected(true)
+			}
+		}
+
 		// 标记为已更新
 		l.MarkItemUpdated(ii)
 
 		// 设置位置 - 对应 TypeScript 版本行1494
 		if ii.obj != nil {
 			ii.obj.SetPosition(float64(curX), float64(curY))
-			if itemCount < 5 {
-				log.Printf("      item[%d]: pos=(%d,%d), size=%dx%d", curIndex, curX, curY, ii.width, ii.height)
-			}
 		}
 
 		itemCount++
@@ -768,6 +776,17 @@ func (l *GList) updateVirtualItems(oldFirstIndex, newFirstIndex, newLastIndex in
 			if ii.obj != nil {
 				ii.width = int(ii.obj.Width())
 				ii.height = int(ii.obj.Height())
+			}
+		}
+
+		// 应用选中状态 - 关键修复：确保UI显示正确的选中状态
+		if ii.obj != nil && ii.selected {
+			// 根据对象类型应用选中状态
+			switch data := ii.obj.Data().(type) {
+			case *GButton:
+				data.SetSelected(true)
+			case interface{ SetSelected(bool) }:
+				data.SetSelected(true)
 			}
 		}
 

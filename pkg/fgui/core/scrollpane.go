@@ -715,6 +715,18 @@ func (p *ScrollPane) ScrollRight() {
 	p.scrollBy(p.scrollStep, 0)
 }
 
+// ScrollTop 滚动到顶部。
+// 参数 ani 控制是否使用动画（当前未实现动画效果）。
+func (p *ScrollPane) ScrollTop(ani bool) {
+	p.SetPercY(0, ani)
+}
+
+// ScrollBottom 滚动到底部。
+// 参数 ani 控制是否使用动画（当前未实现动画效果）。
+func (p *ScrollPane) ScrollBottom(ani bool) {
+	p.SetPercY(1, ani)
+}
+
 func (p *ScrollPane) scrollBy(dx, dy float64) {
 	if p == nil {
 		return

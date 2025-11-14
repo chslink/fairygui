@@ -94,6 +94,7 @@ type GList struct {
 	virtualItems       []*ItemInfo // 虚拟项数组
 	itemInfoVer        int         // 项信息版本
 	eventLocked        bool        // 事件锁定
+	scrollListenerID   int         // 滚动监听器 ID
 
 	// 渲染回调
 	itemRenderer func(index int, item *core.GObject) // 项目渲染器
@@ -420,11 +421,17 @@ func (l *GList) SetSelectedIndex(index int) {
 	if l == nil {
 		return
 	}
-	if len(l.items) == 0 {
+	if len(l.items) == 0 && !l.virtual {
 		l.clearSelection(true)
 		return
 	}
-	if index < 0 || index >= len(l.items) {
+
+	// 检查索引范围：对虚拟列表使用 numItems，对非虚拟列表使用 len(items)
+	maxIdx := len(l.items)
+	if l.virtual {
+		maxIdx = l.numItems
+	}
+	if index < 0 || index >= maxIdx {
 		l.clearSelection(true)
 		return
 	}
@@ -473,17 +480,49 @@ func (l *GList) SetSelectedIndices(indices []int) {
 }
 
 // AddSelection adds the specified index to the current selection.
-func (l *GList) AddSelection(index int) {
-	if l == nil || index < 0 || index >= len(l.items) {
+// scrollItToView: whether to scroll the item into view
+// 对应 TypeScript 版本的 addSelection(index: number, scrollItToView?: boolean)
+func (l *GList) AddSelection(index int, scrollItToView bool) {
+	if l == nil {
 		return
 	}
+
+	// 虚拟列表：检查数据索引范围
+	// 非虚拟列表：检查子对象数组范围
+	if l.virtual {
+		if index < 0 || index >= l.numItems {
+			return
+		}
+	} else {
+		if index < 0 || index >= len(l.items) {
+			return
+		}
+	}
+
 	if l.selectionMode == ListSelectionModeNone {
 		return
 	}
+
+	// 虚拟列表需要先刷新以确保 virtualItems 数组有效
+	// 对应 TypeScript: this.checkVirtualList()
+	if l.virtual {
+		l.CheckVirtualList()
+	}
+
 	if l.selectionMode == ListSelectionModeSingle {
 		l.SetSelectedIndex(index)
+		// 单选模式下，SetSelectedIndex 内部不会触发滚动，需要这里处理
+		if scrollItToView {
+			l.ScrollToView(index)
+		}
 		return
 	}
+
+	// 对应 TypeScript: if (scrollItToView) this.scrollToView(index)
+	if scrollItToView {
+		l.ScrollToView(index)
+	}
+
 	if l.selectedSet == nil {
 		l.selectedSet = make(map[int]struct{})
 	}
@@ -493,6 +532,131 @@ func (l *GList) AddSelection(index int) {
 	set := l.copySelectionSet()
 	set[index] = struct{}{}
 	l.updateSelection(set, index, true)
+}
+
+// ScrollToView scrolls the list to make the specified item visible.
+// 对应 TypeScript 版本的 scrollToView(index: number, ani?: boolean, setFirst?: boolean)
+// 当前简化版本不支持 ani 和 setFirst 参数
+func (l *GList) ScrollToView(index int) {
+	if l == nil {
+		return
+	}
+
+	if l.virtual {
+		// 虚拟列表：根据索引计算位置
+		if l.numItems == 0 {
+			return
+		}
+
+		// 确保虚拟列表已刷新
+		l.CheckVirtualList()
+
+		// 关键修复：确保 virtualItems 数组足够大，可以访问任意索引
+		// virtualItems 应该包含所有数据项，而不仅仅是可见项
+		l.EnsureVirtualItems(l.numItems)
+
+		if index < 0 || index >= l.numItems {
+			log.Printf("❌ ScrollToView: invalid index %d, numItems=%d", index, l.numItems)
+			return
+		}
+
+		// 处理循环模式（对应 TypeScript GList.ts:869-870）
+		// if (this._loop)
+		//     index = Math.floor(this._firstIndex / this._numItems) * this._numItems + index;
+		if l.loop {
+			index = (l.firstIndex/l.numItems)*l.numItems + index
+		}
+
+		var x, y, width, height float64
+
+		// 根据布局类型计算项目位置
+		// 对应 TypeScript GList.ts:872-890
+		if l.layout == ListLayoutTypeSingleColumn || l.layout == ListLayoutTypeFlowHorizontal {
+			// 垂直滚动：累加之前所有项的高度
+			// TypeScript: for (var i: number = 0; i < index; i++)
+			//     pos += this._virtualItems[i].height + this._lineGap;
+			var pos float64 = 0
+			for i := 0; i < index; i++ {
+				itemHeight := l.virtualItems[i].height
+				if itemHeight == 0 && l.itemSize.Y > 0 {
+					itemHeight = int(l.itemSize.Y)
+				}
+				pos += float64(itemHeight) + float64(l.lineGap)
+			}
+			x = 0
+			y = pos
+			itemWidth := l.virtualItems[index].width
+			if itemWidth == 0 && l.itemSize.X > 0 {
+				itemWidth = int(l.itemSize.X)
+			}
+			width = float64(itemWidth)
+			height = l.itemSize.Y
+		} else if l.layout == ListLayoutTypeSingleRow || l.layout == ListLayoutTypeFlowVertical {
+			// 水平滚动：累加之前所有项的宽度
+			// TypeScript: for (var i: number = 0; i < index; i++)
+			//     pos += this._virtualItems[i].width + this._columnGap;
+			var pos float64 = 0
+			for i := 0; i < index; i++ {
+				itemWidth := l.virtualItems[i].width
+				if itemWidth == 0 && l.itemSize.X > 0 {
+					itemWidth = int(l.itemSize.X)
+				}
+				pos += float64(itemWidth) + float64(l.columnGap)
+			}
+			x = pos
+			y = 0
+			width = l.itemSize.X
+			itemHeight := l.virtualItems[index].height
+			if itemHeight == 0 && l.itemSize.Y > 0 {
+				itemHeight = int(l.itemSize.Y)
+			}
+			height = float64(itemHeight)
+		} else {
+			// 分页布局（Pagination）
+			// TypeScript GList.ts:892-895
+			// var page: number = index / (this._curLineItemCount * this._curLineItemCount2);
+			// rect = new Laya.Rectangle(page * this.viewWidth + (index % this._curLineItemCount) * (ii.width + this._columnGap),
+			//     (index / this._curLineItemCount) % this._curLineItemCount2 * (ii.height + this._lineGap),
+			//     ii.width, ii.height);
+			if l.curLineItemCount > 0 && l.curLineItemCount2 > 0 {
+				page := index / (l.curLineItemCount * l.curLineItemCount2)
+				pane := l.GComponent.ScrollPane()
+				viewWidth := float64(0)
+				if pane != nil {
+					viewWidth = pane.ViewWidth()
+				}
+				itemWidth := l.virtualItems[index].width
+				if itemWidth == 0 && l.itemSize.X > 0 {
+					itemWidth = int(l.itemSize.X)
+				}
+				itemHeight := l.virtualItems[index].height
+				if itemHeight == 0 && l.itemSize.Y > 0 {
+					itemHeight = int(l.itemSize.Y)
+				}
+				x = float64(page)*viewWidth + float64(index%l.curLineItemCount)*(float64(itemWidth)+float64(l.columnGap))
+				y = float64((index/l.curLineItemCount)%l.curLineItemCount2) * (float64(itemHeight) + float64(l.lineGap))
+				width = float64(itemWidth)
+				height = float64(itemHeight)
+			} else {
+				log.Printf("⚠️  ScrollToView: pagination layout not initialized")
+				return
+			}
+		}
+
+		// 调用 ScrollPane.ScrollToRect
+		// 对应 TypeScript GList.ts:898
+		// if (this._scrollPane)
+		//     this._scrollPane.scrollToView(rect, ani, setFirst);
+		pane := l.GComponent.ScrollPane()
+		if pane != nil {
+			log.Printf("📍 ScrollToView: scrolling to index=%d, rect=(%.0f,%.0f,%.0f,%.0f)", index, x, y, width, height)
+			pane.ScrollToRect(x, y, width, height, false)
+		}
+	} else {
+		// 非虚拟列表：使用现有的 scrollItemToView 方法
+		// 对应 TypeScript GList.ts:901-906
+		l.scrollItemToView(index)
+	}
 }
 
 // RemoveSelection removes the specified index from the current selection.
@@ -546,7 +710,7 @@ func (l *GList) handleItemClick(index int) {
 		if l.IsSelected(index) {
 			l.RemoveSelection(index)
 		} else {
-			l.AddSelection(index)
+			l.AddSelection(index, false)
 		}
 	default:
 		l.SetSelectedIndex(index)
@@ -613,8 +777,14 @@ func (l *GList) updateSelection(newSet map[int]struct{}, primary int, notify boo
 	var clean map[int]struct{}
 	if len(newSet) > 0 {
 		clean = make(map[int]struct{}, len(newSet))
+		// 关键修复：对于虚拟列表，使用 numItems（数据项总数）而不是 len(items)（渲染项数量）
+		// 对应 TypeScript 版本中虚拟列表的选择范围应该是 [0, numItems)
+		maxIdx := len(l.items)
+		if l.virtual {
+			maxIdx = l.numItems
+		}
 		for idx := range newSet {
-			if idx >= 0 && idx < len(l.items) {
+			if idx >= 0 && idx < maxIdx {
 				clean[idx] = struct{}{}
 			}
 		}
@@ -660,6 +830,7 @@ func (l *GList) updateSelection(newSet map[int]struct{}, primary int, notify boo
 		return
 	}
 
+	// 处理渲染项目的选中状态
 	for idx, child := range l.items {
 		if child == nil {
 			continue
@@ -670,6 +841,26 @@ func (l *GList) updateSelection(newSet map[int]struct{}, primary int, notify boo
 			continue
 		}
 		l.applyItemSelection(idx, inNew)
+	}
+
+	// 关键修复：对于虚拟列表，更新 ItemInfo.selected 字段
+	// 这样当项目被滚动到视野内时，可以正确应用选中状态
+	if l.virtual && l.virtualItems != nil {
+		for idx := range clean {
+			if idx >= 0 && idx < len(l.virtualItems) {
+				if l.virtualItems[idx] != nil {
+					l.virtualItems[idx].selected = true
+				}
+			}
+		}
+		// 清除不再选中的项
+		for i, ii := range l.virtualItems {
+			if ii != nil {
+				if _, inClean := clean[i]; !inClean {
+					ii.selected = false
+				}
+			}
+		}
 	}
 
 	if len(clean) == 0 {
@@ -1294,12 +1485,38 @@ func (l *GList) SetVirtual(value bool) {
 				// TypeScript: this._scrollPane.scrollStep = this._itemSize.x;
 				scrollPane.SetScrollStep(l.itemSize.X)
 			}
+
+			// 关键修复：注册滚动事件监听器
+			// 对应 TypeScript 版本 GList.ts:1005 - this.on(Events.SCROLL, this, this.__scrolled);
+			// 当滚动时调用 handleScroll(false) 来更新可见的虚拟项
+			if l.scrollListenerID != 0 {
+				scrollPane.RemoveScrollListener(l.scrollListenerID)
+			}
+			l.scrollListenerID = scrollPane.AddScrollListener(func(info core.ScrollInfo) {
+				// 对应 TypeScript 的 __scrolled 回调 (GList.ts:1207-1209)
+				// private __scrolled(evt: Laya.Event): void {
+				//     this.handleScroll(false);
+				// }
+				if !l.eventLocked {
+					l.handleScroll(false)
+				}
+			})
+			log.Printf("   ✅ 已注册滚动监听器 ID=%d", l.scrollListenerID)
 		}
 
 		// 设置虚拟列表改变标记
 		l.SetVirtualListChangedFlag(true)
 	} else {
 		// 禁用虚拟化
+		// 取消注册滚动监听器
+		if l.scrollListenerID != 0 {
+			if scrollPane := l.GComponent.ScrollPane(); scrollPane != nil {
+				scrollPane.RemoveScrollListener(l.scrollListenerID)
+				log.Printf("   ✅ 已取消滚动监听器 ID=%d", l.scrollListenerID)
+			}
+			l.scrollListenerID = 0
+		}
+
 		l.ClearVirtualItems()
 		children := l.GComponent.Children()
 		for _, child := range children {

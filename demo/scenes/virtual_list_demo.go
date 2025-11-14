@@ -88,18 +88,24 @@ func (d *VirtualListDemo) Load(ctx context.Context, mgr *Manager) (*core.GCompon
 // 对应 TypeScript: private renderListItem(index: number, obj: fgui.GObject)
 func (d *VirtualListDemo) renderMailItem(index int, obj *core.GObject) {
 	if obj == nil {
+		log.Printf("❌ obj is nil")
 		return
 	}
 
 	// 获取子组件
-	comp, ok := obj.Data().(*core.GComponent)
-	if !ok {
+	// 关键修复: 使用 ComponentFrom 而不是 AsComponent
+	// AsComponent() 只在 data 是 *GComponent 时返回非 nil,对 widget 类型返回 nil
+	// ComponentFrom() 通过 ComponentAccessor 接口正确处理 widget 类型
+	comp := core.ComponentFrom(obj)
+	if comp == nil {
+		log.Printf("❌ ComponentFrom() returned nil for index=%d", index)
 		return
 	}
 
 	// 设置邮件信息（模拟数据）
 	// fetched状态（每3个设置一次）
-	if fetchedCtrl := comp.ControllerByName("fetched"); fetchedCtrl != nil {
+	// 对应 MailItem.ts:28 - setFetched() 方法使用 "c1" controller
+	if fetchedCtrl := comp.ControllerByName("c1"); fetchedCtrl != nil {
 		if index%3 == 0 {
 			fetchedCtrl.SetSelectedIndex(1) // 已获取
 		} else {
@@ -108,7 +114,8 @@ func (d *VirtualListDemo) renderMailItem(index int, obj *core.GObject) {
 	}
 
 	// read状态（每2个设置一次）
-	if readCtrl := comp.ControllerByName("isRead"); readCtrl != nil {
+	// 对应 MailItem.ts:24 - setRead() 方法使用 "IsRead" controller（注意大小写）
+	if readCtrl := comp.ControllerByName("IsRead"); readCtrl != nil {
 		if index%2 == 0 {
 			readCtrl.SetSelectedIndex(1) // 已读
 		} else {
@@ -117,16 +124,25 @@ func (d *VirtualListDemo) renderMailItem(index int, obj *core.GObject) {
 	}
 
 	// 设置标题
-	if nameText := comp.ChildByName("name"); nameText != nil {
-		if textData := nameText.Data(); textData != nil {
-			if textField, ok := textData.(*widgets.GTextField); ok {
-				textField.SetText(fmt.Sprintf("%d Mail title here", index))
+	// 关键修复：如果 mailItem 是 GButton，使用 SetTitle() 而不是直接设置文本
+	// 这样当点击触发 SetSelected → applyTitleState 时，标题不会被清空
+	titleText := fmt.Sprintf("%d Mail title here", index)
+	if button, ok := obj.Data().(*widgets.GButton); ok {
+		button.SetTitle(titleText)
+	} else {
+		// 不是 GButton，直接设置 titleObject 的文本
+		if titleChild := comp.ChildByName("title"); titleChild != nil {
+			if textData := titleChild.Data(); textData != nil {
+				if textField, ok := textData.(*widgets.GTextField); ok {
+					textField.SetText(titleText)
+				}
 			}
 		}
 	}
 
 	// 设置时间
-	if timeText := comp.ChildByName("time"); timeText != nil {
+	// 对应 MailItem.ts:20 - setTime() 方法使用 "timeText" 子对象
+	if timeText := comp.ChildByName("timeText"); timeText != nil {
 		if textData := timeText.Data(); textData != nil {
 			if textField, ok := textData.(*widgets.GTextField); ok {
 				textField.SetText("5 Nov 2015 16:24:33")
@@ -139,49 +155,33 @@ func (d *VirtualListDemo) renderMailItem(index int, obj *core.GObject) {
 }
 
 // bindButtons 绑定按钮事件
+// 参考 TypeScript: VirtualListDemo.ts
 func (d *VirtualListDemo) bindButtons(view *core.GComponent) {
-	// 添加选择按钮
-	if btn := view.ChildByName("btnAddSelect"); btn != nil {
+	// n6: 添加选择按钮
+	// 对应 TypeScript 版本: this._view.getChild("n6").onClick(this, () => { this._list.addSelection(500, true); });
+	if btn := view.ChildByName("n6"); btn != nil {
 		btn.On(laya.EventClick, func(evt *laya.Event) {
 			if d.list != nil {
-				d.list.AddSelection(500)
-				log.Printf("🎯 添加选择: index=500")
+				// 第二个参数 true 表示自动滚动到该项
+				d.list.AddSelection(500, true)
 			}
 		})
 	}
 
-	// 滚动到顶部按钮
-	if btn := view.ChildByName("btnScrollToTop"); btn != nil {
+	// n7: 滚动到顶部按钮
+	if btn := view.ChildByName("n7"); btn != nil {
 		btn.On(laya.EventClick, func(evt *laya.Event) {
 			if d.list != nil && d.list.GComponent.ScrollPane() != nil {
-				d.list.GComponent.ScrollPane().SetPos(0, 0, false)
-				log.Printf("⬆️  滚动到顶部")
+				d.list.GComponent.ScrollPane().ScrollTop(false)
 			}
 		})
 	}
 
-	// 滚动到底部按钮
-	if btn := view.ChildByName("btnScrollToBottom"); btn != nil {
+	// n8: 滚动到底部按钮
+	if btn := view.ChildByName("n8"); btn != nil {
 		btn.On(laya.EventClick, func(evt *laya.Event) {
 			if d.list != nil && d.list.GComponent.ScrollPane() != nil {
-				scrollPane := d.list.GComponent.ScrollPane()
-				// 滚动到最大Y位置
-				maxY := d.list.GComponent.Height() - scrollPane.ViewHeight()
-				if maxY < 0 {
-					maxY = 0
-				}
-				scrollPane.SetPos(0, maxY, false)
-				log.Printf("⬇️  滚动到底部")
-			}
-		})
-	}
-
-	// 刷新列表按钮
-	if btn := view.ChildByName("btnRefresh"); btn != nil {
-		btn.On(laya.EventClick, func(evt *laya.Event) {
-			if d.list != nil {
-				d.list.RefreshVirtualList()
-				log.Printf("🔄 刷新虚拟列表")
+				d.list.GComponent.ScrollPane().ScrollBottom(false)
 			}
 		})
 	}
@@ -189,7 +189,6 @@ func (d *VirtualListDemo) bindButtons(view *core.GComponent) {
 
 // Dispose 销毁场景
 func (d *VirtualListDemo) Dispose() {
-	log.Println("🗑️  虚拟列表 demo 已销毁")
 	d.view = nil
 	d.list = nil
 }

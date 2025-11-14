@@ -47,19 +47,15 @@ func (c *FactoryObjectCreator) CreateObject(url string) *core.GObject {
 
 	var item *assets.PackageItem
 
-	log.Printf("[FactoryObjectCreator] CreateObject: 开始创建对象, url=%s, pkg=%p(%s)", url, c.pkg, c.pkg.Name)
-
 	// 首先尝试全局URL查找（支持ui://packageId/itemId格式）
 	if strings.HasPrefix(url, "ui://") {
 		item = assets.GetItemByURL(url)
-		log.Printf("[FactoryObjectCreator] 全局查找结果: item=%v", item != nil)
 	}
 
 	// 如果没找到，尝试在当前包中查找
 	if item == nil && c.pkg != nil {
 		// 尝试通过名称查找
 		item = c.pkg.ItemByName(url)
-		log.Printf("[FactoryObjectCreator] 在包%s(地址=%p)中按名称查找结果: item=%v", c.pkg.Name, c.pkg, item != nil)
 		if item == nil {
 			// 尝试通过ID查找
 			// 关键修复：如果URL是ui://xxx格式，需要提取xxx部分来查找ID
@@ -67,16 +63,12 @@ func (c *FactoryObjectCreator) CreateObject(url string) *core.GObject {
 			if strings.HasPrefix(url, "ui://") {
 				// 提取ui://后面的部分作为ID
 				searchID = url[5:] // 去掉"ui://"前缀
-				log.Printf("[FactoryObjectCreator] 从URL中提取ID: %s -> %s", url, searchID)
 			}
 			item = c.pkg.ItemByID(searchID)
-			log.Printf("[FactoryObjectCreator] 在包%s(地址=%p)中按ID(%s)查找结果: item=%v", c.pkg.Name, c.pkg, searchID, item != nil)
 			if item == nil {
 				// 尝试直接遍历 Items 数组验证是否存在
-				log.Printf("[FactoryObjectCreator] 遍历包%s中的所有Items查找ID=%s", c.pkg.Name, searchID)
 				for _, it := range c.pkg.Items {
 					if it.ID == searchID {
-						log.Printf("[FactoryObjectCreator] ❌ 找到匹配项! 但ItemByID返回nil! it=%v", it)
 						item = it
 						break
 					}
@@ -95,7 +87,6 @@ func (c *FactoryObjectCreator) CreateObject(url string) *core.GObject {
 	if item.Owner != nil {
 		pkg = item.Owner
 	}
-	log.Printf("[FactoryObjectCreator] 找到资源项: %s (类型=%v), 使用包: %s", item.Name, item.Type, pkg.Name)
 
 	// 使用Factory构建组件
 	comp, err := c.factory.BuildComponent(c.ctx, pkg, item)
@@ -108,7 +99,6 @@ func (c *FactoryObjectCreator) CreateObject(url string) *core.GObject {
 		return nil
 	}
 
-	log.Printf("[FactoryObjectCreator] ✅ 成功创建对象: %s", comp.GObject.Name())
 	return comp.GObject
 }
 
@@ -1890,9 +1880,23 @@ func uniqueStrings(values []string) []string {
 }
 
 // setupScrollBars 创建并绑定滚动条到ScrollPane
-// 对应 TypeScript 版本 ScrollPane.ts:149-178
+// 对应 TypeScript 版本 ScrollPane.ts:145-178
 func (f *Factory) setupScrollBars(ctx context.Context, pkg *assets.Package, owner *core.GComponent, pane *core.ScrollPane) {
 	if pane == nil || owner == nil {
+		return
+	}
+
+	// 关键修复：检查 scrollBarDisplay 是否为 Hidden
+	// 对应 TypeScript ScrollPane.ts:145-148
+	// if (scrollBarDisplay == ScrollBarDisplayType.Default)
+	//     scrollBarDisplay = UIConfig.defaultScrollBarDisplay;
+	// if (scrollBarDisplay != ScrollBarDisplayType.Hidden) { ... }
+	scrollBarDisplay := pane.ScrollBarDisplay()
+	if scrollBarDisplay == int(core.ScrollBarDisplayDefault) {
+		scrollBarDisplay = int(core.GetUIConfig().DefaultScrollBarDisplay)
+	}
+	// 如果滚动条显示模式为 Hidden，则不创建滚动条
+	if scrollBarDisplay == int(core.ScrollBarDisplayHidden) {
 		return
 	}
 
