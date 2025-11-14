@@ -128,6 +128,59 @@ const (
 	ListSelectionModeNone
 )
 
+// ChildIndexToItemIndex converts a child index to a data item index.
+// This is necessary for virtual lists where child indices don't directly map to data indices.
+func (l *GList) ChildIndexToItemIndex(index int) int {
+	if l == nil {
+		return -1
+	}
+	
+	// For non-virtual lists, child index equals item index
+	if !l.virtual {
+		return index
+	}
+
+	// Handle pagination layout
+	if l.layout == ListLayoutTypePagination {
+		for i := l.firstIndex; i < l.realNumItems; i++ {
+			if l.virtualItems[i].obj != nil {
+				index--
+				if index < 0 {
+					return i
+				}
+			}
+		}
+		return index
+	}
+	
+	// Handle other layouts
+	index += l.firstIndex
+	// Apply loop behavior if enabled
+	if l.loop && l.numItems > 0 {
+		// Ensure index is positive and within bounds
+		if index < 0 {
+			index = (index % l.numItems) + l.numItems
+		} else {
+			index = index % l.numItems
+		}
+	}
+
+	return index
+}
+
+// GetFirstChildInView returns the index of the first data item that is visible in the viewport.
+// This delegates to the GComponent implementation and converts the result.
+func (l *GList) GetFirstChildInView() int {
+	if l == nil || l.GComponent == nil {
+		return -1
+	}
+	childIndex := l.GComponent.GetFirstChildInView()
+	if childIndex == -1 {
+		return -1
+	}
+	return l.ChildIndexToItemIndex(childIndex)
+}
+
 // NewList constructs an empty list widget with virtual list support.
 func NewList() *GList {
 	list := &GList{
@@ -1547,6 +1600,26 @@ func (l *GList) SetLoop(value bool) {
 	if l.loop != value {
 		l.loop = value
 		l.SetVirtualListChangedFlag(true)
+		// 设置 ScrollPane 的循环模式
+		// 1=水平循环, 2=垂直循环
+		scrollPane := l.GComponent.ScrollPane()
+		if scrollPane != nil {
+			if l.layout == ListLayoutTypeSingleColumn || l.layout == ListLayoutTypeFlowHorizontal {
+				// 垂直循环
+				if value {
+					scrollPane.SetLoop(2)
+				} else {
+					scrollPane.SetLoop(0)
+				}
+			} else if l.layout == ListLayoutTypeSingleRow || l.layout == ListLayoutTypeFlowVertical {
+				// 水平循环
+				if value {
+					scrollPane.SetLoop(1)
+				} else {
+					scrollPane.SetLoop(0)
+				}
+			}
+		}
 	}
 }
 

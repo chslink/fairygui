@@ -315,7 +315,7 @@ func (b *GScrollBar) onGripMouseDown(evt *laya.Event) {
 	if b.grip == nil || b.target == nil {
 		return
 	}
-	evt.Data = evt.Data // ensure not nil
+
 	event, ok := evt.Data.(laya.PointerEvent)
 	if !ok {
 		return

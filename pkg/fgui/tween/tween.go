@@ -67,18 +67,18 @@ func (v *Value) SetZero() {
 
 // SetColor 以 0xAARRGGBB 写入颜色分量。
 func (v *Value) SetColor(color uint32) {
-	v.X = float64((color >> 16) & 0xFF)
-	v.Y = float64((color >> 8) & 0xFF)
-	v.Z = float64(color & 0xFF)
-	v.W = float64((color >> 24) & 0xFF)
+	v.X = float64(uint32(color>>16) & 0xFF)
+	v.Y = float64(uint32(color>>8) & 0xFF)
+	v.Z = float64(uint32(color) & 0xFF)
+	v.W = float64(uint32(color>>24) & 0xFF)
 }
 
 // Color 以 0xAARRGGBB 读出颜色分量。
 func (v Value) Color() uint32 {
-	r := clampColorComponent(v.X)
-	g := clampColorComponent(v.Y)
-	b := clampColorComponent(v.Z)
-	a := clampColorComponent(v.W)
+	r := uint32(clampColorComponent(v.X))
+	g := uint32(clampColorComponent(v.Y))
+	b := uint32(clampColorComponent(v.Z))
+	a := uint32(clampColorComponent(v.W))
 	return (a << 24) | (r << 16) | (g << 8) | b
 }
 
@@ -136,8 +136,9 @@ const (
 )
 
 type manager struct {
-	mu       sync.Mutex
-	tweeners []*GTweener
+	mu               sync.Mutex
+	tweeners         []*GTweener
+	totalActiveTweens int
 }
 
 var globalManager manager
@@ -652,7 +653,8 @@ func (t *GTweener) update() {
 		duration = 1
 	}
 	current := tt
-	if t.yoyo && reversed {
+	if reversed {
+		// 与 TypeScript 版本一致：反向播放时使用 (duration - tt)
 		current = t.duration - tt
 		if current < 0 {
 			current = 0
@@ -661,7 +663,7 @@ func (t *GTweener) update() {
 	if t.duration <= 0 {
 		t.normalized = 1
 	} else {
-		t.normalized = easeValue(t.ease, current, t.duration, t.easeAmount, t.easePeriod)
+		t.normalized = easeValue(t.ease, current, duration, t.easeAmount, t.easePeriod)
 	}
 
 	prev := t.value
@@ -672,8 +674,15 @@ func (t *GTweener) update() {
 	case valueSizeShake:
 		if t.endedState == endedNone {
 			radius := t.start.W * (1 - t.normalized)
-			rx := (rand.Float64()*2 - 1) * radius
-			ry := (rand.Float64()*2 - 1) * radius
+			// 与 TypeScript 版本一致：生成精确的 -1 或 1
+			rx := radius
+			if rand.Float64() > 0.5 {
+				rx = -radius
+			}
+			ry := radius
+			if rand.Float64() > 0.5 {
+				ry = -radius
+			}
 			t.delta.X = rx
 			t.delta.Y = ry
 			t.value.X = t.start.X + rx
@@ -711,7 +720,67 @@ func (t *GTweener) update() {
 		}
 	}
 
+	// 与 TypeScript 版本一致：自动将 tween 值应用到目标对象
+	if t.target != nil && t.prop != "" {
+		// prop 可以是字符串属性名或函数名
+		// 如果是函数，调用函数；否则，直接设置属性
+		switch t.valueSize {
+		case 1:
+			applyToTarget(t.target, t.prop, t.value.X)
+		case 2:
+			applyToTarget(t.target, t.prop, t.value.X, t.value.Y)
+		case 3:
+			applyToTarget(t.target, t.prop, t.value.X, t.value.Y, t.value.Z)
+		case 4:
+			applyToTarget(t.target, t.prop, t.value.X, t.value.Y, t.value.Z, t.value.W)
+		case valueSizeColor:
+			applyToTarget(t.target, t.prop, t.value.Color())
+		case valueSizeShake:
+			applyToTarget(t.target, t.prop, t.value.X, t.value.Y)
+		}
+	}
+
 	t.callUpdate()
+}
+
+// applyToTarget 将值应用到目标对象，支持函数调用和属性设置
+func applyToTarget(target any, prop string, args ...any) {
+	if target == nil || prop == "" {
+		return
+	}
+
+	// 尝试将 prop 作为函数调用
+	// 注：由于 Go 的反射限制，这里暂不实现函数调用
+
+	// 默认行为：将 prop 作为反射属性设置
+	if len(args) == 1 {
+		// 尝试设置单个属性值
+		// 由于 Go 的反射比较复杂，这里简化为仅设置 X 分量
+		if s, ok := target.(interface{ SetX(float64) }); ok && prop == "x" {
+			s.SetX(args[0].(float64))
+			return
+		}
+		if s, ok := target.(interface{ SetY(float64) }); ok && prop == "y" {
+			s.SetY(args[0].(float64))
+			return
+		}
+		if s, ok := target.(interface{ SetColor(uint32) }); ok && prop == "color" {
+			if c, ok := args[0].(uint32); ok {
+				s.SetColor(c)
+				return
+			}
+		}
+	}
+
+	// 如果是颜色类型，直接设置
+	if len(args) == 1 {
+		if c, ok := args[0].(uint32); ok {
+			if s, ok := target.(interface{ SetColor(uint32) }); ok && prop == "color" {
+				s.SetColor(c)
+				return
+			}
+		}
+	}
 }
 
 func (t *GTweener) callStart() {
@@ -746,13 +815,82 @@ func Advance(delta time.Duration) {
 	if seconds <= 0 {
 		return
 	}
+
 	list := globalManager.snapshot()
-	for _, tw := range list {
+	if list == nil {
+		return
+	}
+
+	var freePosStart int = -1
+	cnt := len(list)
+
+	for i, tw := range list {
 		if tw == nil {
+			if freePosStart == -1 {
+				freePosStart = i
+			}
 			continue
 		}
-		if tw.advance(seconds) {
+
+		if tw.killed {
+			// 重置并放回池中，然后置空
+			tw.killed = true
 			globalManager.remove(tw)
+			if freePosStart == -1 {
+				freePosStart = i
+			}
+		} else {
+			// 检查目标是否已释放
+			if obj, ok := tw.target.(interface{ IsDisposed() bool }); ok && obj.IsDisposed() {
+				tw.killed = true
+				if freePosStart == -1 {
+					freePosStart = i
+				}
+			} else if !tw.paused {
+				// 更新 tween
+				if tw.advance(seconds) {
+					// 如果 tween 已完成，将其移除
+					if freePosStart == -1 {
+						freePosStart = i
+					}
+				} else if freePosStart != -1 {
+					// 将活动 tween 移到前面
+					globalManager.moveToFreeSlot(tw, freePosStart, i)
+					list[freePosStart] = tw
+					list[i] = nil
+					freePosStart++
+				}
+			} else if freePosStart != -1 {
+				// 将暂停的 tween 移到前面
+				globalManager.moveToFreeSlot(tw, freePosStart, i)
+				list[freePosStart] = tw
+				list[i] = nil
+				freePosStart++
+			}
+		}
+	}
+
+	// 压缩数组：移除末尾的空槽位
+	if freePosStart >= 0 {
+		globalManager.mu.Lock()
+		defer globalManager.mu.Unlock()
+
+		if globalManager.totalActiveTweens != cnt {
+			// 有新的 tween 被添加，复制剩余的活动 tween
+			newCount := cnt
+			if len(list) > cnt {
+				newCount = len(list)
+			}
+			for i := freePosStart; i < newCount && i < len(list); i++ {
+				if list[i] != nil && !list[i].killed {
+					list[freePosStart] = list[i]
+					freePosStart++
+				}
+			}
+		}
+		globalManager.totalActiveTweens = freePosStart
+		if freePosStart < len(globalManager.tweeners) {
+			globalManager.tweeners = globalManager.tweeners[:freePosStart]
 		}
 	}
 }
@@ -792,6 +930,7 @@ func (m *manager) add(t *GTweener) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tweeners = append(m.tweeners, t)
+	m.totalActiveTweens++
 }
 
 func (m *manager) remove(t *GTweener) {
@@ -800,8 +939,18 @@ func (m *manager) remove(t *GTweener) {
 	for i, tw := range m.tweeners {
 		if tw == t {
 			m.tweeners = append(m.tweeners[:i], m.tweeners[i+1:]...)
+			m.totalActiveTweens--
 			break
 		}
+	}
+}
+
+func (m *manager) moveToFreeSlot(tw *GTweener, freePos, currentPos int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if freePos >= 0 && freePos < len(m.tweeners) && currentPos < len(m.tweeners) {
+		m.tweeners[freePos] = m.tweeners[currentPos]
+		m.tweeners[currentPos] = nil
 	}
 }
 

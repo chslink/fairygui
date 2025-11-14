@@ -534,6 +534,44 @@ func (c *GComponent) AddController(ctrl *Controller) {
 	ctrl.attach(c)
 }
 
+// IsChildInView checks if a child object is visible in the viewport.
+// This is a helper method for scroll-related functionality.
+func (c *GComponent) IsChildInView(child *GObject) bool {
+	if c == nil || child == nil || !child.Visible() {
+		return false
+	}
+
+	// Get child bounds
+	childX := child.X()
+	childY := child.Y()
+	childW := child.Width()
+	childH := child.Height()
+
+	// Get view bounds (taking margin into account)
+	viewX := float64(c.margin.Left)
+	viewY := float64(c.margin.Top)
+	viewW := c.width - float64(c.margin.Left+c.margin.Right)
+	viewH := c.height - float64(c.margin.Top+c.margin.Bottom)
+
+	// Check if child overlaps with viewport
+	return !(childX+childW <= viewX || childX >= viewX+viewW || 
+			childY+childH <= viewY || childY >= viewY+viewH)
+}
+
+// GetFirstChildInView returns the index of the first child that is visible in the viewport.
+func (c *GComponent) GetFirstChildInView() int {
+	if c == nil {
+		return -1
+	}
+	
+	for i, child := range c.children {
+		if c.IsChildInView(child) {
+			return i
+		}
+	}
+	return -1
+}
+
 // RemoveController detaches the given controller from this component.
 func (c *GComponent) RemoveController(ctrl *Controller) {
 	if ctrl == nil {

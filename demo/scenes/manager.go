@@ -55,7 +55,7 @@ func NewManager(ctx context.Context, env *Environment) (*Manager, error) {
 	mgr.Register("BasicsDemo", func() Scene { return NewBasicsDemo() })
 	mgr.Register("TransitionDemo", func() Scene { return &TransitionDemo{} })
 	mgr.Register("VirtualListDemo", func() Scene { return NewVirtualListDemo() })
-	mgr.Register("LoopListDemo", func() Scene { return NewSimpleScene("LoopListDemo", "LoopList") })
+	mgr.Register("LoopListDemo", func() Scene { return NewLoopListDemo() })
 	mgr.Register("HitTestDemo", func() Scene { return NewSimpleScene("HitTestDemo", "HitTest") })
 	mgr.Register("PullToRefreshDemo", func() Scene { return NewSimpleScene("PullToRefreshDemo", "PullToRefresh") })
 	mgr.Register("ModalWaitingDemo", func() Scene { return NewSimpleScene("ModalWaitingDemo", "ModalWaiting") })

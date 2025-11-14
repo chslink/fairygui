@@ -1,7 +1,6 @@
 package widgets
 
 import (
-	"log"
 	"math"
 )
 
@@ -11,47 +10,31 @@ func (l *GList) refreshVirtualList() {
 		return
 	}
 
-	log.Printf("🔄 refreshVirtualList 开始")
-
 	// 检查显示对象是否存在
 	displayObj := l.GComponent.GObject.DisplayObject()
 	if displayObj == nil {
-		log.Printf("❌ DisplayObject为nil")
 		return
 	}
 
-	// 调试信息
+	// 检查 creator
 	if l.creator == nil {
-		log.Printf("❌ creator为nil，无法创建对象")
 		return
-	}
-
-	// 获取视图尺寸
-	viewWidth := l.getViewWidth()
-	viewHeight := l.getViewHeight()
-	log.Printf("   视图尺寸: %dx%d", viewWidth, viewHeight)
-	log.Printf("   列表尺寸: %.0fx%.0f", l.GComponent.Width(), l.GComponent.Height())
-	if scrollPane := l.GComponent.ScrollPane(); scrollPane != nil {
-		log.Printf("   ScrollPane视图: %.0fx%.0f", scrollPane.ViewWidth(), scrollPane.ViewHeight())
 	}
 
 	layoutChanged := l.virtualListChanged == 2
 	l.virtualListChanged = 0
 	l.eventLocked = true
 
-	log.Printf("   layoutChanged=%v, realNumItems=%d", layoutChanged, l.realNumItems)
 
 	// 计算每行项目数
 	if layoutChanged {
 		l.calculateLineItemCount()
-		log.Printf("   每行项目数: %d", l.curLineItemCount)
 	}
 
 	// 计算内容尺寸
 	var contentWidth, contentHeight float64
 	if l.realNumItems > 0 {
 		contentWidth, contentHeight = l.calculateContentSize()
-		log.Printf("   内容尺寸: %.0fx%.0f", contentWidth, contentHeight)
 	}
 
 	// 处理对齐
@@ -60,19 +43,11 @@ func (l *GList) refreshVirtualList() {
 	// 设置ScrollPane的内容尺寸
 	// 这是关键：ScrollPane需要知道内容总尺寸才能显示滚动条
 	if scrollPane := l.GComponent.ScrollPane(); scrollPane != nil {
-		log.Printf("   设置ScrollPane内容尺寸: %.0fx%.0f", contentWidth, contentHeight)
 		scrollPane.SetContentSize(contentWidth, contentHeight)
-		log.Printf("   ScrollPane状态: viewSize=%.0fx%.0f, contentSize=%.0fx%.0f",
-			scrollPane.ViewWidth(), scrollPane.ViewHeight(),
-			scrollPane.ContentSize().X, scrollPane.ContentSize().Y)
 	}
 
 	// 处理滚动 - 关键修复：强制更新，确保第一次初始化时也能创建子组件
-	log.Printf("   调用handleScroll(true)")
 	l.handleScroll(true)
-
-	childCount := len(l.GComponent.Children())
-	log.Printf("✅ refreshVirtualList 完成，子对象数=%d", childCount)
 
 	l.eventLocked = false
 
@@ -209,7 +184,43 @@ func (l *GList) calculateContentSize() (float64, float64) {
 			}
 		}
 
-	case ListLayoutTypeSingleRow, ListLayoutTypeFlowVertical:
+	case ListLayoutTypeSingleRow:
+		// 计算宽度 - 单行所有项目水平排列
+		if l.autoResizeItem {
+			contentWidth = float64(l.getViewWidth())
+		} else {
+			// 累加所有项目的宽度
+			for i := 0; i < l.realNumItems; i++ {
+				ii := l.virtualItems[i]
+				itemWidth := 0
+				if ii != nil && ii.width > 0 {
+					itemWidth = ii.width
+				} else if l.itemSize.X > 0 {
+					itemWidth = int(l.itemSize.X)
+				}
+				contentWidth += float64(itemWidth)
+				if i > 0 {
+					contentWidth += float64(l.columnGap)
+				}
+			}
+		}
+
+		// 计算高度
+		if l.autoResizeItem {
+			contentHeight = float64(l.getViewHeight())
+		} else {
+			// 取第一个项目的高度
+			if l.realNumItems > 0 {
+				ii := l.virtualItems[0]
+				if ii != nil && ii.height > 0 {
+					contentHeight = float64(ii.height)
+				} else if l.itemSize.Y > 0 {
+					contentHeight = float64(l.itemSize.Y)
+				}
+			}
+		}
+
+	case ListLayoutTypeFlowVertical:
 		// 计算宽度
 		for i := 0; i < lineCount; i++ {
 			lineWidth := 0
@@ -349,6 +360,13 @@ func (l *GList) handleScroll(forceUpdate bool) {
 		l.handleScroll2(forceUpdate)
 	case ListLayoutTypePagination:
 		l.handleScroll3(forceUpdate)
+	}
+
+	// 处理循环滚动
+	if l.loop {
+		if scrollPane := l.GComponent.ScrollPane(); scrollPane != nil {
+			scrollPane.LoopCheckingCurrent()
+		}
 	}
 }
 
@@ -573,10 +591,6 @@ func (l *GList) updateVirtualItems1(oldFirstIndex, newFirstIndex, pos, max int, 
 	curX := 0
 	curY = pos
 
-	log.Printf("   updateVirtualItems1: newFirstIndex=%d, newLastIndex=%d, pos=%d, max=%d",
-		newFirstIndex, newLastIndex, pos, max)
-	log.Printf("   初始位置: curX=%d, curY=%d", curX, curY)
-
 	// 更新可见项目
 	itemCount := 0
 	for curIndex = newFirstIndex; curIndex <= newLastIndex && curIndex < l.realNumItems; curIndex++ {
@@ -670,7 +684,6 @@ func (l *GList) updateVirtualItems1(oldFirstIndex, newFirstIndex, pos, max int, 
 		}
 	}
 
-	log.Printf("   updateVirtualItems1 完成: 创建了%d个子对象", itemCount)
 
 	// 清理未使用的对象
 	for i := 0; i < len(l.virtualItems); i++ {

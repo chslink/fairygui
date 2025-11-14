@@ -7,6 +7,12 @@ import (
 	"github.com/chslink/fairygui/internal/compat/laya"
 )
 
+// debugLog 调试日志（空实现，用于开发调试）
+func debugLog(format string, args ...interface{}) {
+	// 空实现，调试时可以取消注释输出日志
+	// fmt.Printf("[DEBUG] "+format+"\n", args...)
+}
+
 // ScrollType mirrors FairyGUI 的滚动方向枚举。
 type ScrollType int
 
@@ -18,6 +24,21 @@ const (
 	// ScrollTypeBoth 允许双向滚动。
 	ScrollTypeBoth
 )
+
+// PULL_RATIO 边缘回弹比例 - 下拉过顶或者上拉过底时允许超过的距离占显示区域的比例
+const PULL_RATIO = 0.5
+
+// TWEEN_TIME_GO 调用 SetPos(ani) 时使用的缓动时间
+const TWEEN_TIME_GO = 0.5
+
+// TWEEN_TIME_DEFAULT 惯性滚动的最小缓动时间
+const TWEEN_TIME_DEFAULT = 0.3
+
+// ScrollPaneLoopOwner 定义循环列表拥有者的接口，避免循环导入
+type ScrollPaneLoopOwner interface {
+	ColumnGap() int
+	LineGap() int
+}
 
 // ScrollBarDisplayType mirrors FairyGUI 的滚动条显示模式。
 type ScrollBarDisplayType int
@@ -58,6 +79,7 @@ type ScrollPane struct {
 	wheelEnabled      bool
 	scrollRectDirty   bool
 	touchEffect       bool
+	bouncebackEffect  bool
 	pageMode          bool
 	pageSize          laya.Point
 	snapToItem        bool
@@ -82,6 +104,20 @@ type ScrollPane struct {
 	scrollBarDisplay int      // 滚动条显示模式
 	displayOnLeft    bool     // 垂直滚动条是否在左侧显示
 	floating         bool     // 浮动滚动条（不占用 viewSize）
+
+	// 循环滚动支持
+	// 0=无循环, 1=水平循环, 2=垂直循环, 3=both
+	loop int
+
+	// Tween 相关字段
+	tweening         int        // 0=无动画, 1=setPos动画, 2=惯性/回弹动画
+	tweenStart       laya.Point // 动画起始位置
+	tweenChange      laya.Point // 动画变化量
+	tweenDuration    laya.Point // 动画持续时间
+	tweenTime        laya.Point // 当前动画时间
+	tickerCleanup    func()     // ticker 取消注册函数
+	decelerationRate float64    // 减速速率，默认 0.997
+	velocityScale    float64    // 速度缩放因子，默认 1.0
 }
 
 func newScrollPane(owner *GComponent) *ScrollPane {
@@ -89,15 +125,24 @@ func newScrollPane(owner *GComponent) *ScrollPane {
 		return nil
 	}
 	pane := &ScrollPane{
-		owner:           owner,
-		scrollType:      ScrollTypeBoth,
-		scrollStep:      25,
-		mouseWheelStep:  50,
-		wheelEnabled:    true,
-		touchEffect:     true,
-		pageSize:        laya.Point{X: 1, Y: 1},
-		scrollListeners: make(map[int]ScrollListener),
+		owner:            owner,
+		scrollType:       ScrollTypeBoth,
+		scrollStep:       25,
+		mouseWheelStep:   50,
+		wheelEnabled:     true,
+		touchEffect:      true,
+		bouncebackEffect: true, // 默认启用边缘回弹效果
+		pageSize:         laya.Point{X: 1, Y: 1},
+		scrollListeners:  make(map[int]ScrollListener),
 	}
+	// 初始化 Tween 相关字段
+	pane.tweening = 0
+	pane.tweenStart = laya.Point{X: 0, Y: 0}
+	pane.tweenChange = laya.Point{X: 0, Y: 0}
+	pane.tweenDuration = laya.Point{X: 0, Y: 0}
+	pane.tweenTime = laya.Point{X: 0, Y: 0}
+	pane.decelerationRate = 0.997 // TypeScript 默认值
+	pane.velocityScale = 1.0      // TypeScript 默认值
 	container := owner.ensureContainer()
 	display := owner.DisplayObject()
 	if container != nil && display != nil {
@@ -307,6 +352,79 @@ func (p *ScrollPane) SetViewSize(width, height float64) {
 	p.updateScrollBars() // 更新滚动条显示百分比（对应 TypeScript ScrollPane.ts:735）
 }
 
+// SetLoop 设置循环滚动模式
+// mode: 0=无循环, 1=水平循环, 2=垂直循环, 3=both
+func (p *ScrollPane) SetLoop(mode int) {
+	if p == nil {
+		return
+	}
+	p.loop = mode
+}
+
+// LoopCheckingCurrent 检查当前位置并进行循环调整
+// 返回是否发生了位置改变
+func (p *ScrollPane) LoopCheckingCurrent() bool {
+	changed := false
+
+	// 水平循环
+	if (p.loop == 1 || p.loop == 3) && p.overlapSize.X > 0 {
+		if p.xPos < 0.001 {
+			p.xPos += p.getLoopPartSize(2, "x")
+			changed = true
+		} else if p.xPos >= p.overlapSize.X {
+			p.xPos -= p.getLoopPartSize(2, "x")
+			changed = true
+		}
+	}
+
+	// 垂直循环
+	if (p.loop == 2 || p.loop == 3) && p.overlapSize.Y > 0 {
+		if p.yPos < 0.001 {
+			p.yPos += p.getLoopPartSize(2, "y")
+			changed = true
+		} else if p.yPos >= p.overlapSize.Y {
+			p.yPos -= p.getLoopPartSize(2, "y")
+			changed = true
+		}
+	}
+
+	if changed {
+		p.container.SetPosition(float64(-int(p.xPos)), float64(-int(p.yPos)))
+	}
+
+	return changed
+}
+
+// getLoopPartSize 获取循环部分的大小
+func (p *ScrollPane) getLoopPartSize(division int, axis string) float64 {
+	var gap float64
+
+	// 检查 owner 是否有循环列表的数据
+	if p.owner != nil {
+		// 如果 owner 有 Data() 方法，尝试获取 ScrollPaneLoopOwner
+		type dataGetter interface {
+			Data() interface{}
+		}
+		if dataOwner, ok := interface{}(p.owner).(dataGetter); ok {
+			if listData, ok := dataOwner.Data().(ScrollPaneLoopOwner); ok {
+				if axis == "x" {
+					gap = float64(listData.ColumnGap())
+					return (p.contentSize.X + gap) / float64(division)
+				} else {
+					gap = float64(listData.LineGap())
+					return (p.contentSize.Y + gap) / float64(division)
+				}
+			}
+		}
+	}
+
+	// 默认返回内容尺寸的一部分
+	if axis == "x" {
+		return p.contentSize.X / float64(division)
+	}
+	return p.contentSize.Y / float64(division)
+}
+
 // SetContentSize updates the scrollable content size。
 // ContentSize returns the content dimensions.
 func (p *ScrollPane) ContentSize() laya.Point {
@@ -462,6 +580,9 @@ func (p *ScrollPane) Dispose() {
 	if p == nil {
 		return
 	}
+	// 停止动画并取消 ticker 注册
+	p.killTween()
+
 	p.unregisterEvents()
 	// 清理滚动条引用
 	p.hzScrollBar = nil
@@ -816,6 +937,12 @@ func (p *ScrollPane) onStageMouseMove(evt laya.Event) {
 	if p == nil || !p.dragging || p.owner == nil {
 		return
 	}
+
+	// 如果正在 tween 动画，先停止（对应 TypeScript __mouseDown 第984行）
+	if p.tweening != 0 {
+		p.killTween()
+	}
+
 	pe, ok := evt.Data.(laya.PointerEvent)
 	if !ok {
 		return
@@ -829,11 +956,16 @@ func (p *ScrollPane) onStageMouseMove(evt laya.Event) {
 	elapsed := now.Sub(p.lastMoveTime).Seconds()
 	deltaX := local.X - p.lastTouch.X
 	deltaY := local.Y - p.lastTouch.Y
-	if elapsed > 0 {
+
+	// 只有当移动距离足够大时才更新 velocity（避免最后一帧重置为0）
+	if elapsed > 0 && (math.Abs(deltaX) > 0.5 || math.Abs(deltaY) > 0.5) {
 		p.velocity = laya.Point{
 			X: deltaX / elapsed,
 			Y: deltaY / elapsed,
 		}
+		// 调试：记录 velocity 计算
+		debugLog("[ScrollPane] velocity: (%.2f, %.2f), delta: (%.2f, %.2f), elapsed: %.4f",
+			p.velocity.X, p.velocity.Y, deltaX, deltaY, elapsed)
 	}
 	p.lastMoveTime = now
 	p.lastTouch = local
@@ -849,13 +981,102 @@ func (p *ScrollPane) onStageMouseUp(evt laya.Event) {
 	}
 	p.dragging = false
 	p.unregisterStageDragEvents()
-	if p.container != nil {
-		p.containerOrigin = p.container.Position()
+
+	if !p.touchEffect {
+		// 没有触摸效果，直接返回
+		if p.container != nil {
+			p.containerOrigin = p.container.Position()
+		}
+		return
 	}
-	if p.pageMode {
-		p.snapToNearestPage()
+
+	if p.container == nil {
+		return
+	}
+
+	// 保存当前 container 位置（对应 TypeScript __mouseUp 第1203行）
+	pos := p.container.Position()
+	p.tweenStart.X = pos.X
+	p.tweenStart.Y = pos.Y
+
+	// 初始化目标位置（对应 TypeScript sEndPos 第1205行）
+	endX := p.tweenStart.X
+	endY := p.tweenStart.Y
+
+	flag := false
+
+	// 检查是否需要回弹到边界（对应 TypeScript 1207-1222行）
+	if p.tweenStart.X > 0 {
+		endX = 0
+		flag = true
+	} else if p.tweenStart.X < -p.overlapSize.X {
+		endX = -p.overlapSize.X
+		flag = true
+	}
+	if p.tweenStart.Y > 0 {
+		endY = 0
+		flag = true
+	} else if p.tweenStart.Y < -p.overlapSize.Y {
+		endY = -p.overlapSize.Y
+		flag = true
+	}
+
+	// 调试：记录启动参数
+	debugLog("[ScrollPane] onStageMouseUp: start=(%.2f,%.2f), overlap=(%.2f,%.2f), velocity=(%.2f,%.2f)",
+		p.tweenStart.X, p.tweenStart.Y, p.overlapSize.X, p.overlapSize.Y, p.velocity.X, p.velocity.Y)
+
+	if flag {
+		// 需要回弹到边界（对应 TypeScript 1223-1252行）
+		p.tweenChange.X = endX - p.tweenStart.X
+		p.tweenChange.Y = endY - p.tweenStart.Y
+
+		// 设置回弹动画持续时间
+		p.tweenDuration.X = TWEEN_TIME_DEFAULT
+		p.tweenDuration.Y = TWEEN_TIME_DEFAULT
+
+		debugLog("[ScrollPane] 启动边界回弹: change=(%.2f,%.2f), duration=%.2f",
+			p.tweenChange.X, p.tweenChange.Y, TWEEN_TIME_DEFAULT)
 	} else {
-		p.clampPosition()
+		// 不需要回弹，检查是否需要惯性滚动（对应 TypeScript 1254-1288行）
+		if !p.inertiaDisabled {
+			// 使用完整的惯性滚动算法计算目标位置
+			endX = p.updateTargetAndDuration2(p.tweenStart.X, "x")
+			endY = p.updateTargetAndDuration2(p.tweenStart.Y, "y")
+
+			// 计算变化量
+			p.tweenChange.X = endX - p.tweenStart.X
+			p.tweenChange.Y = endY - p.tweenStart.Y
+
+			debugLog("[ScrollPane] 启动惯性滚动: change=(%.2f,%.2f), duration=(%.2f,%.2f)",
+				p.tweenChange.X, p.tweenChange.Y, p.tweenDuration.X, p.tweenDuration.Y)
+		} else {
+			// 没有惯性，直接回到当前位置（无动画）
+			p.tweenChange.X = 0
+			p.tweenChange.Y = 0
+			p.tweenDuration.X = TWEEN_TIME_DEFAULT
+			p.tweenDuration.Y = TWEEN_TIME_DEFAULT
+
+			debugLog("[ScrollPane] 惯性已禁用，无动画")
+		}
+	}
+
+	// 如果无需动画，直接返回
+	if p.tweenChange.X == 0 && p.tweenChange.Y == 0 {
+		p.containerOrigin = p.container.Position()
+		p.updateScrollBarVisible()
+		debugLog("[ScrollPane] 无需动画，直接返回")
+		return
+	}
+
+	// 启动 Tween 动画（对应 TypeScript 1290行）
+	debugLog("[ScrollPane] 启动 Tween 动画类型 2")
+	p.startTween(2)
+
+	// 调试：检查是否需要动画
+	if p.tweenChange.X == 0 && p.tweenChange.Y == 0 {
+		// 无需动画
+		p.containerOrigin = p.container.Position()
+		return
 	}
 }
 
@@ -1018,4 +1239,336 @@ func (p *ScrollPane) updateScrollBarVisible() {
 			p.hzScrollBar.SetVisible(true)
 		}
 	}
+}
+
+// easeFunc 缓动函数 - cubicOut
+// t: 当前时间, d: 总时间
+func easeFunc(t, d float64) float64 {
+	if d <= 0 {
+		return 1
+	}
+	t = t/d - 1
+	return t*t*t + 1
+}
+
+// startTween 启动 Tween 动画
+// type: 0=无, 1=setPos动画, 2=惯性/回弹动画
+func (p *ScrollPane) startTween(tweenType int) {
+	if p == nil {
+		return
+	}
+
+	// 如果已经在动画中，先停止之前的
+	if p.tweening != 0 {
+		p.killTween()
+	}
+
+	// 重置时间
+	p.tweenTime.X = 0
+	p.tweenTime.Y = 0
+	p.tweening = tweenType
+
+	debugLog("[ScrollPane] startTween: type=%d, change=(%.2f,%.2f), duration=(%.2f,%.2f)",
+		tweenType, p.tweenChange.X, p.tweenChange.Y, p.tweenDuration.X, p.tweenDuration.Y)
+
+	// 注册到 ticker 更新
+	// 注意：这里不应该检查 tickerCleanup 是否为 nil，因为 killTween 已经清除了它
+	p.tickerCleanup = RegisterTicker(func(delta time.Duration) {
+		// 每帧更新
+		completed := !p.tweenUpdate(delta.Seconds())
+		if completed && p.tickerCleanup != nil {
+			// 动画完成，取消注册
+			debugLog("[ScrollPane] Tween 动画完成")
+			p.tickerCleanup()
+			p.tickerCleanup = nil
+		}
+	})
+
+	debugLog("[ScrollPane] Ticker 已注册: cleanup=%v", p.tickerCleanup != nil)
+
+	p.updateScrollBarVisible()
+}
+
+// killTween 停止 Tween 动画
+func (p *ScrollPane) killTween() {
+	if p == nil || p.tweening == 0 {
+		return
+	}
+
+	// 如果是类型1的 tween，需要立即设置到终点
+	if p.tweening == 1 {
+		if p.container != nil {
+			endX := p.tweenStart.X + p.tweenChange.X
+			endY := p.tweenStart.Y + p.tweenChange.Y
+			p.container.SetPosition(endX, endY)
+		}
+		if p.owner != nil && p.owner.DisplayObject() != nil {
+			// 通知滚动事件
+		}
+	}
+
+	p.tweening = 0
+
+	// 取消 ticker 注册
+	if p.tickerCleanup != nil {
+		p.tickerCleanup()
+		p.tickerCleanup = nil
+	}
+
+	p.updateScrollBarVisible()
+
+	// 通知滚动结束
+	if p.owner != nil && p.owner.DisplayObject() != nil {
+		// 触发 SCROLL_END 事件
+	}
+}
+
+// tweenUpdate 每帧更新 Tween 动画
+// 返回 false 表示动画完成，应该停止调用
+func (p *ScrollPane) tweenUpdate(delta float64) bool {
+	if p == nil || p.tweening == 0 {
+		return false
+	}
+
+	changed := false
+
+	// 调试：记录帧更新
+	debugLog("[ScrollPane] tweenUpdate: delta=%.4f, type=%d, change=(%.2f,%.2f), time=(%.2f,%.2f)",
+		delta, p.tweening, p.tweenChange.X, p.tweenChange.Y, p.tweenTime.X, p.tweenTime.Y)
+
+	// 更新 X 轴动画
+	if p.tweenChange.X != 0 {
+		p.tweenTime.X += delta
+		var newX float64
+
+		if p.tweenTime.X >= p.tweenDuration.X {
+			// 动画完成
+			newX = p.tweenStart.X + p.tweenChange.X
+			debugLog("[ScrollPane] X 动画完成: newX=%.2f", newX)
+			p.tweenChange.X = 0
+		} else {
+			// 使用缓动函数计算插值
+			ratio := easeFunc(p.tweenTime.X, p.tweenDuration.X)
+			newX = p.tweenStart.X + p.tweenChange.X*ratio
+			debugLog("[ScrollPane] X 动画更新: time=%.2f/%.2f, ratio=%.2f, newX=%.2f",
+				p.tweenTime.X, p.tweenDuration.X, ratio, newX)
+		}
+
+		// 边界检查
+		threshold1 := 0.0
+		threshold2 := -p.overlapSize.X
+
+		// 回弹效果检查
+		if p.tweening == 2 && p.bouncebackEffect {
+			if (newX > 20+threshold1 && p.tweenChange.X > 0) ||
+				(newX > threshold1 && p.tweenChange.X == 0) {
+				// 开始回弹
+				debugLog("[ScrollPane] X 开始回弹: newX=%.2f > threshold=%.2f", newX, threshold1)
+				p.tweenTime.X = 0
+				p.tweenDuration.X = TWEEN_TIME_DEFAULT
+				p.tweenChange.X = -newX + threshold1
+				p.tweenStart.X = newX
+			} else if (newX < threshold2-20 && p.tweenChange.X < 0) ||
+				(newX < threshold2 && p.tweenChange.X == 0) {
+				// 开始回弹
+				debugLog("[ScrollPane] X 开始回弹: newX=%.2f < threshold=%.2f", newX, threshold2)
+				p.tweenTime.X = 0
+				p.tweenDuration.X = TWEEN_TIME_DEFAULT
+				p.tweenChange.X = threshold2 - newX
+				p.tweenStart.X = newX
+			}
+		} else {
+			// 不使用回弹，直接限制边界
+			if newX > threshold1 {
+				newX = threshold1
+				p.tweenChange.X = 0
+			} else if newX < threshold2 {
+				newX = threshold2
+				p.tweenChange.X = 0
+			}
+		}
+
+		if p.container != nil {
+			if pos := p.container.Position(); pos.X != newX {
+				p.container.SetPosition(newX, pos.Y)
+				changed = true
+			}
+		}
+	}
+
+	// 更新 Y 轴动画（逻辑相同）
+	if p.tweenChange.Y != 0 {
+		p.tweenTime.Y += delta
+		var newY float64
+
+		if p.tweenTime.Y >= p.tweenDuration.Y {
+			newY = p.tweenStart.Y + p.tweenChange.Y
+			debugLog("[ScrollPane] Y 动画完成: newY=%.2f", newY)
+			p.tweenChange.Y = 0
+		} else {
+			ratio := easeFunc(p.tweenTime.Y, p.tweenDuration.Y)
+			newY = p.tweenStart.Y + p.tweenChange.Y*ratio
+			debugLog("[ScrollPane] Y 动画更新: time=%.2f/%.2f, ratio=%.2f, newY=%.2f",
+				p.tweenTime.Y, p.tweenDuration.Y, ratio, newY)
+		}
+
+		threshold1 := 0.0
+		threshold2 := -p.overlapSize.Y
+
+		if p.tweening == 2 && p.bouncebackEffect {
+			if (newY > 20+threshold1 && p.tweenChange.Y > 0) ||
+				(newY > threshold1 && p.tweenChange.Y == 0) {
+				p.tweenTime.Y = 0
+				p.tweenDuration.Y = TWEEN_TIME_DEFAULT
+				p.tweenChange.Y = -newY + threshold1
+				p.tweenStart.Y = newY
+			} else if (newY < threshold2-20 && p.tweenChange.Y < 0) ||
+				(newY < threshold2 && p.tweenChange.Y == 0) {
+				p.tweenTime.Y = 0
+				p.tweenDuration.Y = TWEEN_TIME_DEFAULT
+				p.tweenChange.Y = threshold2 - newY
+				p.tweenStart.Y = newY
+			}
+		} else {
+			if newY > threshold1 {
+				newY = threshold1
+				p.tweenChange.Y = 0
+			} else if newY < threshold2 {
+				newY = threshold2
+				p.tweenChange.Y = 0
+			}
+		}
+
+		if p.container != nil {
+			if pos := p.container.Position(); pos.Y != newY {
+				p.container.SetPosition(pos.X, newY)
+				changed = true
+			}
+		}
+	}
+
+	// 更新 posX/posY
+	if p.tweening == 2 {
+		if p.overlapSize.X > 0 && p.container != nil {
+			pos := p.container.Position()
+			p.xPos = clamp01(-pos.X / p.overlapSize.X)
+		}
+		if p.overlapSize.Y > 0 && p.container != nil {
+			pos := p.container.Position()
+			p.yPos = clamp01(-pos.Y / p.overlapSize.Y)
+		}
+		if p.pageMode {
+			p.snapToNearestPage()
+		}
+	}
+
+	// 检查动画是否完成
+	if p.tweenChange.X == 0 && p.tweenChange.Y == 0 {
+		p.tweening = 0
+		// 注意：LoopCheckingCurrent 方法尚未实现，暂时跳过
+		// p.LoopCheckingCurrent()
+		p.updateScrollBars()
+		p.updateScrollBarVisible()
+		return false
+	}
+
+	if changed {
+		p.updateScrollBars()
+	}
+
+	return true
+}
+
+
+// updateTargetAndDuration2 根据速度计算目标位置和动画时间（完整实现）
+// 对应 TypeScript ScrollPane.ts:1540-1587
+func (p *ScrollPane) updateTargetAndDuration2(pos float64, axis string) float64 {
+	var velocity float64
+	if axis == "x" {
+		velocity = p.velocity.X
+	} else {
+		velocity = p.velocity.Y
+	}
+
+	debugLog("[ScrollPane] updateTargetAndDuration2: axis=%s, pos=%.2f, velocity=%.2f", axis, pos, velocity)
+
+	var duration float64 = TWEEN_TIME_DEFAULT
+
+	// 边界检查
+	if pos > 0 {
+		debugLog("[ScrollPane] 超出左边界，返回 0")
+		return 0
+	}
+
+	maxPos := -p.overlapSize.X
+	if axis == "y" {
+		maxPos = -p.overlapSize.Y
+	}
+
+	if pos < maxPos {
+		debugLog("[ScrollPane] 超出右边界，返回 %.2f", maxPos)
+		return maxPos
+	}
+
+	// 以屏幕像素为基准
+	v2 := math.Abs(velocity) * p.velocityScale
+	debugLog("[ScrollPane] 速度计算: v2=%.2f (threshold=50)", v2)
+
+	// 速度阈值判断 - 使用更平滑的削弱曲线
+	if v2 > 50 { // 阈值 50
+		// 使用线性削弱而不是平方削弱，避免接近阈值时过度削弱
+		ratio := (v2 - 50) / 200 // 使用 200 作为分母，而不是 500
+		if ratio > 1 {
+			ratio = 1
+		}
+
+		// 只在高速时削弱，低速时保持原汁原味
+		if v2 > 200 {
+			v2 *= ratio
+			velocity *= ratio
+		}
+
+		// 更新 velocity（根据 axis）
+		if axis == "x" {
+			p.velocity.X = velocity
+		} else {
+			p.velocity.Y = velocity
+		}
+
+		debugLog("[ScrollPane] 速度足够: v2=%.2f, velocity=%.2f, ratio=%.2f", v2, velocity, ratio)
+
+		// 如果速度足够，计算持续时间
+		if v2 > 10 {
+			// 算法：v*（decelerationRate的n次幂）= 60，即在n帧后速度降为60（假设每秒60帧）。
+			// 对数求解：n = log(60/v2) / log(decelerationRate) / 60
+			// 其中 60 是速度阈值
+			duration = math.Log(60/v2) / math.Log(p.decelerationRate) / 60
+
+			// 计算距离使用经验公式
+			// change = floor(v * duration * 0.4)
+			change := math.Floor(velocity * duration * 0.4)
+			debugLog("[ScrollPane] 计算惯性: duration=%.2f, change=%.2f, oldPos=%.2f", duration, change, pos)
+			pos += change
+			debugLog("[ScrollPane] 新位置: %.2f", pos)
+		} else {
+			debugLog("[ScrollPane] 速度不足 v2=%.2f (需要 >10)", v2)
+		}
+	} else {
+		debugLog("[ScrollPane] 速度过低 v2=%.2f (需要 >50)", v2)
+	}
+
+	// 确保最小动画时间
+	if duration < TWEEN_TIME_DEFAULT {
+		duration = TWEEN_TIME_DEFAULT
+	}
+	debugLog("[ScrollPane] 最终 duration=%.2f", duration)
+
+	// 设置动画持续时间
+	if axis == "x" {
+		p.tweenDuration.X = duration
+	} else {
+		p.tweenDuration.Y = duration
+	}
+
+	return pos
 }
