@@ -1361,15 +1361,14 @@ func drawSystemGlyphs(dst *ebiten.Image, run *renderedTextRun, startX, baseline 
 }
 
 func renderItalicSystemRun(dst *ebiten.Image, run *renderedTextRun, startX float64, baseline float64, letterSpacing float64, strokeColor *color.NRGBA, strokeSize float64, shadowColor *color.NRGBA, shadowOffsetX, shadowOffsetY float64) {
-	// 使用超采样技术优化斜体渲染，减少锯齿
-	// 原始版本（LayaAir）使用真实的斜体字体，这里使用高分辨率渲染模拟平滑效果
+	// 斜体文本渲染（与正常文本相同，只是添加 Skew 变换）
+	// 使用 FilterLinear 优化变换时的插值效果，减少锯齿
 	const italicShear = -0.25
-	const supersampleScale = 2.0 // 超采样比例：2x 分辨率
 
 	textFace := textv2.NewGoXFace(run.face)
 	renderY := baseline - run.ascent
 
-	// 如果有描边，使用高质量描边方案（带超采样）
+	// 如果有描边，使用高质量描边方案
 	if strokeColor != nil && strokeSize > 0 {
 		renderTextWithStrokeAndSkew(dst, run.text, run.face, startX, renderY, run.color, *strokeColor, strokeSize, run.style.Bold, italicShear)
 
@@ -1380,64 +1379,37 @@ func renderItalicSystemRun(dst *ebiten.Image, run *renderedTextRun, startX float
 		return
 	}
 
-	// 测量文本边界（用于确定临时图像尺寸）
-	width, height := textv2.Measure(run.text, textFace, 0)
-
-	// 计算斜体额外需要的水平空间
-	skewOffset := math.Abs(italicShear * height)
-
-	// 创建超采样临时图像（2x 分辨率）
-	// 需要额外的空间容纳斜体变换和描边
-	padding := 4.0
-	tempWidth := int((width + skewOffset + padding*2) * supersampleScale)
-	tempHeight := int((height + padding*2) * supersampleScale)
-
-	if tempWidth <= 0 || tempHeight <= 0 {
-		return
-	}
-
-	temp := ebiten.NewImage(tempWidth, tempHeight)
-	defer temp.Dispose()
-
-	// 在超采样图像上绘制斜体文本
-	tempOpts := &textv2.DrawOptions{
+	// 无描边的正常渲染
+	opts := &textv2.DrawOptions{
 		LayoutOptions: textv2.LayoutOptions{
 			PrimaryAlign:   textv2.AlignStart,
 			SecondaryAlign: textv2.AlignStart,
 			LineSpacing:    0,
 		},
 	}
-	// 应用缩放和斜体变换
-	tempOpts.GeoM.Scale(supersampleScale, supersampleScale)
-	tempOpts.GeoM.Skew(italicShear, 0)
-	// 调整渲染位置（考虑超采样和偏移）
-	tempOpts.GeoM.Translate(padding+skewOffset, padding)
-	tempOpts.ColorScale.ScaleWithColor(run.color)
+	opts.GeoM.Skew(italicShear, 0)
+	opts.GeoM.Translate(startX, renderY)
+	opts.ColorScale.ScaleWithColor(run.color)
+	// 使用线性插值优化斜体变换时的锯齿问题
+	opts.Filter = ebiten.FilterLinear
 
-	// 渲染阴影（如果需要）
+	// 渲染阴影
 	if shadowColor != nil && (shadowOffsetX != 0 || shadowOffsetY != 0) {
-		shadowOpts := *tempOpts
+		shadowOpts := *opts
 		shadowOpts.ColorScale.ScaleWithColor(*shadowColor)
-		shadowOpts.GeoM.Translate((padding+skewOffset)*supersampleScale+(shadowOffsetX*supersampleScale), (padding*supersampleScale)+(shadowOffsetY*supersampleScale))
-		textv2.Draw(temp, run.text, textFace, &shadowOpts)
+		shadowOpts.GeoM.Translate(shadowOffsetX, shadowOffsetY)
+		textv2.Draw(dst, run.text, textFace, &shadowOpts)
 	}
 
 	// 渲染主文本
-	textv2.Draw(temp, run.text, textFace, tempOpts)
+	textv2.Draw(dst, run.text, textFace, opts)
 
-	// 渲染粗体效果（如果需要）
+	// 渲染粗体效果
 	if run.style.Bold {
-		boldOpts := *tempOpts
-		boldOpts.GeoM.Translate(0.6*supersampleScale, 0)
-		textv2.Draw(temp, run.text, textFace, &boldOpts)
+		boldOpts := *opts
+		boldOpts.GeoM.Translate(0.6, 0)
+		textv2.Draw(dst, run.text, textFace, &boldOpts)
 	}
-
-	// 将超采样图像绘制到目标位置（自动缩放回原始尺寸）
-	drawOpts := &ebiten.DrawImageOptions{}
-	drawOpts.GeoM.Translate(startX-padding, renderY-padding)
-	// 不需要额外缩放，因为 Ebiten 会自动处理尺寸转换
-	drawOpts.ColorScale.ScaleWithColor(color.NRGBA{A: 0xFF})
-	dst.DrawImage(temp, drawOpts)
 }
 
 // renderTextWithStrokeAndSkew 使用高质量算法渲染带描边和斜体变换的文本
@@ -1513,6 +1485,8 @@ func renderTextWithStrokeAndSkew(dst *ebiten.Image, text string, fontFace font.F
 		strokeDrawOpts := &ebiten.DrawImageOptions{}
 		strokeDrawOpts.GeoM.Translate((x/supersampleScale)-(padding/supersampleScale)-(skewOffset/supersampleScale), (y/supersampleScale)-(padding/supersampleScale))
 		strokeDrawOpts.ColorScale.ScaleWithColor(strokeColor)
+		// 使用线性插值优化缩放时的锯齿问题
+		strokeDrawOpts.Filter = ebiten.FilterLinear
 		dst.DrawImage(stroke, strokeDrawOpts)
 	}
 
@@ -1520,6 +1494,8 @@ func renderTextWithStrokeAndSkew(dst *ebiten.Image, text string, fontFace font.F
 	textDrawOpts := &ebiten.DrawImageOptions{}
 	textDrawOpts.GeoM.Translate((x/supersampleScale)-(padding/supersampleScale)-(skewOffset/supersampleScale), (y/supersampleScale)-(padding/supersampleScale))
 	textDrawOpts.ColorScale.ScaleWithColor(textColor)
+	// 使用线性插值优化缩放时的锯齿问题
+	textDrawOpts.Filter = ebiten.FilterLinear
 	dst.DrawImage(temp, textDrawOpts)
 }
 
