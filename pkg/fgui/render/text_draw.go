@@ -1249,8 +1249,9 @@ func renderTextWithStroke(dst *ebiten.Image, text string, fontFace font.Face, x,
 	textFace := textv2.NewGoXFace(fontFace)
 
 	// 计算描边偏移量和临时图像尺寸
-	// 改进 padding 计算：确保描边完全在图像范围内
-	padding := int(math.Ceil(strokeSize)) + 2
+	// 直接使用 strokeSize 作为半径，避免 Ceil 导致描边过厚
+	strokeRadius := strokeSize
+	padding := int(math.Ceil(strokeRadius)) + 1
 	width, height := textv2.Measure(text, textFace, 0)
 	tempWidth := int(width) + padding*2
 	tempHeight := int(height) + padding*2
@@ -1285,13 +1286,13 @@ func renderTextWithStroke(dst *ebiten.Image, text string, fontFace font.Face, x,
 		stroke := ebiten.NewImage(tempWidth, tempHeight)
 		defer stroke.Dispose()
 
-		// 使用圆形膨胀核，但调整半径计算方式
-		// 使描边厚度更精确
-		iStrokeSize := int(math.Ceil(strokeSize))
-		for dy := -iStrokeSize; dy <= iStrokeSize; dy++ {
-			for dx := -iStrokeSize; dx <= iStrokeSize; dx++ {
-				// 圆形膨胀核：距离中心 <= strokeSize 的像素属于描边
-				if float64(dx*dx+dy*dy) <= float64(iStrokeSize*iStrokeSize) {
+		// 使用圆形膨胀核，半径直接使用 strokeSize
+		// 遍历以 (0,0) 为中心、半径=strokeSize 的区域
+		radiusFloat := strokeRadius
+		for dy := -int(math.Ceil(radiusFloat)); dy <= int(math.Ceil(radiusFloat)); dy++ {
+			for dx := -int(math.Ceil(radiusFloat)); dx <= int(math.Ceil(radiusFloat)); dx++ {
+				// 圆形膨胀核：距离中心 < strokeSize 的像素属于描边
+				if float64(dx*dx+dy*dy) < radiusFloat*radiusFloat {
 					drawOpts := &ebiten.DrawImageOptions{}
 					drawOpts.GeoM.Translate(float64(dx), float64(dy))
 					stroke.DrawImage(temp, drawOpts)
