@@ -1361,13 +1361,15 @@ func drawSystemGlyphs(dst *ebiten.Image, run *renderedTextRun, startX, baseline 
 }
 
 func renderItalicSystemRun(dst *ebiten.Image, run *renderedTextRun, startX float64, baseline float64, letterSpacing float64, strokeColor *color.NRGBA, strokeSize float64, shadowColor *color.NRGBA, shadowOffsetX, shadowOffsetY float64) {
-	// 斜体文本渲染（与正常文本相同，只是添加 Skew 变换）
+	// 使用超采样技术优化斜体渲染，减少锯齿
+	// 原始版本（LayaAir）使用真实的斜体字体，这里使用高分辨率渲染模拟平滑效果
 	const italicShear = -0.25
+	const supersampleScale = 2.0 // 超采样比例：2x 分辨率
 
 	textFace := textv2.NewGoXFace(run.face)
 	renderY := baseline - run.ascent
 
-	// 如果有描边，使用高质量描边方案
+	// 如果有描边，使用高质量描边方案（带超采样）
 	if strokeColor != nil && strokeSize > 0 {
 		renderTextWithStrokeAndSkew(dst, run.text, run.face, startX, renderY, run.color, *strokeColor, strokeSize, run.style.Bold, italicShear)
 
@@ -1378,55 +1380,89 @@ func renderItalicSystemRun(dst *ebiten.Image, run *renderedTextRun, startX float
 		return
 	}
 
-	// 无描边的正常渲染
-	opts := &textv2.DrawOptions{
+	// 测量文本边界（用于确定临时图像尺寸）
+	width, height := textv2.Measure(run.text, textFace, 0)
+
+	// 计算斜体额外需要的水平空间
+	skewOffset := math.Abs(italicShear * height)
+
+	// 创建超采样临时图像（2x 分辨率）
+	// 需要额外的空间容纳斜体变换和描边
+	padding := 4.0
+	tempWidth := int((width + skewOffset + padding*2) * supersampleScale)
+	tempHeight := int((height + padding*2) * supersampleScale)
+
+	if tempWidth <= 0 || tempHeight <= 0 {
+		return
+	}
+
+	temp := ebiten.NewImage(tempWidth, tempHeight)
+	defer temp.Dispose()
+
+	// 在超采样图像上绘制斜体文本
+	tempOpts := &textv2.DrawOptions{
 		LayoutOptions: textv2.LayoutOptions{
 			PrimaryAlign:   textv2.AlignStart,
 			SecondaryAlign: textv2.AlignStart,
 			LineSpacing:    0,
 		},
 	}
-	opts.GeoM.Skew(italicShear, 0)
-	opts.GeoM.Translate(startX, renderY)
-	opts.ColorScale.ScaleWithColor(run.color)
+	// 应用缩放和斜体变换
+	tempOpts.GeoM.Scale(supersampleScale, supersampleScale)
+	tempOpts.GeoM.Skew(italicShear, 0)
+	// 调整渲染位置（考虑超采样和偏移）
+	tempOpts.GeoM.Translate(padding+skewOffset, padding)
+	tempOpts.ColorScale.ScaleWithColor(run.color)
 
-	// 渲染阴影
+	// 渲染阴影（如果需要）
 	if shadowColor != nil && (shadowOffsetX != 0 || shadowOffsetY != 0) {
-		shadowOpts := *opts
+		shadowOpts := *tempOpts
 		shadowOpts.ColorScale.ScaleWithColor(*shadowColor)
-		shadowOpts.GeoM.Translate(shadowOffsetX, shadowOffsetY)
-		textv2.Draw(dst, run.text, textFace, &shadowOpts)
+		shadowOpts.GeoM.Translate((padding+skewOffset)*supersampleScale+(shadowOffsetX*supersampleScale), (padding*supersampleScale)+(shadowOffsetY*supersampleScale))
+		textv2.Draw(temp, run.text, textFace, &shadowOpts)
 	}
 
 	// 渲染主文本
-	textv2.Draw(dst, run.text, textFace, opts)
+	textv2.Draw(temp, run.text, textFace, tempOpts)
 
-	// 渲染粗体效果
+	// 渲染粗体效果（如果需要）
 	if run.style.Bold {
-		boldOpts := *opts
-		boldOpts.GeoM.Translate(0.6, 0)
-		textv2.Draw(dst, run.text, textFace, &boldOpts)
+		boldOpts := *tempOpts
+		boldOpts.GeoM.Translate(0.6*supersampleScale, 0)
+		textv2.Draw(temp, run.text, textFace, &boldOpts)
 	}
+
+	// 将超采样图像绘制到目标位置（自动缩放回原始尺寸）
+	drawOpts := &ebiten.DrawImageOptions{}
+	drawOpts.GeoM.Translate(startX-padding, renderY-padding)
+	// 不需要额外缩放，因为 Ebiten 会自动处理尺寸转换
+	drawOpts.ColorScale.ScaleWithColor(color.NRGBA{A: 0xFF})
+	dst.DrawImage(temp, drawOpts)
 }
 
 // renderTextWithStrokeAndSkew 使用高质量算法渲染带描边和斜体变换的文本
 // 参数 x, y 是文本渲染区域的左上角位置（不是基线位置！）
+// 使用超采样技术减少锯齿效果
 func renderTextWithStrokeAndSkew(dst *ebiten.Image, text string, fontFace font.Face, x, y float64, textColor, strokeColor color.NRGBA, strokeSize float64, bold bool, skew float64) {
+	// 使用超采样技术优化斜体渲染，减少锯齿
+	const supersampleScale = 2.0 // 超采样比例：2x 分辨率
+
 	// 使用 textv2 测量文本边界
 	textFace := textv2.NewGoXFace(fontFace)
 	width, height := textv2.Measure(text, textFace, 0)
 
 	// 计算临时图像尺寸（需要包含描边空间和斜体偏移）
-	padding := math.Ceil(strokeSize) * 2
-	skewOffset := math.Abs(skew * height)
-	tempWidth := int(width) + int(skewOffset+padding*2)
-	tempHeight := int(height) + int(padding*2)
+	// 注意：这里是超采样尺寸，所以要乘以 2
+	padding := (math.Ceil(strokeSize) + 2.0) * supersampleScale // 额外增加缓冲区
+	skewOffset := math.Abs(skew * height) * supersampleScale
+	tempWidth := int(width*supersampleScale) + int(skewOffset+padding*2)
+	tempHeight := int(height*supersampleScale) + int(padding*2)
 
 	if tempWidth <= 0 || tempHeight <= 0 {
 		return
 	}
 
-	// 创建临时图像用于渲染文本 alpha
+	// 创建临时图像用于渲染文本 alpha（超采样）
 	temp := ebiten.NewImage(tempWidth, tempHeight)
 	defer temp.Dispose()
 
@@ -1437,18 +1473,20 @@ func renderTextWithStrokeAndSkew(dst *ebiten.Image, text string, fontFace font.F
 			SecondaryAlign: textv2.AlignStart,
 		},
 	}
+	// 先缩放再斜体变换，确保超采样效果
+	tempOpts.GeoM.Scale(supersampleScale, supersampleScale)
 	tempOpts.GeoM.Skew(skew, 0)
 	// textv2.Draw 的坐标是渲染区域左上角
 	// 斜体需要额外的水平空间：skewOffset
-	// 在临时图像上，渲染区域左上角在 (padding + skewOffset, padding)
-	tempOpts.GeoM.Translate(padding+skewOffset, padding)
+	// 在临时图像上，渲染区域左上角在 (padding + skewOffset/supersampleScale, padding/supersampleScale)
+	tempOpts.GeoM.Translate((padding/supersampleScale)+(skewOffset/supersampleScale), padding/supersampleScale)
 	tempOpts.ColorScale.ScaleWithColor(color.NRGBA{R: 255, G: 255, B: 255, A: 255})
 	textv2.Draw(temp, text, textFace, tempOpts)
 
 	// 如果需要粗体，额外绘制一次偏移
 	if bold {
 		boldOpts := *tempOpts
-		boldOpts.GeoM.Translate(0.6, 0)
+		boldOpts.GeoM.Translate(0.6*supersampleScale, 0)
 		textv2.Draw(temp, text, textFace, &boldOpts)
 	}
 
@@ -1457,8 +1495,8 @@ func renderTextWithStrokeAndSkew(dst *ebiten.Image, text string, fontFace font.F
 		stroke := ebiten.NewImage(tempWidth, tempHeight)
 		defer stroke.Dispose()
 
-		// 使用圆形膨胀核
-		iStrokeSize := int(math.Ceil(strokeSize))
+		// 使用圆形膨胀核（注意：描边尺寸也需要考虑超采样）
+		iStrokeSize := int(math.Ceil(strokeSize * supersampleScale))
 		for dy := -iStrokeSize; dy <= iStrokeSize; dy++ {
 			for dx := -iStrokeSize; dx <= iStrokeSize; dx++ {
 				if dx*dx+dy*dy <= iStrokeSize*iStrokeSize {
@@ -1470,19 +1508,17 @@ func renderTextWithStrokeAndSkew(dst *ebiten.Image, text string, fontFace font.F
 		}
 
 		// 将描边绘制到目标图像
-		// 临时图像上，渲染区域左上角在 (padding + skewOffset, padding)
-		// 目标上，渲染区域左上角在 (x, y)
-		// 所以临时图像的 (padding + skewOffset, padding) 应该对应目标的 (x, y)
-		// 因此临时图像的 (0, 0) 应该对应目标的 (x - padding - skewOffset, y - padding)
+		// 临时图像的坐标系是超采样的，所以坐标需要除以 supersampleScale
+		// 最终图像会自动缩放回原始尺寸
 		strokeDrawOpts := &ebiten.DrawImageOptions{}
-		strokeDrawOpts.GeoM.Translate(x-padding-skewOffset, y-padding)
+		strokeDrawOpts.GeoM.Translate((x/supersampleScale)-(padding/supersampleScale)-(skewOffset/supersampleScale), (y/supersampleScale)-(padding/supersampleScale))
 		strokeDrawOpts.ColorScale.ScaleWithColor(strokeColor)
 		dst.DrawImage(stroke, strokeDrawOpts)
 	}
 
 	// 在描边上绘制原始文本
 	textDrawOpts := &ebiten.DrawImageOptions{}
-	textDrawOpts.GeoM.Translate(x-padding-skewOffset, y-padding)
+	textDrawOpts.GeoM.Translate((x/supersampleScale)-(padding/supersampleScale)-(skewOffset/supersampleScale), (y/supersampleScale)-(padding/supersampleScale))
 	textDrawOpts.ColorScale.ScaleWithColor(textColor)
 	dst.DrawImage(temp, textDrawOpts)
 }
