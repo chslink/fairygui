@@ -18,6 +18,7 @@ import (
 
 	ebitenText "github.com/hajimehoshi/ebiten/v2/text"
 	textv2 "github.com/hajimehoshi/ebiten/v2/text/v2"
+	"github.com/rivo/uniseg"
 
 	textutil "github.com/chslink/fairygui/internal/text"
 	"github.com/chslink/fairygui/pkg/fgui/assets"
@@ -29,6 +30,80 @@ var (
 	textImageCache   = make(map[string]*ebiten.Image)
 	textImageCacheMu sync.RWMutex
 )
+
+// graphemeCache 缓存字素集群分析结果，提高性能
+var (
+	graphemeCacheMu sync.RWMutex
+	graphemeCache   = make(map[string][][]byte) // key: string, value: slice of grapheme clusters
+)
+
+// getGraphemeClusters 使用 uniseg 分析字符串的字素集群，结果会被缓存
+func getGraphemeClusters(s string) [][]byte {
+	if s == "" {
+		return nil
+	}
+
+	graphemeCacheMu.RLock()
+	if clusters, ok := graphemeCache[s]; ok {
+		graphemeCacheMu.RUnlock()
+		return clusters
+	}
+	graphemeCacheMu.RUnlock()
+
+	var clusters [][]byte
+	gr := uniseg.NewGraphemes(s)
+	for gr.Next() {
+		clusters = append(clusters, append([]byte(nil), gr.Bytes()...))
+	}
+
+	graphemeCacheMu.Lock()
+	graphemeCache[s] = clusters
+	graphemeCacheMu.Unlock()
+
+	return clusters
+}
+
+// countGraphemeClusters 返回字符串中的字素集群数量
+func countGraphemeClusters(s string) int {
+	return uniseg.GraphemeClusterCount(s)
+}
+
+// graphemeWidthAt 计算字素集群在指定索引处的宽度
+func graphemeWidthAt(r *renderedTextRun, clusterIdx int, clusters [][]byte) float64 {
+	if r == nil || clusterIdx < 0 || clusterIdx >= len(clusters) {
+		return 0
+	}
+
+	// 将集群字节转换为 rune
+	clusterRunes := []rune(string(clusters[clusterIdx]))
+
+	// 计算所有字符的总宽度
+	width := 0.0
+	for _, rn := range clusterRunes {
+		width += r.advanceForRune(rn)
+	}
+	return width
+}
+
+// advanceForRune 为单个 rune 计算宽度
+func (r *renderedTextRun) advanceForRune(rn rune) float64 {
+	if r.bitmap != nil {
+		if glyph := r.bitmap.Glyphs[rn]; glyph != nil {
+			return glyph.Advance
+		}
+		return r.bitmap.SpaceAdvance()
+	}
+	if r.face != nil {
+		if adv, ok := r.face.GlyphAdvance(rn); ok {
+			return float64(adv) / 64.0
+		}
+		if rn == ' ' {
+			return float64(r.fontSize) * 0.5
+		}
+		return float64(r.fontSize) * 0.6
+	}
+	return 0
+}
 
 type renderedTextRun struct {
 	text      string
@@ -66,6 +141,36 @@ type textPart struct {
 }
 
 func (r *renderedTextRun) spanWidth(start, end int, letterSpacing float64) float64 {
+	if r == nil || start >= end || start < 0 || end > len([]rune(r.text)) {
+		return 0
+	}
+
+	// 使用 uniseg 获取 grapheme 集群
+	graphemes := getGraphemeClusters(r.text)
+	if len(graphemes) == 0 {
+		return 0
+	}
+
+	// 确保索引在有效范围内
+	if start >= len(graphemes) {
+		start = len(graphemes) - 1
+	}
+	if end > len(graphemes) {
+		end = len(graphemes)
+	}
+
+	width := 0.0
+	for i := start; i < end; i++ {
+		width += graphemeWidthAt(r, i, graphemes)
+		if i != end-1 {
+			width += letterSpacing
+		}
+	}
+	return width
+}
+
+// spanRuneWidth 按 rune 索引计算宽度（保留以兼容现有代码）
+func (r *renderedTextRun) spanRuneWidth(start, end int, letterSpacing float64) float64 {
 	if r == nil || start >= end || start < 0 || end > len(r.runes) {
 		return 0
 	}
@@ -83,30 +188,55 @@ func (r *renderedTextRun) spanForWidth(start int, maxWidth float64, letterSpacin
 	if r == nil || start < 0 || start >= len(r.runes) {
 		return start, 0
 	}
+
+	// 使用 uniseg 进行正确的字素集群分割
+	graphemes := getGraphemeClusters(r.text[start:])
+	if len(graphemes) == 0 {
+		return start, 0
+	}
+
 	width := 0.0
 	lastBreak := -1
 	widthAtBreak := 0.0
-	for i := start; i < len(r.runes); i++ {
-		if isBreakRune(r.runes[i]) && i > start {
-			lastBreak = i
-			widthAtBreak = width
+
+	for i := 0; i < len(graphemes); i++ {
+		clusterBytes := graphemes[i]
+		clusterRunes := []rune(string(clusterBytes))
+
+		// 检查是否是换行符
+		for _, rn := range clusterRunes {
+			if isBreakRune(rn) {
+				lastBreak = i
+				widthAtBreak = width
+				break
+			}
 		}
-		runeWidth := r.advanceAt(i)
+
+		// 计算当前字素集群的宽度
+		clusterWidth := 0.0
+		for _, rn := range clusterRunes {
+			clusterWidth += r.advanceForRune(rn)
+		}
+
 		if width > 0 {
-			runeWidth += letterSpacing
+			clusterWidth += letterSpacing
 		}
-		if maxWidth > 0 && width+runeWidth > maxWidth {
-			if lastBreak >= start {
-				return lastBreak, widthAtBreak
+
+		// 检查是否超出最大宽度
+		if maxWidth > 0 && width+clusterWidth > maxWidth {
+			if lastBreak >= 0 {
+				return start + lastBreak + 1, widthAtBreak
 			}
 			if width == 0 {
-				return i + 1, width + runeWidth
+				return start + i + 1, width + clusterWidth
 			}
-			return i, width
+			return start + i, width
 		}
-		width += runeWidth
+
+		width += clusterWidth
 	}
-	return len(r.runes), width
+
+	return start + len(graphemes), width
 }
 
 func (r *renderedTextRun) advanceAt(idx int) float64 {
@@ -143,17 +273,46 @@ func (r *renderedTextRun) advanceAt(idx int) float64 {
 }
 
 func (r *renderedTextRun) slice(start, end int, letterSpacing float64) *renderedTextRun {
-	if r == nil || start >= end || start < 0 || end > len(r.runes) {
+	if r == nil || start >= end || start < 0 {
 		return nil
 	}
+
+	// 使用 grapheme 集群进行分割
+	graphemes := getGraphemeClusters(r.text)
+	if len(graphemes) == 0 {
+		return nil
+	}
+
+	// 确保 end 不超过集群数量
+	if end > len(graphemes) {
+		end = len(graphemes)
+	}
+
 	clone := *r
-	clone.runes = append([]rune(nil), r.runes[start:end]...)
-	clone.text = string(clone.runes)
+
+	// 提取对应的 grapheme 集群
+	var selectedGraphemes [][]byte
+	var selectedRunes []rune
+	for i := start; i < end; i++ {
+		selectedGraphemes = append(selectedGraphemes, graphemes[i])
+		selectedRunes = append(selectedRunes, []rune(string(graphemes[i]))...)
+	}
+
+	// 构建新的文本和 runes
+	var sb strings.Builder
+	for _, g := range selectedGraphemes {
+		sb.Write(g)
+	}
+	clone.text = sb.String()
+	clone.runes = selectedRunes
+
 	if len(r.advances) > 0 {
-		clone.advances = append([]float64(nil), r.advances[start:end]...)
+		// 如果有预计算的 advances，需要重新计算
+		clone.advances = nil
 	} else {
 		clone.advances = nil
 	}
+
 	clone.width = r.spanWidth(start, end, letterSpacing)
 	return &clone
 }
@@ -810,9 +969,8 @@ func wrapRenderedRuns(parts []textPart, wrapWidth float64, letterSpacing float64
 				current, currentWidth = appendRun(current, currentWidth, chunk, letterSpacing)
 			}
 			start = end
-			for start < len(run.runes) && isBreakRune(run.runes[start]) {
-				start++
-			}
+			// 跳过空白 grapheme 集群
+			start = skipWhitespaceGraphemes(run.text, start)
 			if start < len(run.runes) {
 				flush()
 			}
@@ -893,8 +1051,59 @@ func buildRenderedLineFromRuns(runs []*renderedTextRun, base baseMetrics, letter
 	return line
 }
 
+// isBreakRune 使用 Unicode 标准判断是否为换行符
+// 包括空格、换行符、制表符等
 func isBreakRune(r rune) bool {
+	// 使用 unicode.IsSpace 判断所有空格类字符
+	// 包括: 空格, 换行符, 制表符, 回车符, 垂直制表符, 换页符等
 	return unicode.IsSpace(r)
+}
+
+// hasGraphemeBreak 检查两个 rune 之间是否有字素边界
+func hasGraphemeBreak(s string, index int) bool {
+	if index <= 0 || index >= len([]rune(s)) {
+		return false
+	}
+
+	// 使用 uniseg 判断边界
+	gr := uniseg.NewGraphemes(s)
+	pos := 0
+	for gr.Next() {
+		clusterBytes := gr.Bytes()
+		clusterLen := len([]rune(string(clusterBytes)))
+
+		// 如果当前位置包含目标索引，则有边界
+		if pos+clusterLen > index {
+			return pos < index
+		}
+		pos += clusterLen
+	}
+	return false
+}
+
+// skipWhitespaceGraphemes 跳过开头的空白 grapheme 集群，返回新的起始位置
+func skipWhitespaceGraphemes(text string, start int) int {
+	graphemes := getGraphemeClusters(text)
+	if len(graphemes) == 0 || start >= len(graphemes) {
+		return start
+	}
+
+	newStart := start
+	for newStart < len(graphemes) {
+		clusterRunes := []rune(string(graphemes[newStart]))
+		isWhitespace := true
+		for _, rn := range clusterRunes {
+			if !isBreakRune(rn) {
+				isWhitespace = false
+				break
+			}
+		}
+		if !isWhitespace {
+			break
+		}
+		newStart++
+	}
+	return newStart
 }
 
 func drawBitmapRun(dst *ebiten.Image, run *renderedTextRun, startX float64, lineTop float64, letterSpacing float64, atlas *AtlasManager) error {
