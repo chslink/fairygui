@@ -10,10 +10,28 @@
 - 需要兼容层模拟 LayaAir 的子集服务（sprite 层级、事件、定时器、资源加载）
 
 **设计原则**:
-- 保持与 TypeScript 版本的功能对等
+- 保持与 TypeScript/Unity 版本的功能对等
 - 利用 Go 的类型安全和并发优势
 - 提供完整的单元测试覆盖
 - 清晰的模块分离和依赖关系
+
+---
+
+## 参考实现对比
+
+项目同时参考 TypeScript (LayaAir) 和 Unity 两个版本的 FairyGUI 实现，以确保功能完整性和 API 兼容性。
+
+### TypeScript (LayaAir) 版本架构
+- **核心结构**: GObject 作为基础 UI 元素，直接实现功能
+- **渲染**: 基于 LayaAir Sprite 系统，通过舞台树渲染
+- **事件**: 自定义事件系统
+- **资源**: 包文件解析和资源加载分离
+
+### Unity 版本架构
+- **核心结构**: 采用分层设计，GObject 包装底层 DisplayObject
+- **渲染**: 自定义 Mesh 系统，支持批处理渲染
+- **事件**: 基于 Unity 事件系统扩展
+- **资源**: 集成 Unity AssetBundle 系统
 
 ---
 

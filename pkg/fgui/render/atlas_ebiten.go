@@ -15,11 +15,16 @@ import (
 )
 
 // AtlasManager loads and caches atlas textures and sprite images.
+// 借鉴 Unity 版本的 MaterialManager 设计思想，扩展支持 DrawParams 缓存
 type AtlasManager struct {
 	loader      assets.Loader
 	atlasImages map[string]*ebiten.Image
 	spriteCache map[string]*ebiten.Image
 	movieCache  map[string]*ebiten.Image
+
+	// drawParamsCache 缓存 DrawImageOptions，减少对象分配
+	// Key: image + color + blend + filter 的组合
+	drawParamsCache map[string]*DrawParams
 }
 
 // NewAtlasManager creates a manager using the provided Loader.
@@ -285,4 +290,46 @@ func movieClipFrameKey(item *assets.PackageItem, frame *assets.MovieClipFrame) s
 		ownerID = item.Owner.ID
 	}
 	return fmt.Sprintf("mc:%s:%s:%d:%d:%d:%d", ownerID, frame.SpriteID, frame.Sprite.Rect.X, frame.Sprite.Rect.Y, frame.Sprite.Rect.Width, frame.Sprite.Rect.Height)
+}
+
+// DrawParams 封装绘制参数，借鉴 Unity MaterialManager 设计
+// 用于减少 DrawImageOptions 对象分配
+type DrawParams struct {
+	Image      *ebiten.Image
+	ColorScale ebiten.ColorScale
+	Blend      ebiten.Blend
+	Filter     ebiten.Filter
+}
+
+// GetDrawParams 从缓存获取或创建绘制参数
+// 借鉴 Unity 版本的 MaterialManager.GetMaterial()
+func (m *AtlasManager) GetDrawParams(img *ebiten.Image, colorScale ebiten.ColorScale, blend ebiten.Blend, filter ebiten.Filter) *DrawParams {
+	if m.drawParamsCache == nil {
+		m.drawParamsCache = make(map[string]*DrawParams)
+	}
+
+	// 生成缓存键（类似 Unity 的多维键值）
+	key := m.generateDrawParamsKey(img, colorScale, blend, filter)
+
+	// 尝试从缓存获取
+	if params, ok := m.drawParamsCache[key]; ok {
+		return params
+	}
+
+	// 缓存未命中，创建新参数
+	params := &DrawParams{
+		Image:      img,
+		ColorScale: colorScale,
+		Blend:      blend,
+		Filter:     filter,
+	}
+
+	m.drawParamsCache[key] = params
+	return params
+}
+
+// generateDrawParamsKey 生成 DrawParams 的缓存键
+func (m *AtlasManager) generateDrawParamsKey(img *ebiten.Image, colorScale ebiten.ColorScale, blend ebiten.Blend, filter ebiten.Filter) string {
+	// 使用图像指针和参数组合作为键
+	return fmt.Sprintf("%p_%v_%v_%v", img, colorScale, blend, filter)
 }

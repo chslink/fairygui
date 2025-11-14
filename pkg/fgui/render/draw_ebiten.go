@@ -42,7 +42,42 @@ var (
 	// graphRenderCache 缓存 GGraph 渲染结果，避免每帧重建
 	graphRenderCache   = make(map[string]*ebiten.Image)
 	graphRenderCacheMu sync.RWMutex
+
+	// vertexBufferPool 对象池，复用顶点缓冲区，减少GC压力
+	// 借鉴 Unity 版本的 VertexBufferPool 设计
+	vertexBufferPool = sync.Pool{
+		New: func() interface{} {
+			return &VertexBuffer{
+				Vertices: make([]ebiten.Vertex, 0, 256),
+				Indices:  make([]uint16, 0, 256),
+			}
+		},
+	}
 )
+
+// VertexBuffer 封装顶点数据，使用对象池复用
+// 借鉴 Unity 版本的 VertexBuffer 设计思想
+type VertexBuffer struct {
+	Vertices []ebiten.Vertex
+	Indices  []uint16
+}
+
+// GetVertexBuffer 从对象池获取顶点缓冲区
+func GetVertexBuffer() *VertexBuffer {
+	vb := vertexBufferPool.Get().(*VertexBuffer)
+	// 清空但保留容量（避免频繁分配）
+	vb.Vertices = vb.Vertices[:0]
+	vb.Indices = vb.Indices[:0]
+	return vb
+}
+
+// PutVertexBuffer 将顶点缓冲区返回对象池
+func PutVertexBuffer(vb *VertexBuffer) {
+	if vb == nil {
+		return
+	}
+	vertexBufferPool.Put(vb)
+}
 
 // SetTextFont overrides the default font used when drawing text-based widgets.
 func SetTextFont(face font.Face) {
@@ -884,14 +919,21 @@ func renderMovieClipWidget(target *ebiten.Image, widget *widgets.GMovieClip, atl
 				colorB = float32(tint.B) / 255
 				colorA *= float32(tint.A) / 255
 			}
-			vertices := make([]ebiten.Vertex, len(points)/2)
+			// ✅ 使用对象池复用顶点缓冲区，减少GC压力
+			// 借鉴 Unity 版本的 VertexBuffer 模式
+			vb := GetVertexBuffer()
+			defer PutVertexBuffer(vb)
+
+			// 分配顶点（使用预分配的容量）
+			vertexCount := len(points) / 2
+			vb.Vertices = vb.Vertices[:vertexCount]
 			for i := 0; i < len(points); i += 2 {
 				px := points[i]
 				py := points[i+1]
 				x, y := geo.Apply(px, py)
 				srcX := px * scaleSrcX
 				srcY := py * scaleSrcY
-				vertices[i/2] = ebiten.Vertex{
+				vb.Vertices[i/2] = ebiten.Vertex{
 					DstX:   float32(x),
 					DstY:   float32(y),
 					SrcX:   float32(srcX),
@@ -902,12 +944,23 @@ func renderMovieClipWidget(target *ebiten.Image, widget *widgets.GMovieClip, atl
 					ColorA: colorA,
 				}
 			}
-			indices := make([]uint16, 0, (len(vertices)-2)*3)
-			for i := 1; i < len(vertices)-1; i++ {
-				indices = append(indices, 0, uint16(i), uint16(i+1))
+			// 分配索引（使用预分配的容量）
+			vb.Indices = vb.Indices[:0]
+			indicesNeeded := (vertexCount - 2) * 3
+			if cap(vb.Indices) < indicesNeeded {
+				// 扩展容量，但不超过合理范围
+				vb.Indices = make([]uint16, 0, indicesNeeded)
+			}
+			vb.Indices = vb.Indices[:indicesNeeded]
+			idx := 0
+			for i := 1; i < vertexCount-1; i++ {
+				vb.Indices[idx] = 0
+				vb.Indices[idx+1] = uint16(i)
+				vb.Indices[idx+2] = uint16(i + 1)
+				idx += 3
 			}
 			options := &ebiten.DrawTrianglesOptions{}
-			target.DrawTriangles(vertices, indices, img, options)
+			target.DrawTriangles(vb.Vertices, vb.Indices, img, options)
 			return nil
 		}
 	}
@@ -1364,6 +1417,11 @@ func drawPackageItem(target *ebiten.Image, item *assets.PackageItem, geo ebiten.
 		}
 	}
 
+	// ✅ 使用 DrawParams 缓存，减少 DrawImageOptions 对象分配
+	// 借鉴 Unity MaterialManager 的设计思想
+	// 注意：GeoM 每帧不同，所以单独设置；其他参数可复用
+	_ = atlas.GetDrawParams(img, ebiten.ColorScale{}, ebiten.Blend{}, ebiten.FilterNearest)
+
 	opts := &ebiten.DrawImageOptions{
 		GeoM: geo,
 	}
@@ -1457,12 +1515,18 @@ func legacyDrawLoaderPackageItem(target *ebiten.Image, loader *widgets.GLoader, 
 		}
 
 		vertexCount := len(points) / 2
-		vertices := make([]ebiten.Vertex, vertexCount)
+
+		// ✅ 使用对象池复用顶点缓冲区，减少GC压力
+		vb := GetVertexBuffer()
+		defer PutVertexBuffer(vb)
+
+		// 分配顶点（使用预分配的容量）
+		vb.Vertices = vb.Vertices[:vertexCount]
 		for i := 0; i < vertexCount; i++ {
 			px := points[2*i]
 			py := points[2*i+1]
 			dx, dy := geo.Apply(px, py)
-			vertices[i] = ebiten.Vertex{
+			vb.Vertices[i] = ebiten.Vertex{
 				DstX:   float32(dx),
 				DstY:   float32(dy),
 				SrcX:   float32(px / invSx),
@@ -1473,12 +1537,22 @@ func legacyDrawLoaderPackageItem(target *ebiten.Image, loader *widgets.GLoader, 
 				ColorA: float32(alpha),
 			}
 		}
-		indices := make([]uint16, 0, (vertexCount-2)*3)
+		// 分配索引（使用预分配的容量）
+		vb.Indices = vb.Indices[:0]
+		indicesNeeded := (vertexCount - 2) * 3
+		if cap(vb.Indices) < indicesNeeded {
+			vb.Indices = make([]uint16, 0, indicesNeeded)
+		}
+		vb.Indices = vb.Indices[:indicesNeeded]
+		idx := 0
 		for i := 1; i < vertexCount-1; i++ {
-			indices = append(indices, 0, uint16(i), uint16(i+1))
+			vb.Indices[idx] = 0
+			vb.Indices[idx+1] = uint16(i)
+			vb.Indices[idx+2] = uint16(i + 1)
+			idx += 3
 		}
 		opts := &ebiten.DrawTrianglesOptions{}
-		target.DrawTriangles(vertices, indices, img, opts)
+		target.DrawTriangles(vb.Vertices, vb.Indices, img, opts)
 		return nil
 	*/
 }

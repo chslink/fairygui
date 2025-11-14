@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/hajimehoshi/ebiten/v2 v2.9.3
+	github.com/rivo/uniseg v0.4.7
 	golang.org/x/image v0.32.0
 )
 
@@ -17,7 +18,6 @@ require (
 	github.com/jezek/xgb v1.1.1 // indirect
 	github.com/jfreymuth/oggvorbis v1.0.5 // indirect
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect

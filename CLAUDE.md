@@ -13,7 +13,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **核心约束**：
 - Ebiten 提供帧驱动游戏循环和软件渲染原语
 - 需要兼容层模拟 LayaAir 的子集服务（sprite 层级、事件、定时器、资源加载）
-- 参考实现位于 `laya_src/source`（上游 TypeScript 版本）
+- 参考实现位于：
+  - `laya_src/source`（上游 TypeScript + LayaAir 版本）
+  - `unity_src/Scripts`（Unity C# 版本，提供强类型语言实现参考）
 
 ## 关键文档
 
@@ -142,6 +144,16 @@ root := fgui.Root()
 3. **颜色效果**：`applyColorEffects` 统一处理颜色矩阵、灰度、BlendMode
 4. **纹理绘制**：九宫格/平铺通过 `Graphics.DrawTexture` 命令，渲染层解析
 5. **文本**：支持 UBB、多段样式、描边、阴影、系统/位图字体混排
+
+### Unity 版本渲染设计参考
+
+Unity 版本采用了不同的渲染架构：
+- **底层渲染**：自定义 Mesh 系统，支持批处理渲染
+- **网格工厂**：提供多种预定义 Mesh（RectMesh、RoundedRectMesh、EllipseMesh 等）
+- **批处理**：支持将多个 UI 元素合并为一个 Mesh 进行渲染
+- **性能优化**：顶点缓冲池管理，减少 GC
+
+Go 版本在设计渲染层时可以参考 Unity 版本的性能优化思路，特别是 Mesh 批处理和顶点缓冲管理。
 
 ### 帧循环集成
 
