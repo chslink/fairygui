@@ -26,12 +26,12 @@
 
 ### 2. FGUI 运行时 (`pkg/fgui/...`)
 **统一 API 入口**: `pkg/fgui/api.go` 导出所有关键类型
-- **core**: GObject, GComponent, GRoot, Relations, Controllers, Transitions, ScrollPane
-- **widgets**: GButton, GImage, GTextField, GList, GTree, GMovieClip, GSlider, GScrollBar, GComboBox, GProgressBar
+- **core**: GObject, GComponent, GRoot, Relations, Controller, Transition, ScrollPane
+- **widgets**: GButton, GComboBox, GGraph, GGroup, GImage, GLabel, GList, GLoader, GMovieClip, GProgressBar, GRichTextField, GScrollBar, GSlider, GTextField, GTextInput, GTree
 - **assets**: UIPackage, PackageItem, 资源加载与解析
 - **builder**: 从 .fui 包构建组件树
 - **gears**: 状态齿轮系统（Size, Position, Animation, Color, Text, Icon）
-- **tween**: 补间动画引擎（含优化）
+- **tween**: 补间动画引擎
 - **utils**: ByteBuffer, 碰撞测试, 颜色工具, 工具函数
 - **render**: Ebiten 渲染实现（文本、图形、纹理、色彩效果）
 - **audio**: 音频支持（预留接口）
@@ -45,8 +45,8 @@
 - **输入系统**: 触控、键盘、focus/capture 管理
 
 ### 4. 基础设施 (`internal/`)
-- `internal/text`: UBB 解析、字体管理、文本布局
 - `internal/compat/laya/testutil`: 测试工具（StageEnv, 事件日志）
+- `internal/text`: UBB 解析、字体管理、文本布局
 
 ---
 
@@ -58,13 +58,14 @@
 |----------------|------|--------|------|
 | fgui.GObject, GComponent | 基础节点管理、布局、事件 | pkg/fgui/core | ✅ 完成 |
 | fgui.GRoot, GTree, Window | 根舞台、弹窗、窗口管理 | pkg/fgui/core | ✅ 完成 |
-| fgui.widgets.* | UI 控件实现 | pkg/fgui/widgets | ✅ 大部分完成 |
-| fgui.display.* | 可渲染表面 | pkg/fgui/render | ✅ 完成 |
+| fgui.widgets.* | UI 控件实现 | pkg/fgui/widgets | ✅ 完成 |
+| fgui.render.* | 渲染实现 | pkg/fgui/render | ✅ 完成 |
 | fgui.gears.* | 状态齿轮系统 | pkg/fgui/gears | ✅ 完成 |
-| fgui.tween.* | 补间动画引擎 | pkg/fgui/tween | ✅ 完成并优化 |
+| fgui.tween.* | 补间动画引擎 | pkg/fgui/tween | ✅ 完成 |
 | fgui.utils.* | 工具类 | pkg/fgui/utils | ✅ 完成 |
 | fgui.UIPackage | 包加载、资源查找 | pkg/fgui/assets | ✅ 完成 |
-| fgui.Controller, Transition | 状态机和动画序列 | pkg/fgui/core | ✅ 完成 |
+| fgui.Controller | 状态机 | pkg/fgui/core | ✅ 完成 |
+| fgui.Transition | 过渡动画 | pkg/fgui/core | ✅ 完成 |
 | Laya.Display.* | 显示对象和渲染 | internal/compat/laya | ✅ 完成 |
 
 ---
@@ -170,9 +171,9 @@ GList 支持三种模式：
 
 ### 测试覆盖率
 
-- **核心包**: 90+ 测试用例，100% 通过
+- **核心包**: 89 个测试用例，100% 通过
 - **Tween 包**: 5 个核心测试，100% 通过
-- **Widgets 包**: 90+ 测试，2 个待修复
+- **Widgets 包**: 101 个测试，2 个待修复
 - **总计**: 94 个测试文件
 
 ---
@@ -248,9 +249,11 @@ go run ./demo/scenes/loop_list_demo.go
 5. **批处理**: 相同材质/效果的绘制命令可批处理
 
 ### 性能基准
-- **Tween 动画**: 1000+ 并发补间无性能问题
-- **虚拟列表**: 10,000+ 项目滚动流畅
-- **渲染**: 60 FPS 下 100+ 控件正常渲染
+- **单元测试通过率**: 核心 100%, Tween 100%, Widgets 98%
+- **渲染测试**: 基础图形和文本渲染通过
+- **功能测试**: ScrollPane、虚拟列表、动画等核心功能稳定
+
+*注: 当前缺乏大规模性能基准测试数据*
 
 ---
 
