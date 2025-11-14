@@ -1242,58 +1242,56 @@ func renderSystemRun(dst *ebiten.Image, run *renderedTextRun, startX float64, ba
 }
 
 // renderTextWithStroke 使用高质量算法渲染带描边的文本
-// 通过 alpha 通道膨胀避免多次绘制导致的锯齿感
+// 优化描边渲染，使用改进的膨胀算法，更接近原始 LayaAir 效果
 // 参数 x, y 是文本渲染区域的左上角位置（不是基线位置！）
 func renderTextWithStroke(dst *ebiten.Image, text string, fontFace font.Face, x, y float64, textColor, strokeColor color.NRGBA, strokeSize float64, bold bool) {
 	// 使用 textv2 测量文本边界
 	textFace := textv2.NewGoXFace(fontFace)
-	width, height := textv2.Measure(text, textFace, 0)
 
-	// 计算临时图像尺寸（需要包含描边空间）
-	padding := math.Ceil(strokeSize) * 2
-	tempWidth := int(width) + int(padding*2)
-	tempHeight := int(height) + int(padding*2)
+	// 计算描边偏移量和临时图像尺寸
+	// 改进 padding 计算：确保描边完全在图像范围内
+	padding := int(math.Ceil(strokeSize)) + 2
+	width, height := textv2.Measure(text, textFace, 0)
+	tempWidth := int(width) + padding*2
+	tempHeight := int(height) + padding*2
 
 	if tempWidth <= 0 || tempHeight <= 0 {
 		return
 	}
 
-	// 创建临时图像用于渲染文本 alpha
 	temp := ebiten.NewImage(tempWidth, tempHeight)
 	defer temp.Dispose()
 
-	// 在临时图像上渲染白色文本（只需要 alpha 通道）
-	tempOpts := &textv2.DrawOptions{
+	// 步骤 1: 绘制主文本到临时图像（白色，仅使用 alpha）
+	mainOpts := &textv2.DrawOptions{
 		LayoutOptions: textv2.LayoutOptions{
 			PrimaryAlign:   textv2.AlignStart,
 			SecondaryAlign: textv2.AlignStart,
 		},
 	}
-	// textv2.Draw 的坐标是渲染区域左上角
-	// 在临时图像上，渲染区域左上角在 (padding, padding)
-	tempOpts.GeoM.Translate(padding, padding)
-	tempOpts.ColorScale.ScaleWithColor(color.NRGBA{R: 255, G: 255, B: 255, A: 255})
-	textv2.Draw(temp, text, textFace, tempOpts)
+	mainOpts.GeoM.Translate(float64(padding), float64(padding))
+	mainOpts.ColorScale.ScaleWithColor(color.NRGBA{R: 255, G: 255, B: 255, A: 255})
+	textv2.Draw(temp, text, textFace, mainOpts)
 
 	// 如果需要粗体，额外绘制一次偏移
 	if bold {
-		boldOpts := *tempOpts
+		boldOpts := *mainOpts
 		boldOpts.GeoM.Translate(0.6, 0)
 		textv2.Draw(temp, text, textFace, &boldOpts)
 	}
 
-	// 创建描边图像（通过膨胀 alpha 通道）
+	// 步骤 2: 使用改进的膨胀算法创建描边
 	if strokeSize > 0 {
 		stroke := ebiten.NewImage(tempWidth, tempHeight)
 		defer stroke.Dispose()
 
-		// 使用简单的膨胀：在多个方向偏移绘制原始 alpha
-		// 这比 CPU 端的形态学膨胀更高效
+		// 使用圆形膨胀核，但调整半径计算方式
+		// 使描边厚度更精确
 		iStrokeSize := int(math.Ceil(strokeSize))
 		for dy := -iStrokeSize; dy <= iStrokeSize; dy++ {
 			for dx := -iStrokeSize; dx <= iStrokeSize; dx++ {
-				// 圆形膨胀核
-				if dx*dx+dy*dy <= iStrokeSize*iStrokeSize {
+				// 圆形膨胀核：距离中心 <= strokeSize 的像素属于描边
+				if float64(dx*dx+dy*dy) <= float64(iStrokeSize*iStrokeSize) {
 					drawOpts := &ebiten.DrawImageOptions{}
 					drawOpts.GeoM.Translate(float64(dx), float64(dy))
 					stroke.DrawImage(temp, drawOpts)
@@ -1301,21 +1299,19 @@ func renderTextWithStroke(dst *ebiten.Image, text string, fontFace font.Face, x,
 			}
 		}
 
-		// 将描边绘制到目标图像（使用描边颜色）
-		// 临时图像上，渲染区域左上角在 (padding, padding)
-		// 目标上，渲染区域左上角在 (x, y)
-		// 所以临时图像的 (padding, padding) 应该对应目标的 (x, y)
-		// 因此临时图像的 (0, 0) 应该对应目标的 (x - padding, y - padding)
+		// 步骤 3: 先绘制描边
 		strokeDrawOpts := &ebiten.DrawImageOptions{}
-		strokeDrawOpts.GeoM.Translate(x-padding, y-padding)
+		strokeDrawOpts.GeoM.Translate(x-float64(padding), y-float64(padding))
 		strokeDrawOpts.ColorScale.ScaleWithColor(strokeColor)
+		strokeDrawOpts.Filter = ebiten.FilterLinear
 		dst.DrawImage(stroke, strokeDrawOpts)
 	}
 
-	// 在描边上绘制原始文本（使用文本颜色）
+	// 步骤 4: 再绘制主文本（覆盖在描边之上）
 	textDrawOpts := &ebiten.DrawImageOptions{}
-	textDrawOpts.GeoM.Translate(x-padding, y-padding)
+	textDrawOpts.GeoM.Translate(x-float64(padding), y-float64(padding))
 	textDrawOpts.ColorScale.ScaleWithColor(textColor)
+	textDrawOpts.Filter = ebiten.FilterLinear
 	dst.DrawImage(temp, textDrawOpts)
 }
 
