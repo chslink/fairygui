@@ -16,7 +16,6 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 
-	ebitenText "github.com/hajimehoshi/ebiten/v2/text"
 	textv2 "github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/rivo/uniseg"
 
@@ -816,6 +815,7 @@ func buildRenderedRun(seg textutil.Segment, field *widgets.GTextField, baseColor
 
 	run.advances = make([]float64, len(run.runes))
 	width := 0.0
+	fontSize := run.fontSize // 保存字体大小用于备选计算
 	for idx, r := range run.runes {
 		advance := 0.0
 		if adv, ok := face.GlyphAdvance(r); ok {
@@ -825,8 +825,8 @@ func buildRenderedRun(seg textutil.Segment, field *widgets.GTextField, baseColor
 			if ok {
 				advance = float64(bounds.Max.X-bounds.Min.X) / 64.0
 			} else {
-
-				advance = float64(ebitenText.BoundString(face, string(r)).Dx())
+				// 备选方案：使用字体大小的比例估算
+				advance = float64(fontSize) * 0.6
 			}
 		}
 		run.advances[idx] = advance
@@ -1245,13 +1245,14 @@ func renderSystemRun(dst *ebiten.Image, run *renderedTextRun, startX float64, ba
 // 通过 alpha 通道膨胀避免多次绘制导致的锯齿感
 // 参数 x, y 是文本渲染区域的左上角位置（不是基线位置！）
 func renderTextWithStroke(dst *ebiten.Image, text string, fontFace font.Face, x, y float64, textColor, strokeColor color.NRGBA, strokeSize float64, bold bool) {
-	// 测量文本边界
-	bounds := ebitenText.BoundString(fontFace, text)
+	// 使用 textv2 测量文本边界
+	textFace := textv2.NewGoXFace(fontFace)
+	width, height := textv2.Measure(text, textFace, 0)
 
 	// 计算临时图像尺寸（需要包含描边空间）
 	padding := math.Ceil(strokeSize) * 2
-	tempWidth := bounds.Dx() + int(padding*2)
-	tempHeight := bounds.Dy() + int(padding*2)
+	tempWidth := int(width) + int(padding*2)
+	tempHeight := int(height) + int(padding*2)
 
 	if tempWidth <= 0 || tempHeight <= 0 {
 		return
@@ -1260,9 +1261,6 @@ func renderTextWithStroke(dst *ebiten.Image, text string, fontFace font.Face, x,
 	// 创建临时图像用于渲染文本 alpha
 	temp := ebiten.NewImage(tempWidth, tempHeight)
 	defer temp.Dispose()
-
-	// 创建 textv2 face 用于渲染
-	textFace := textv2.NewGoXFace(fontFace)
 
 	// 在临时图像上渲染白色文本（只需要 alpha 通道）
 	tempOpts := &textv2.DrawOptions{
@@ -1351,7 +1349,8 @@ func drawSystemGlyphs(dst *ebiten.Image, run *renderedTextRun, startX, baseline 
 			if ok {
 				advance = float64(bounds.Max.X-bounds.Min.X) / 64.0
 			} else {
-				advance = float64(ebitenText.BoundString(run.face, string(r)).Dx())
+				// 备选方案：使用字体大小的比例估算
+				advance = float64(run.fontSize) * 0.6
 			}
 		}
 		x += advance
@@ -1413,14 +1412,15 @@ func renderItalicSystemRun(dst *ebiten.Image, run *renderedTextRun, startX float
 // renderTextWithStrokeAndSkew 使用高质量算法渲染带描边和斜体变换的文本
 // 参数 x, y 是文本渲染区域的左上角位置（不是基线位置！）
 func renderTextWithStrokeAndSkew(dst *ebiten.Image, text string, fontFace font.Face, x, y float64, textColor, strokeColor color.NRGBA, strokeSize float64, bold bool, skew float64) {
-	// 测量文本边界
-	bounds := ebitenText.BoundString(fontFace, text)
+	// 使用 textv2 测量文本边界
+	textFace := textv2.NewGoXFace(fontFace)
+	width, height := textv2.Measure(text, textFace, 0)
 
 	// 计算临时图像尺寸（需要包含描边空间和斜体偏移）
 	padding := math.Ceil(strokeSize) * 2
-	skewOffset := math.Abs(skew * float64(bounds.Dy()))
-	tempWidth := bounds.Dx() + int(skewOffset+padding*2)
-	tempHeight := bounds.Dy() + int(padding*2)
+	skewOffset := math.Abs(skew * height)
+	tempWidth := int(width) + int(skewOffset+padding*2)
+	tempHeight := int(height) + int(padding*2)
 
 	if tempWidth <= 0 || tempHeight <= 0 {
 		return
@@ -1429,9 +1429,6 @@ func renderTextWithStrokeAndSkew(dst *ebiten.Image, text string, fontFace font.F
 	// 创建临时图像用于渲染文本 alpha
 	temp := ebiten.NewImage(tempWidth, tempHeight)
 	defer temp.Dispose()
-
-	// 创建 textv2 face 用于渲染
-	textFace := textv2.NewGoXFace(fontFace)
 
 	// 在临时图像上渲染白色文本（应用斜体变换）
 	tempOpts := &textv2.DrawOptions{
