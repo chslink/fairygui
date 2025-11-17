@@ -105,8 +105,18 @@ func (r *EbitenRenderer) getSprite(obj fairygui.DisplayObject) *display.Sprite {
 
 // DrawText 渲染文本。
 func (r *EbitenRenderer) DrawText(screen *ebiten.Image, text string, x, y float64, style fairygui.TextStyle) {
-	// 文本渲染将在 Phase 3.3 实现
-	// 目前只是占位实现
+	if text == "" {
+		return
+	}
+
+	// 根据样式选择渲染方法
+	if style.Stroke != nil {
+		r.DrawTextWithStroke(screen, text, x, y, style)
+	} else if style.Shadow != nil {
+		r.DrawTextWithShadow(screen, text, x, y, style)
+	} else {
+		r.DrawTextBasic(screen, text, x, y, style)
+	}
 }
 
 // DrawTexture 渲染纹理。
