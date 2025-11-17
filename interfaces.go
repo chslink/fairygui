@@ -200,6 +200,9 @@ type Event interface {
 	// StopPropagation 停止事件传播（冒泡）。
 	StopPropagation()
 
+	// IsPropagationStopped 返回事件传播是否已停止。
+	IsPropagationStopped() bool
+
 	// IsDefaultPrevented 返回是否已阻止默认行为。
 	IsDefaultPrevented() bool
 
