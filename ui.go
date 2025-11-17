@@ -371,9 +371,49 @@ func (o *Object) Once(eventType string, handler EventHandler) {
 	o.dispatcher.Once(eventType, handler)
 }
 
-// Emit 触发事件。
+// Emit 触发事件（不冒泡）。
 func (o *Object) Emit(event Event) {
 	o.dispatcher.Emit(event)
+}
+
+// DispatchEvent 分发事件（支持冒泡）。
+//
+// 事件会经历三个阶段：
+// 1. 捕获阶段：从根节点向下到目标节点
+// 2. 目标阶段：在目标节点上触发
+// 3. 冒泡阶段：从目标节点向上到根节点
+//
+// 当前实现只支持冒泡阶段。
+func (o *Object) DispatchEvent(event Event) {
+	if event == nil {
+		return
+	}
+
+	// 收集父节点链（用于冒泡）
+	var chain []DisplayObject
+	current := DisplayObject(o)
+	for current != nil {
+		chain = append(chain, current)
+		current = current.Parent()
+	}
+
+	// 目标阶段 + 冒泡阶段
+	for i := 0; i < len(chain); i++ {
+		target := chain[i]
+
+		// 设置当前目标
+		if baseEvent, ok := event.(*BaseEvent); ok {
+			baseEvent.SetCurrentTarget(target)
+		}
+
+		// 触发事件
+		target.Emit(event)
+
+		// 检查传播是否已停止
+		if event.IsPropagationStopped() {
+			break
+		}
+	}
 }
 
 // HasListener 返回是否有指定类型的事件监听器。

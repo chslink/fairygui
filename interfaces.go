@@ -134,6 +134,7 @@ type DisplayObject interface {
 	Visible
 	Hierarchical
 	Drawable
+	EventDispatcher
 
 	// ID 返回对象的唯一标识符。
 	ID() string
@@ -155,6 +156,9 @@ type DisplayObject interface {
 
 	// SetTouchable 设置对象是否可以接收触摸事件。
 	SetTouchable(touchable bool)
+
+	// DispatchEvent 分发事件（支持冒泡）。
+	DispatchEvent(event Event)
 
 	// Dispose 释放对象资源。
 	Dispose()

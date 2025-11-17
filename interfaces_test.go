@@ -311,6 +311,15 @@ func (m *mockDisplayObject) GetChildByName(name string) fairygui.DisplayObject {
 // 实现 Drawable 接口
 func (m *mockDisplayObject) Draw(screen *ebiten.Image) {}
 
+// 实现 EventDispatcher 接口
+func (m *mockDisplayObject) On(eventType string, handler fairygui.EventHandler) func() {
+	return func() {}
+}
+func (m *mockDisplayObject) Off(eventType string, handler fairygui.EventHandler) {}
+func (m *mockDisplayObject) Once(eventType string, handler fairygui.EventHandler) {}
+func (m *mockDisplayObject) Emit(event fairygui.Event) {}
+func (m *mockDisplayObject) HasListener(eventType string) bool { return false }
+
 // 实现 DisplayObject 特有方法
 func (m *mockDisplayObject) ID() string { return m.id }
 func (m *mockDisplayObject) Name() string { return m.name }
@@ -319,6 +328,7 @@ func (m *mockDisplayObject) Data() interface{} { return m.data }
 func (m *mockDisplayObject) SetData(data interface{}) { m.data = data }
 func (m *mockDisplayObject) Touchable() bool { return m.touchable }
 func (m *mockDisplayObject) SetTouchable(touchable bool) { m.touchable = touchable }
+func (m *mockDisplayObject) DispatchEvent(event fairygui.Event) {}
 func (m *mockDisplayObject) Dispose() {}
 
 // ============================================================================
