@@ -367,7 +367,7 @@ type Font interface {
 // AssetLoader 是资源加载器接口。
 type AssetLoader interface {
 	// LoadPackage 加载 UI 包。
-	LoadPackage(name string) (*Package, error)
+	LoadPackage(name string) (Package, error)
 
 	// LoadTexture 加载纹理。
 	LoadTexture(url string) (*ebiten.Image, error)

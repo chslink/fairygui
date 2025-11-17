@@ -47,7 +47,7 @@ func NewFileLoader(root string) *FileLoader {
 // 该方法会自动处理依赖包的加载。
 //
 // 返回的 Package 对象可用于创建 UI 对象。
-func (l *FileLoader) LoadPackage(name string) (*PackageWrapper, error) {
+func (l *FileLoader) LoadPackage(name string) (Package, error) {
 	// 检查是否已加载
 	l.mu.RLock()
 	if pkg, ok := l.packages[name]; ok {
