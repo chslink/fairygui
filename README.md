@@ -11,6 +11,7 @@ FairyGUI Ebiten 是一个基于 Ebiten 游戏引擎的 FairyGUI UI 框架 Go 语
 - 丰富的 UI 组件，包括按钮、列表、滚动条、过渡动画等
 - 支持多种文本渲染和字体处理
 - 调试工具集，便于开发和调试
+- **🆕 V2 简化 API**：提供更简洁的控件包装器（Button、Image、Text、List、Slider、Loader、ProgressBar）
 
 ## 安装
 
@@ -87,6 +88,50 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
     return 800, 600
+}
+```
+
+### 使用简化 API（V2）
+
+```go
+package main
+
+import (
+    "github.com/chslink/fairygui"
+)
+
+func main() {
+    // 创建按钮
+    btn := fairygui.NewButton()
+    btn.SetTitle("点击我")
+    btn.SetPosition(100, 100)
+    btn.OnClick(func() {
+        println("按钮被点击了！")
+    })
+
+    // 创建文本
+    txt := fairygui.NewText()
+    txt.SetText("Hello, FairyGUI!")
+    txt.SetColor("#FF0000")
+    txt.SetFontSize(24)
+
+    // 创建图片
+    img := fairygui.NewImage()
+    img.SetColor("#00FF00")
+    img.SetPosition(200, 200)
+
+    // 创建进度条
+    bar := fairygui.NewProgressBar()
+    bar.SetMin(0)
+    bar.SetMax(100)
+    bar.SetValue(50)
+
+    // 创建列表
+    list := fairygui.NewList()
+    list.SetSize(300, 400)
+
+    // 访问底层对象（如需高级功能）
+    rawBtn := btn.RawButton()
 }
 ```
 
