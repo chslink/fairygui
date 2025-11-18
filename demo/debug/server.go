@@ -907,10 +907,10 @@ func (s *Server) renderObjectDetails(obj *core.GObject, result *strings.Builder)
 			result.WriteString(fmt.Sprintf(", 列数=%d", widget.ColumnCount()))
 		}
 		if widget.LineGap() != 0 {
-			result.WriteString(fmt.Sprintf(", 行间距=%.0f", widget.LineGap()))
+			result.WriteString(fmt.Sprintf(", 行间距=%d", widget.LineGap()))
 		}
 		if widget.ColumnGap() != 0 {
-			result.WriteString(fmt.Sprintf(", 列间距=%.0f", widget.ColumnGap()))
+			result.WriteString(fmt.Sprintf(", 列间距=%d", widget.ColumnGap()))
 		}
 		if widget.IsVirtual() {
 			result.WriteString(fmt.Sprintf(" [虚拟列表: %d项]", widget.NumItems()))
@@ -970,10 +970,10 @@ func (s *Server) renderObjectDetails(obj *core.GObject, result *strings.Builder)
 	case *widgets.GGroup:
 		result.WriteString(fmt.Sprintf("<div class='detail-info'>📦 组: 布局=%d", widget.Layout()))
 		if widget.LineGap() != 0 {
-			result.WriteString(fmt.Sprintf(", 行间距=%.0f", widget.LineGap()))
+			result.WriteString(fmt.Sprintf(", 行间距=%d", widget.LineGap()))
 		}
 		if widget.ColumnGap() != 0 {
-			result.WriteString(fmt.Sprintf(", 列间距=%.0f", widget.ColumnGap()))
+			result.WriteString(fmt.Sprintf(", 列间距=%d", widget.ColumnGap()))
 		}
 		if widget.ExcludeInvisibles() {
 			result.WriteString(" [排除隐藏项]")
