@@ -15,7 +15,6 @@ import (
 	"github.com/chslink/fairygui/demo/scenes"
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui"
-	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/render"
 )
 
@@ -45,7 +44,7 @@ func main() {
 }
 
 type game struct {
-	root       *core.GRoot
+	root       *fgui.GRoot
 	manager    *scenes.Manager
 	atlas      *render.AtlasManager
 	width      int
@@ -75,7 +74,7 @@ func newGame(ctx context.Context) (*game, error) {
 		return nil, err
 	}
 
-	root := core.Root()
+	root := fgui.Root()
 	stage := fgui.NewStage(manager.Width(), manager.Height())
 	root.AttachStage(stage)
 	root.Resize(manager.Width(), manager.Height())

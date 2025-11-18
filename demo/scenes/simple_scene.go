@@ -3,14 +3,14 @@ package scenes
 import (
 	"context"
 
-	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui"
 )
 
 type simpleScene struct {
 	name        string
 	packageName string
 	candidates  []string
-	component   *core.GComponent
+	component   *fgui.GComponent
 }
 
 // NewSimpleScene 构建一个仅需加载指定包组件的简单 Demo 场景。
@@ -31,7 +31,7 @@ func (s *simpleScene) Name() string {
 	return s.name
 }
 
-func (s *simpleScene) Load(ctx context.Context, mgr *Manager) (*core.GComponent, error) {
+func (s *simpleScene) Load(ctx context.Context, mgr *Manager) (*fgui.GComponent, error) {
 	env := mgr.Environment()
 	pkg, err := env.Package(ctx, s.packageName)
 	if err != nil {

@@ -11,9 +11,6 @@ import (
 
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui"
-	"github.com/chslink/fairygui/pkg/fgui/core"
-	"github.com/chslink/fairygui/pkg/fgui/gears"
-	"github.com/chslink/fairygui/pkg/fgui/tween"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
@@ -23,27 +20,27 @@ func init() {
 
 // BasicsDemo mirrors the logic-driven samples from BasicsDemo.ts.
 type BasicsDemo struct {
-	view          *core.GComponent
-	backBtn       *core.GObject
-	container     *core.GComponent
-	controller    *core.Controller
+	view          *fgui.GComponent
+	backBtn       *fgui.GObject
+	container     *fgui.GComponent
+	controller    *fgui.Controller
 	env           *Environment
 	demos         map[string]*demoInfo
 	progressTick  func()
 	progressAlive bool
 	winA          *windowInstance
 	winB          *windowInstance
-	popupMenu     *core.GComponent
+	popupMenu     *fgui.GComponent
 	popupItems    []string
-	popupOverlay  *core.GComponent
+	popupOverlay  *fgui.GComponent
 	dragCtx       *dragContext
 	stageMove     laya.Listener
 	stageUp       laya.Listener
-	mainButtons   []*core.GObject
+	mainButtons   []*fgui.GObject
 }
 
 type demoInfo struct {
-	component   *core.GComponent
+	component   *fgui.GComponent
 	initialized bool
 }
 
@@ -58,7 +55,7 @@ func (d *BasicsDemo) Name() string {
 	return "BasicsDemo"
 }
 
-func (d *BasicsDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent, error) {
+func (d *BasicsDemo) Load(ctx context.Context, mgr *Manager) (*fgui.GComponent, error) {
 	env := mgr.Environment()
 	d.env = env
 
@@ -138,7 +135,7 @@ func (d *BasicsDemo) Dispose() {
 	d.mainButtons = nil
 }
 
-func (d *BasicsDemo) attachDemoButton(obj *core.GObject) {
+func (d *BasicsDemo) attachDemoButton(obj *fgui.GObject) {
 	if obj == nil {
 		return
 	}
@@ -236,7 +233,7 @@ func (d *BasicsDemo) initializeDemo(kind string, info *demoInfo) {
 	}
 }
 
-func (d *BasicsDemo) initButton(component *core.GComponent) {
+func (d *BasicsDemo) initButton(component *fgui.GComponent) {
 	if component == nil {
 		return
 	}
@@ -249,7 +246,7 @@ func (d *BasicsDemo) initButton(component *core.GComponent) {
 	}
 }
 
-func (d *BasicsDemo) initText(component *core.GComponent) {
+func (d *BasicsDemo) initText(component *fgui.GComponent) {
 	if component == nil {
 		return
 	}
@@ -291,14 +288,14 @@ func (d *BasicsDemo) initText(component *core.GComponent) {
 	}
 }
 
-func (d *BasicsDemo) initGrid(component *core.GComponent) {
+func (d *BasicsDemo) initGrid(component *fgui.GComponent) {
 	if component == nil {
 		return
 	}
 	names := []string{"苹果手机操作系统", "安卓手机操作系统", "微软手机操作系统", "微软桌面操作系统", "苹果桌面操作系统", "未知操作系统"}
 	colors := []string{"#FFFF00", "#FF0000", "#FFFFFF", "#0000FF"}
 
-	fillList := func(obj *core.GObject, updater func(item *core.GComponent, idx int)) {
+	fillList := func(obj *fgui.GObject, updater func(item *fgui.GComponent, idx int)) {
 		if obj == nil {
 			return
 		}
@@ -306,7 +303,7 @@ func (d *BasicsDemo) initGrid(component *core.GComponent) {
 			items := list.GComponent.Children()
 			for i := 0; i < len(items) && i < len(names); i++ {
 				if child := items[i]; child != nil {
-					if childComp := core.ComponentFrom(child); childComp != nil {
+					if childComp := fgui.ComponentFrom(child); childComp != nil {
 						updater(childComp, i)
 					}
 				}
@@ -314,7 +311,7 @@ func (d *BasicsDemo) initGrid(component *core.GComponent) {
 		}
 	}
 
-	fillList(component.GetChild("list1"), func(item *core.GComponent, idx int) {
+	fillList(component.GetChild("list1"), func(item *fgui.GComponent, idx int) {
 		setComponentText(item, "t0", strconv.Itoa(idx+1))
 		setComponentText(item, "t1", names[idx])
 		setComponentColor(item, "t2", colors[rand.Intn(len(colors))])
@@ -327,7 +324,7 @@ func (d *BasicsDemo) initGrid(component *core.GComponent) {
 		}
 	})
 
-	fillList(component.GetChild("list2"), func(item *core.GComponent, idx int) {
+	fillList(component.GetChild("list2"), func(item *fgui.GComponent, idx int) {
 		if cb := item.GetChild("cb"); cb != nil {
 			if btn, ok := cb.Data().(*widgets.GButton); ok {
 				btn.SetSelected(false)
@@ -345,7 +342,7 @@ func (d *BasicsDemo) initGrid(component *core.GComponent) {
 	})
 }
 
-func (d *BasicsDemo) initList(component *core.GComponent) {
+func (d *BasicsDemo) initList(component *fgui.GComponent) {
 	if component == nil {
 		return
 	}
@@ -418,7 +415,7 @@ func (d *BasicsDemo) initList(component *core.GComponent) {
 	}
 }
 
-func (d *BasicsDemo) initProgress(component *core.GComponent) {
+func (d *BasicsDemo) initProgress(component *fgui.GComponent) {
 	if component == nil {
 		return
 	}
@@ -454,7 +451,7 @@ func (d *BasicsDemo) initProgress(component *core.GComponent) {
 				}
 			}
 		}
-		if scheduler := core.Root().Scheduler(); scheduler != nil {
+		if scheduler := fgui.Root().Scheduler(); scheduler != nil {
 			scheduler.Every(33*time.Millisecond, d.progressTick)
 			log.Printf("[ProgressBar] 动画调度器已启动，33ms间隔")
 		} else {
@@ -463,7 +460,7 @@ func (d *BasicsDemo) initProgress(component *core.GComponent) {
 	}
 }
 
-func (d *BasicsDemo) initWindow(component *core.GComponent) {
+func (d *BasicsDemo) initWindow(component *fgui.GComponent) {
 	if component == nil {
 		return
 	}
@@ -479,7 +476,7 @@ func (d *BasicsDemo) initWindow(component *core.GComponent) {
 	}
 }
 
-func (d *BasicsDemo) initPopup(component *core.GComponent) {
+func (d *BasicsDemo) initPopup(component *fgui.GComponent) {
 	if component == nil {
 		return
 	}
@@ -498,7 +495,7 @@ func (d *BasicsDemo) initPopup(component *core.GComponent) {
 	}
 }
 
-func (d *BasicsDemo) initDragDrop(component *core.GComponent) {
+func (d *BasicsDemo) initDragDrop(component *fgui.GComponent) {
 	if component == nil {
 		return
 	}
@@ -614,7 +611,7 @@ func (d *BasicsDemo) populateWindowA() {
 	if listObj == nil {
 		return
 	}
-	listComp := core.ComponentFrom(listObj)
+	listComp := fgui.ComponentFrom(listObj)
 	if listComp == nil {
 		return
 	}
@@ -668,13 +665,13 @@ func (d *BasicsDemo) setControllerIndex(index int) {
 	if d.controller == nil {
 		return
 	}
-	prev := gears.DisableAllTweenEffect
-	gears.DisableAllTweenEffect = true
+	prev := fgui.DisableAllTweenEffect
+	fgui.DisableAllTweenEffect = true
 	d.controller.SetSelectedIndex(index)
-	gears.DisableAllTweenEffect = prev
+	fgui.DisableAllTweenEffect = prev
 }
 
-func (d *BasicsDemo) buildBasicsComponent(ctx context.Context, name string) (*core.GComponent, error) {
+func (d *BasicsDemo) buildBasicsComponent(ctx context.Context, name string) (*fgui.GComponent, error) {
 	if d.env == nil {
 		return nil, newMissingComponentError("Basics", name)
 	}
@@ -693,7 +690,7 @@ func (d *BasicsDemo) buildBasicsComponent(ctx context.Context, name string) (*co
 	return comp, nil
 }
 
-func (d *BasicsDemo) attachWindowClose(comp *core.GComponent, hide func()) {
+func (d *BasicsDemo) attachWindowClose(comp *fgui.GComponent, hide func()) {
 	if comp == nil || hide == nil {
 		return
 	}
@@ -710,19 +707,19 @@ func (d *BasicsDemo) attachWindowClose(comp *core.GComponent, hide func()) {
 	}
 }
 
-func (d *BasicsDemo) showPopupMenu(anchor *core.GObject) {
+func (d *BasicsDemo) showPopupMenu(anchor *fgui.GObject) {
 	menu := d.ensurePopupMenu()
 	if menu == nil {
 		return
 	}
-	root := core.Root()
+	root := fgui.Root()
 	if root == nil {
 		return
 	}
-	root.ShowPopup(menu.GObject, anchor, core.PopupDirectionDown)
+	root.ShowPopup(menu.GObject, anchor, fgui.PopupDirectionDown)
 }
 
-func (d *BasicsDemo) ensurePopupMenu() *core.GComponent {
+func (d *BasicsDemo) ensurePopupMenu() *fgui.GComponent {
 	if d.popupMenu != nil {
 		return d.popupMenu
 	}
@@ -735,8 +732,8 @@ func (d *BasicsDemo) ensurePopupMenu() *core.GComponent {
 	return menu
 }
 
-func (d *BasicsDemo) buildSimplePopupMenu(items []string) *core.GComponent {
-	menu := core.NewGComponent()
+func (d *BasicsDemo) buildSimplePopupMenu(items []string) *fgui.GComponent {
+	menu := fgui.NewGComponent()
 	menu.GObject.SetTouchable(true)
 	padding := 6.0
 	itemHeight := 28.0
@@ -758,7 +755,7 @@ func (d *BasicsDemo) buildSimplePopupMenu(items []string) *core.GComponent {
 
 	for i, text := range items {
 		label := text
-		item := core.NewGObject()
+		item := fgui.NewGObject()
 		item.SetSize(width-2*padding, itemHeight)
 		item.SetPosition(padding, padding+itemHeight*float64(i))
 		item.SetTouchable(true)
@@ -767,27 +764,27 @@ func (d *BasicsDemo) buildSimplePopupMenu(items []string) *core.GComponent {
 		if disp := item.DisplayObject(); disp != nil {
 			disp.Dispatcher().On(laya.EventClick, func(*laya.Event) {
 				log.Printf("[basics] popup item selected: %s", label)
-				core.Root().HidePopup(menu.GObject)
+				fgui.Root().HidePopup(menu.GObject)
 			})
 		}
 	}
 	return menu
 }
 
-func (d *BasicsDemo) showPopupOverlay(anchor *core.GObject) {
+func (d *BasicsDemo) showPopupOverlay(anchor *fgui.GObject) {
 	overlay := d.ensurePopupOverlay()
 	if overlay == nil {
 		return
 	}
-	root := core.Root()
+	root := fgui.Root()
 	if root == nil {
 		return
 	}
 	centerComponent(overlay)
-	root.ShowPopup(overlay.GObject, anchor, core.PopupDirectionAuto)
+	root.ShowPopup(overlay.GObject, anchor, fgui.PopupDirectionAuto)
 }
 
-func (d *BasicsDemo) ensurePopupOverlay() *core.GComponent {
+func (d *BasicsDemo) ensurePopupOverlay() *fgui.GComponent {
 	if d.popupOverlay != nil {
 		return d.popupOverlay
 	}
@@ -805,7 +802,7 @@ func (d *BasicsDemo) ensureStageDragHandlers() {
 	if d.stageMove != nil || d.stageUp != nil {
 		return
 	}
-	stage := core.Root().Stage()
+	stage := fgui.Root().Stage()
 	if stage == nil || stage.Root() == nil {
 		return
 	}
@@ -824,7 +821,7 @@ func (d *BasicsDemo) ensureStageDragHandlers() {
 }
 
 func (d *BasicsDemo) removeStageDragHandlers() {
-	stage := core.Root().Stage()
+	stage := fgui.Root().Stage()
 	if stage != nil && stage.Root() != nil {
 		if dispatcher := stage.Root().Dispatcher(); dispatcher != nil {
 			if d.stageMove != nil {
@@ -840,7 +837,7 @@ func (d *BasicsDemo) removeStageDragHandlers() {
 	d.dragCtx = nil
 }
 
-func (d *BasicsDemo) makeDraggable(obj *core.GObject, opts dragOptions) {
+func (d *BasicsDemo) makeDraggable(obj *fgui.GObject, opts dragOptions) {
 	if obj == nil {
 		return
 	}
@@ -859,7 +856,7 @@ func (d *BasicsDemo) makeDraggable(obj *core.GObject, opts dragOptions) {
 	}
 }
 
-func (d *BasicsDemo) startDrag(obj *core.GObject, pe laya.PointerEvent, opts dragOptions) {
+func (d *BasicsDemo) startDrag(obj *fgui.GObject, pe laya.PointerEvent, opts dragOptions) {
 	if obj == nil || obj.Parent() == nil || obj.Parent().DisplayObject() == nil {
 		return
 	}
@@ -973,7 +970,7 @@ func (d *BasicsDemo) onStageDragUp(evt *laya.Event) {
 	d.dragCtx = nil
 }
 
-func projectBounds(source *core.GObject, parent *core.GComponent) laya.Rect {
+func projectBounds(source *fgui.GObject, parent *fgui.GComponent) laya.Rect {
 	if source == nil || parent == nil || source.DisplayObject() == nil || parent.DisplayObject() == nil {
 		return laya.Rect{}
 	}
@@ -994,7 +991,7 @@ func projectBounds(source *core.GObject, parent *core.GComponent) laya.Rect {
 	}
 }
 
-func globalRect(obj *core.GObject) laya.Rect {
+func globalRect(obj *fgui.GObject) laya.Rect {
 	if obj == nil || obj.DisplayObject() == nil {
 		return laya.Rect{}
 	}
@@ -1017,11 +1014,11 @@ func pointInRect(pt laya.Point, rect laya.Rect) bool {
 		pt.Y >= rect.Y && pt.Y <= rect.Y+rect.H
 }
 
-func centerComponent(comp *core.GComponent) {
+func centerComponent(comp *fgui.GComponent) {
 	if comp == nil {
 		return
 	}
-	root := core.Root()
+	root := fgui.Root()
 	if root == nil {
 		return
 	}
@@ -1041,14 +1038,14 @@ func centerComponent(comp *core.GComponent) {
 }
 
 type windowInstance struct {
-	component *core.GComponent
+	component *fgui.GComponent
 	visible   bool
-	tweener   *tween.GTweener
+	tweener   *fgui.GTweener
 	onShow    func(*windowInstance)
 	onHide    func(*windowInstance)
 }
 
-func newWindowInstance(comp *core.GComponent) *windowInstance {
+func newWindowInstance(comp *fgui.GComponent) *windowInstance {
 	return &windowInstance{component: comp}
 }
 
@@ -1056,7 +1053,7 @@ func (w *windowInstance) Show() {
 	if w == nil || w.component == nil {
 		return
 	}
-	root := core.Root()
+	root := fgui.Root()
 	if root == nil {
 		return
 	}
@@ -1118,13 +1115,13 @@ func (w *windowInstance) animateScale(fromX, fromY, toX, toY float64, duration f
 		w.tweener = nil
 	}
 	w.component.GObject.SetScale(fromX, fromY)
-	w.tweener = tween.To2(fromX, fromY, toX, toY, duration).
-		SetEase(tween.EaseTypeQuadOut).
-		OnUpdate(func(tw *tween.GTweener) {
+	w.tweener = fgui.TweenTo2(fromX, fromY, toX, toY, duration).
+		SetEase(fgui.EaseTypeQuadOut).
+		OnUpdate(func(tw *fgui.GTweener) {
 			val := tw.Value()
 			w.component.GObject.SetScale(val.X, val.Y)
 		}).
-		OnComplete(func(*tween.GTweener) {
+		OnComplete(func(*fgui.GTweener) {
 			w.component.GObject.SetScale(toX, toY)
 			w.tweener = nil
 			if onComplete != nil {
@@ -1135,7 +1132,7 @@ func (w *windowInstance) animateScale(fromX, fromY, toX, toY float64, duration f
 
 type dragContext struct {
 	active      bool
-	obj         *core.GObject
+	obj         *fgui.GObject
 	pointerID   int
 	offset      laya.Point
 	bounds      *laya.Rect
@@ -1144,7 +1141,7 @@ type dragContext struct {
 }
 
 type dragTarget struct {
-	Object  *core.GObject
+	Object  *fgui.GObject
 	Handler func(payload any)
 }
 
@@ -1154,7 +1151,7 @@ type dragOptions struct {
 	Payload     func() any
 }
 
-func childAsComponent(parent *core.GComponent, name string) *core.GComponent {
+func childAsComponent(parent *fgui.GComponent, name string) *fgui.GComponent {
 	if parent == nil {
 		return nil
 	}
@@ -1162,13 +1159,13 @@ func childAsComponent(parent *core.GComponent, name string) *core.GComponent {
 	if child == nil {
 		return nil
 	}
-	if comp, ok := child.Data().(*core.GComponent); ok {
+	if comp, ok := child.Data().(*fgui.GComponent); ok {
 		return comp
 	}
 	return nil
 }
 
-func removeAllChildren(comp *core.GComponent) {
+func removeAllChildren(comp *fgui.GComponent) {
 	if comp == nil {
 		return
 	}
@@ -1180,7 +1177,7 @@ func removeAllChildren(comp *core.GComponent) {
 	}
 }
 
-func setComponentText(comp *core.GComponent, childName, value string) {
+func setComponentText(comp *fgui.GComponent, childName, value string) {
 	if comp == nil {
 		return
 	}
@@ -1202,7 +1199,7 @@ func setComponentText(comp *core.GComponent, childName, value string) {
 	}
 }
 
-func setComponentColor(comp *core.GComponent, childName, color string) {
+func setComponentColor(comp *fgui.GComponent, childName, color string) {
 	child := comp.GetChild(childName)
 	if child == nil {
 		return
@@ -1217,7 +1214,7 @@ func setComponentColor(comp *core.GComponent, childName, color string) {
 	}
 }
 
-func getProgressBar(obj *core.GObject) *widgets.GProgressBar {
+func getProgressBar(obj *fgui.GObject) *widgets.GProgressBar {
 	if obj == nil {
 		return nil
 	}
@@ -1226,7 +1223,7 @@ func getProgressBar(obj *core.GObject) *widgets.GProgressBar {
 		return bar
 	}
 	// 检查是否是GComponent
-	if comp := core.ComponentFrom(obj); comp != nil {
+	if comp := fgui.ComponentFrom(obj); comp != nil {
 		// 检查子组件
 		if inner := comp.GetChild("bar"); inner != nil {
 			if b, ok := inner.Data().(*widgets.GProgressBar); ok {
@@ -1237,7 +1234,7 @@ func getProgressBar(obj *core.GObject) *widgets.GProgressBar {
 	return nil
 }
 
-func childAsList(parent *core.GComponent, name string) *widgets.GList {
+func childAsList(parent *fgui.GComponent, name string) *widgets.GList {
 	if parent == nil {
 		return nil
 	}
@@ -1264,7 +1261,7 @@ func applyListEntries(list *widgets.GList, entries []listEntry) {
 	rand.Shuffle(len(shuffled), func(i, j int) {
 		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 	})
-	apply := func(obj *core.GObject, idx int) {
+	apply := func(obj *fgui.GObject, idx int) {
 		if obj == nil {
 			return
 		}
@@ -1275,7 +1272,7 @@ func applyListEntries(list *widgets.GList, entries []listEntry) {
 			data.SetIcon(entry.icon)
 		case *widgets.GLabel:
 			data.SetTitle(entry.title)
-		case *core.GComponent:
+		case *fgui.GComponent:
 			setComponentText(data, "title", entry.title)
 			if iconChild := data.GetChild("icon"); iconChild != nil {
 				switch iconData := iconChild.Data().(type) {
@@ -1326,7 +1323,7 @@ func listItemTitle(list *widgets.GList, index int) string {
 		return ""
 	}
 	items := list.Items()
-	var item *core.GObject
+	var item *fgui.GObject
 	if index < len(items) {
 		item = items[index]
 	} else {
@@ -1347,7 +1344,7 @@ func listItemTitle(list *widgets.GList, index int) string {
 		if text := data.Title(); text != "" {
 			return text
 		}
-	case *core.GComponent:
+	case *fgui.GComponent:
 		if titleChild := data.GetChild("title"); titleChild != nil {
 			switch titleData := titleChild.Data().(type) {
 			case *widgets.GTextField:

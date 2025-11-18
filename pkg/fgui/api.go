@@ -359,6 +359,16 @@ func SetAudioLoader(loader assets.Loader) {
 	audio.SetLoader(loader)
 }
 // ────────────────────────────────────────────────────────────────────────────
+// Core Utility Functions
+// ────────────────────────────────────────────────────────────────────────────
+
+// ComponentFrom 从 GObject 获取 GComponent
+// 这是一个类型安全的转换函数，用于处理 widget 类型
+func ComponentFrom(obj *GObject) *GComponent {
+	return core.ComponentFrom(obj)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Tween Animation API
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -372,6 +382,41 @@ type (
 	TweenPath = tween.Path
 	// EaseType 缓动类型
 	EaseType = tween.EaseType
+)
+
+// Ease type constants - 缓动类型常量
+const (
+	EaseTypeLinear        = tween.EaseTypeLinear
+	EaseTypeSineIn        = tween.EaseTypeSineIn
+	EaseTypeSineOut       = tween.EaseTypeSineOut
+	EaseTypeSineInOut     = tween.EaseTypeSineInOut
+	EaseTypeQuadIn        = tween.EaseTypeQuadIn
+	EaseTypeQuadOut       = tween.EaseTypeQuadOut
+	EaseTypeQuadInOut     = tween.EaseTypeQuadInOut
+	EaseTypeCubicIn       = tween.EaseTypeCubicIn
+	EaseTypeCubicOut      = tween.EaseTypeCubicOut
+	EaseTypeCubicInOut    = tween.EaseTypeCubicInOut
+	EaseTypeQuartIn       = tween.EaseTypeQuartIn
+	EaseTypeQuartOut      = tween.EaseTypeQuartOut
+	EaseTypeQuartInOut    = tween.EaseTypeQuartInOut
+	EaseTypeQuintIn       = tween.EaseTypeQuintIn
+	EaseTypeQuintOut      = tween.EaseTypeQuintOut
+	EaseTypeQuintInOut    = tween.EaseTypeQuintInOut
+	EaseTypeExpoIn        = tween.EaseTypeExpoIn
+	EaseTypeExpoOut       = tween.EaseTypeExpoOut
+	EaseTypeExpoInOut     = tween.EaseTypeExpoInOut
+	EaseTypeCircIn        = tween.EaseTypeCircIn
+	EaseTypeCircOut       = tween.EaseTypeCircOut
+	EaseTypeCircInOut     = tween.EaseTypeCircInOut
+	EaseTypeElasticIn     = tween.EaseTypeElasticIn
+	EaseTypeElasticOut    = tween.EaseTypeElasticOut
+	EaseTypeElasticInOut  = tween.EaseTypeElasticInOut
+	EaseTypeBackIn        = tween.EaseTypeBackIn
+	EaseTypeBackOut       = tween.EaseTypeBackOut
+	EaseTypeBackInOut     = tween.EaseTypeBackInOut
+	EaseTypeBounceIn      = tween.EaseTypeBounceIn
+	EaseTypeBounceOut     = tween.EaseTypeBounceOut
+	EaseTypeBounceInOut   = tween.EaseTypeBounceInOut
 )
 
 // TweenTo 创建一维补间动画
@@ -469,10 +514,6 @@ func GetTween(target any, prop ...string) *GTweener {
 	return tween.GetTween(target, prop...)
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Relations API
-// ────────────────────────────────────────────────────────────────────────────
-
 // Relations types
 type (
 	// Relations 关系管理器
@@ -481,8 +522,35 @@ type (
 	RelationType = core.RelationType
 )
 
+// RelationType constants - 关系类型常量
+const (
+	RelationTypeLeft_Left         = core.RelationTypeLeft_Left
+	RelationTypeLeft_Center       = core.RelationTypeLeft_Center
+	RelationTypeLeft_Right        = core.RelationTypeLeft_Right
+	RelationTypeCenter_Center     = core.RelationTypeCenter_Center
+	RelationTypeRight_Center      = core.RelationTypeRight_Center
+	RelationTypeRight_Right       = core.RelationTypeRight_Right
+	RelationTypeTop_Top           = core.RelationTypeTop_Top
+	RelationTypeTop_Middle        = core.RelationTypeTop_Middle
+	RelationTypeTop_Bottom        = core.RelationTypeTop_Bottom
+	RelationTypeMiddle_Middle     = core.RelationTypeMiddle_Middle
+	RelationTypeBottom_Middle     = core.RelationTypeBottom_Middle
+	RelationTypeBottom_Bottom     = core.RelationTypeBottom_Bottom
+	RelationTypeWidth             = core.RelationTypeWidth
+	RelationTypeHeight            = core.RelationTypeHeight
+	RelationTypeLeftExt_Left      = core.RelationTypeLeftExt_Left
+	RelationTypeLeftExt_Right     = core.RelationTypeLeftExt_Right
+	RelationTypeRightExt_Left     = core.RelationTypeRightExt_Left
+	RelationTypeRightExt_Right    = core.RelationTypeRightExt_Right
+	RelationTypeTopExt_Top        = core.RelationTypeTopExt_Top
+	RelationTypeTopExt_Bottom     = core.RelationTypeTopExt_Bottom
+	RelationTypeBottomExt_Top     = core.RelationTypeBottomExt_Top
+	RelationTypeBottomExt_Bottom  = core.RelationTypeBottomExt_Bottom
+	RelationTypeSize              = core.RelationTypeSize
+)
+
 // ────────────────────────────────────────────────────────────────────────────
-// Transitions API  
+// Transitions API
 // ────────────────────────────────────────────────────────────────────────────
 
 // Transition types
@@ -501,6 +569,25 @@ type (
 type (
 	// Gear 齿轮接口
 	Gear = gears.Gear
-	// Controller 控制器
-	Controller = gears.Controller
+	// Controller 控制器（使用 core.Controller 而不是 gears.Controller）
+	Controller = core.Controller
+)
+
+// Gear configuration
+var (
+	// DisableAllTweenEffect 全局禁用所有 Gear 的补间效果
+	DisableAllTweenEffect = gears.DisableAllTweenEffect
+)
+
+// ObjectPropID constants - 对象属性ID常量
+const (
+	ObjectPropIDText        = gears.ObjectPropIDText
+	ObjectPropIDIcon        = gears.ObjectPropIDIcon
+	ObjectPropIDColor       = gears.ObjectPropIDColor
+	ObjectPropIDOutlineColor = gears.ObjectPropIDOutlineColor
+	ObjectPropIDPlaying     = gears.ObjectPropIDPlaying
+	ObjectPropIDFrame       = gears.ObjectPropIDFrame
+	ObjectPropIDTimeScale   = gears.ObjectPropIDTimeScale
+	ObjectPropIDFontSize    = gears.ObjectPropIDFontSize
+	ObjectPropIDSelected    = gears.ObjectPropIDSelected
 )

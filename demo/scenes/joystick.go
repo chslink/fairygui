@@ -6,8 +6,7 @@ import (
 	"math"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
-	"github.com/chslink/fairygui/pkg/fgui/core"
-	"github.com/chslink/fairygui/pkg/fgui/tween"
+	"github.com/chslink/fairygui/pkg/fgui"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
@@ -19,7 +18,7 @@ const (
 
 // JoystickDemo mirrors the interactive joystick sample.
 type JoystickDemo struct {
-	component   *core.GComponent
+	component   *fgui.GComponent
 	module      *JoystickModule
 	textField   *widgets.GTextField
 	moveHandler laya.Listener
@@ -35,7 +34,7 @@ func (d *JoystickDemo) Name() string {
 	return "JoystickDemo"
 }
 
-func (d *JoystickDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent, error) {
+func (d *JoystickDemo) Load(ctx context.Context, mgr *Manager) (*fgui.GComponent, error) {
 	env := mgr.Environment()
 	pkg, err := env.Package(ctx, "Joystick")
 	if err != nil {
@@ -51,7 +50,7 @@ func (d *JoystickDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent
 	}
 	d.component = component
 
-	stage := core.Root().Stage()
+	stage := fgui.Root().Stage()
 	if stage == nil {
 		return nil, fmt.Errorf("joystick demo: stage not attached")
 	}
@@ -110,12 +109,12 @@ func (d *JoystickDemo) Dispose() {
 type JoystickModule struct {
 	dispatcher *laya.BasicEventDispatcher
 
-	view      *core.GComponent
+	view      *fgui.GComponent
 	stage     *laya.Stage
 	button    *widgets.GButton
-	touchArea *core.GObject
-	thumb     *core.GObject
-	center    *core.GObject
+	touchArea *fgui.GObject
+	thumb     *fgui.GObject
+	center    *fgui.GObject
 
 	initX float64
 	initY float64
@@ -126,7 +125,7 @@ type JoystickModule struct {
 	touchID int
 	radius  float64
 
-	tweener *tween.GTweener
+	tweener *fgui.GTweener
 
 	touchListener laya.Listener
 	moveListener  laya.Listener
@@ -134,7 +133,7 @@ type JoystickModule struct {
 }
 
 // NewJoystickModule wires joystick interactions for the given component.
-func NewJoystickModule(view *core.GComponent, stage *laya.Stage) (*JoystickModule, error) {
+func NewJoystickModule(view *fgui.GComponent, stage *laya.Stage) (*JoystickModule, error) {
 	if view == nil {
 		return nil, fmt.Errorf("joystick module: nil component")
 	}
@@ -313,7 +312,7 @@ func (m *JoystickModule) handleMove(pe laya.PointerEvent) {
 	if centerX < 0 {
 		centerX = 0
 	}
-	rootHeight := core.Root().Height()
+	rootHeight := fgui.Root().Height()
 	if centerY > rootHeight {
 		centerY = rootHeight
 	}
@@ -345,13 +344,13 @@ func (m *JoystickModule) handleRelease() {
 	endX := m.initX - button.Width()/2
 	endY := m.initY - button.Height()/2
 
-	m.tweener = tween.To2(startX, startY, endX, endY, 0.3).
-		SetEase(tween.EaseTypeCircOut).
-		OnUpdate(func(tw *tween.GTweener) {
+	m.tweener = fgui.TweenTo2(startX, startY, endX, endY, 0.3).
+		SetEase(fgui.EaseTypeCircOut).
+		OnUpdate(func(tw *fgui.GTweener) {
 			val := tw.Value()
 			button.SetPosition(val.X, val.Y)
 		}).
-		OnComplete(func(*tween.GTweener) {
+		OnComplete(func(*fgui.GTweener) {
 			button.SetPosition(endX, endY)
 			m.thumb.SetRotation(0)
 			center.SetVisible(true)
@@ -426,7 +425,7 @@ func (m *JoystickModule) updateThumb(centerX, centerY float64) {
 	m.thumb.SetRotation(degree * math.Pi / 180)
 }
 
-func childButton(parent *core.GComponent, name string) *widgets.GButton {
+func childButton(parent *fgui.GComponent, name string) *widgets.GButton {
 	if parent == nil {
 		return nil
 	}
@@ -438,7 +437,7 @@ func childButton(parent *core.GComponent, name string) *widgets.GButton {
 	return nil
 }
 
-func buttonChild(btn *widgets.GButton, name string) *core.GObject {
+func buttonChild(btn *widgets.GButton, name string) *fgui.GObject {
 	if btn == nil {
 		return nil
 	}

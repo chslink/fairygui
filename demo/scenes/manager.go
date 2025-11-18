@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
-	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui"
 )
 
 const (
@@ -20,7 +20,7 @@ const (
 // Scene represents a runnable demo page.
 type Scene interface {
 	Name() string
-	Load(ctx context.Context, mgr *Manager) (*core.GComponent, error)
+	Load(ctx context.Context, mgr *Manager) (*fgui.GComponent, error)
 	Dispose()
 }
 
@@ -31,13 +31,13 @@ type FactoryFunc func() Scene
 type Manager struct {
 	ctx      context.Context
 	env      *Environment
-	stage    *core.GComponent
+	stage    *fgui.GComponent
 	current  Scene
-	root     *core.GComponent
+	root     *fgui.GComponent
 	registry map[string]FactoryFunc
 	width    int
 	height   int
-	closeBtn *core.GComponent
+	closeBtn *fgui.GComponent
 }
 
 // NewManager instantiates the scene manager, registers built-in demos, and loads the main menu.
@@ -45,7 +45,7 @@ func NewManager(ctx context.Context, env *Environment) (*Manager, error) {
 	mgr := &Manager{
 		ctx:      ctx,
 		env:      env,
-		stage:    core.NewGComponent(),
+		stage:    fgui.NewGComponent(),
 		registry: make(map[string]FactoryFunc),
 		width:    defaultStageWidth,
 		height:   defaultStageHeight,
@@ -93,7 +93,7 @@ func (m *Manager) Environment() *Environment {
 }
 
 // Stage returns the root component used for rendering (a container for the current scene).
-func (m *Manager) Stage() *core.GComponent {
+func (m *Manager) Stage() *fgui.GComponent {
 	return m.stage
 }
 
@@ -136,7 +136,7 @@ func (m *Manager) Current() Scene {
 }
 
 // CurrentComponent returns the root component of the active scene.
-func (m *Manager) CurrentComponent() *core.GComponent {
+func (m *Manager) CurrentComponent() *fgui.GComponent {
 	return m.root
 }
 
@@ -185,7 +185,7 @@ func (m *Manager) switchTo(scene Scene) error {
 	return nil
 }
 
-func (m *Manager) currentRoot() *core.GObject {
+func (m *Manager) currentRoot() *fgui.GObject {
 	if m.root == nil {
 		return nil
 	}
@@ -215,8 +215,8 @@ func (m *Manager) ensureCloseButton() error {
 	obj.SetData(component)
 	obj.SetTouchable(true)
 	obj.SetVisible(false)
-	obj.AddRelation(m.stage.GObject, core.RelationTypeRight_Right, false)
-	obj.AddRelation(m.stage.GObject, core.RelationTypeBottom_Bottom, false)
+	obj.AddRelation(m.stage.GObject, fgui.RelationTypeRight_Right, false)
+	obj.AddRelation(m.stage.GObject, fgui.RelationTypeBottom_Bottom, false)
 	margin := closeButtonMargin
 	obj.SetPosition(float64(m.width)-obj.Width()-margin, float64(m.height)-obj.Height()-margin)
 

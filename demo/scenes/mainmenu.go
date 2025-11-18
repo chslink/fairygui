@@ -6,20 +6,20 @@ import (
 	"strings"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
-	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
 // MainMenu mirrors the FairyGUI main menu demo scene.
 type MainMenu struct {
-	component *core.GComponent
+	component *fgui.GComponent
 }
 
 func (s *MainMenu) Name() string {
 	return "MainMenu"
 }
 
-func (s *MainMenu) Load(ctx context.Context, mgr *Manager) (*core.GComponent, error) {
+func (s *MainMenu) Load(ctx context.Context, mgr *Manager) (*fgui.GComponent, error) {
 	env := mgr.Environment()
 	pkg, err := env.Package(ctx, "MainMenu")
 	if err != nil {
@@ -42,7 +42,7 @@ func (s *MainMenu) Dispose() {
 	s.component = nil
 }
 
-func (s *MainMenu) attachButtons(component *core.GComponent, mgr *Manager) {
+func (s *MainMenu) attachButtons(component *fgui.GComponent, mgr *Manager) {
 	if component == nil {
 		return
 	}

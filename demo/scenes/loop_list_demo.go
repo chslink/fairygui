@@ -8,14 +8,13 @@ import (
 
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui"
-	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
 // LoopListDemo 循环列表演示场景
 // 参考 TypeScript 版本: laya_src/demo/LoopListDemo.ts
 type LoopListDemo struct {
-	view *core.GComponent
+	view *fgui.GComponent
 	list *widgets.GList
 }
 
@@ -29,7 +28,7 @@ func (d *LoopListDemo) Name() string {
 }
 
 // Load 加载场景
-func (d *LoopListDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent, error) {
+func (d *LoopListDemo) Load(ctx context.Context, mgr *Manager) (*fgui.GComponent, error) {
 	log.Println("📦 加载循环列表 demo...")
 
 	env := mgr.Environment()
@@ -177,7 +176,7 @@ func (d *LoopListDemo) doSpecialEffect() {
 
 // renderListItem 渲染列表项
 // 对应 TypeScript: private renderListItem(index: number, obj: fgui.GObject): void
-func (d *LoopListDemo) renderListItem(index int, obj *core.GObject) {
+func (d *LoopListDemo) renderListItem(index int, obj *fgui.GObject) {
 	if obj == nil {
 		log.Printf("❌ obj is nil")
 		return
@@ -193,7 +192,7 @@ func (d *LoopListDemo) renderListItem(index int, obj *core.GObject) {
 		button.SetIcon(iconURL)
 	} else {
 		// 如果不是按钮，尝试通过其他方式设置图标
-		if comp := core.ComponentFrom(obj); comp != nil {
+		if comp := fgui.ComponentFrom(obj); comp != nil {
 			if iconObj := comp.ChildByName("icon"); iconObj != nil {
 				if loader, ok := iconObj.Data().(*widgets.GLoader); ok {
 					iconURL := fmt.Sprintf("ui://LoopList/n%d", index+1)

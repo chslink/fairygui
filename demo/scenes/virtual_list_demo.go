@@ -6,14 +6,14 @@ import (
 	"log"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
-	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui"
 	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
 // VirtualListDemo 虚拟列表演示场景
 // 参考 TypeScript 版本: laya_src/demo/VirtualListDemo.ts
 type VirtualListDemo struct {
-	view *core.GComponent
+	view *fgui.GComponent
 	list *widgets.GList
 }
 
@@ -27,7 +27,7 @@ func (d *VirtualListDemo) Name() string {
 }
 
 // Load 加载场景
-func (d *VirtualListDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent, error) {
+func (d *VirtualListDemo) Load(ctx context.Context, mgr *Manager) (*fgui.GComponent, error) {
 	log.Println("📦 加载虚拟列表 demo...")
 
 	env := mgr.Environment()
@@ -86,7 +86,7 @@ func (d *VirtualListDemo) Load(ctx context.Context, mgr *Manager) (*core.GCompon
 
 // renderMailItem 渲染邮件项目
 // 对应 TypeScript: private renderListItem(index: number, obj: fgui.GObject)
-func (d *VirtualListDemo) renderMailItem(index int, obj *core.GObject) {
+func (d *VirtualListDemo) renderMailItem(index int, obj *fgui.GObject) {
 	if obj == nil {
 		log.Printf("❌ obj is nil")
 		return
@@ -96,7 +96,7 @@ func (d *VirtualListDemo) renderMailItem(index int, obj *core.GObject) {
 	// 关键修复: 使用 ComponentFrom 而不是 AsComponent
 	// AsComponent() 只在 data 是 *GComponent 时返回非 nil,对 widget 类型返回 nil
 	// ComponentFrom() 通过 ComponentAccessor 接口正确处理 widget 类型
-	comp := core.ComponentFrom(obj)
+	comp := fgui.ComponentFrom(obj)
 	if comp == nil {
 		log.Printf("❌ ComponentFrom() returned nil for index=%d", index)
 		return
@@ -156,7 +156,7 @@ func (d *VirtualListDemo) renderMailItem(index int, obj *core.GObject) {
 
 // bindButtons 绑定按钮事件
 // 参考 TypeScript: VirtualListDemo.ts
-func (d *VirtualListDemo) bindButtons(view *core.GComponent) {
+func (d *VirtualListDemo) bindButtons(view *fgui.GComponent) {
 	// n6: 添加选择按钮
 	// 对应 TypeScript 版本: this._view.getChild("n6").onClick(this, () => { this._list.addSelection(500, true); });
 	if btn := view.ChildByName("n6"); btn != nil {

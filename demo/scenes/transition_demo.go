@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
-	"github.com/chslink/fairygui/pkg/fgui/core"
-	"github.com/chslink/fairygui/pkg/fgui/gears"
-	"github.com/chslink/fairygui/pkg/fgui/tween"
+	"github.com/chslink/fairygui/pkg/fgui"
 )
 
 const (
@@ -20,13 +18,13 @@ const (
 
 // TransitionDemo 复现 FairyGUI Transition 示例的核心交互。
 type TransitionDemo struct {
-	component     *core.GComponent
-	stage         *core.GComponent
-	targets       map[string]*core.GComponent
-	buttons       []*core.GObject
-	current       *core.GComponent
-	finishTweener *tween.GTweener
-	valueTweener  *tween.GTweener
+	component     *fgui.GComponent
+	stage         *fgui.GComponent
+	targets       map[string]*fgui.GComponent
+	buttons       []*fgui.GObject
+	current       *fgui.GComponent
+	finishTweener *fgui.GTweener
+	valueTweener  *fgui.GTweener
 	random        *rand.Rand
 }
 
@@ -34,7 +32,7 @@ func (d *TransitionDemo) Name() string {
 	return "TransitionDemo"
 }
 
-func (d *TransitionDemo) Load(ctx context.Context, mgr *Manager) (*core.GComponent, error) {
+func (d *TransitionDemo) Load(ctx context.Context, mgr *Manager) (*fgui.GComponent, error) {
 	env := mgr.Environment()
 	pkg, err := env.Package(ctx, transitionPackageName)
 	if err != nil {
@@ -52,9 +50,9 @@ func (d *TransitionDemo) Load(ctx context.Context, mgr *Manager) (*core.GCompone
 	d.random = rand.New(rand.NewSource(time.Now().UnixNano()))
 	d.component = component
 	d.stage = mgr.Stage()
-	d.targets = make(map[string]*core.GComponent)
+	d.targets = make(map[string]*fgui.GComponent)
 
-	loadTarget := func(name string, required bool) (*core.GComponent, error) {
+	loadTarget := func(name string, required bool) (*fgui.GComponent, error) {
 		item := chooseComponent(pkg, name)
 		if item == nil {
 			if required {
@@ -92,7 +90,7 @@ func (d *TransitionDemo) Load(ctx context.Context, mgr *Manager) (*core.GCompone
 	}
 
 	buttonNames := []string{"btn0", "btn1", "btn2", "btn3", "btn4", "btn5"}
-	d.buttons = make([]*core.GObject, 0, len(buttonNames))
+	d.buttons = make([]*fgui.GObject, 0, len(buttonNames))
 	for _, name := range buttonNames {
 		if child := component.ChildByName(name); child != nil {
 			d.buttons = append(d.buttons, child)
@@ -155,7 +153,7 @@ func (d *TransitionDemo) playGoodHit() {
 	if target == nil {
 		return
 	}
-	setup := func(comp *core.GComponent) {
+	setup := func(comp *fgui.GComponent) {
 		if d.stage == nil {
 			return
 		}
@@ -173,7 +171,7 @@ func (d *TransitionDemo) playPowerUp() {
 	if target == nil {
 		return
 	}
-	setup := func(comp *core.GComponent) {
+	setup := func(comp *fgui.GComponent) {
 		if d.stage != nil {
 			height := d.stage.Height()
 			if height <= 0 {
@@ -195,19 +193,19 @@ func (d *TransitionDemo) playPowerUp() {
 			d.valueTweener.Kill(false)
 			d.valueTweener = nil
 		}
-		d.valueTweener = tween.To(float64(startValue), float64(endValue), 0.3).
-			SetEase(tween.EaseTypeLinear).
-			OnUpdate(func(tw *tween.GTweener) {
+		d.valueTweener = fgui.TweenTo(float64(startValue), float64(endValue), 0.3).
+			SetEase(fgui.EaseType(0)).
+			OnUpdate(func(tw *fgui.GTweener) {
 				current := int(tw.Value().X + 0.5)
 				setText(comp.ChildByName("value"), strconv.Itoa(current))
 			})
-		d.valueTweener.OnComplete(func(*tween.GTweener) {
+		d.valueTweener.OnComplete(func(*fgui.GTweener) {
 		})
 	}
 	d.playTarget(target, setup)
 }
 
-func (d *TransitionDemo) playTarget(target *core.GComponent, setup func(*core.GComponent)) {
+func (d *TransitionDemo) playTarget(target *fgui.GComponent, setup func(*fgui.GComponent)) {
 	if target == nil || d.stage == nil {
 		return
 	}
@@ -222,12 +220,12 @@ func (d *TransitionDemo) playTarget(target *core.GComponent, setup func(*core.GC
 	if d.finishTweener != nil {
 		d.finishTweener.Kill(false)
 	}
-	d.finishTweener = tween.DelayedCall(duration).OnComplete(func(*tween.GTweener) {
+	d.finishTweener = fgui.TweenDelayedCall(duration).OnComplete(func(*fgui.GTweener) {
 		d.finishCurrent(target)
 	})
 }
 
-func (d *TransitionDemo) playTransition(comp *core.GComponent, name string) float64 {
+func (d *TransitionDemo) playTransition(comp *fgui.GComponent, name string) float64 {
 	if comp == nil {
 		return defaultTransitionTime
 	}
@@ -244,7 +242,7 @@ func (d *TransitionDemo) playTransition(comp *core.GComponent, name string) floa
 	return defaultTransitionTime
 }
 
-func (d *TransitionDemo) finishCurrent(target *core.GComponent) {
+func (d *TransitionDemo) finishCurrent(target *fgui.GComponent) {
 	if target != nil && d.stage != nil {
 		d.stage.RemoveChild(target.GObject)
 	}
@@ -286,9 +284,9 @@ func (d *TransitionDemo) setButtonsEnabled(enabled bool) {
 	}
 }
 
-func setText(obj *core.GObject, text string) {
+func setText(obj *fgui.GObject, text string) {
 	if obj == nil {
 		return
 	}
-	obj.SetProp(gears.ObjectPropIDText, text)
+	obj.SetProp(fgui.ObjectPropIDText, text)
 }
