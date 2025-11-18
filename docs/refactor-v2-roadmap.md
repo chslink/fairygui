@@ -146,8 +146,10 @@
 - [x] 迁移 ProgressBar（12 个测试 ✅）
 - [x] 迁移 ScrollBar（7 个测试 ✅）
 - [x] 迁移 ComboBox（19 个测试 ✅）
-- [x] 迁移 Graph（21 个测试 ✅）
-- [ ] 迁移其他控件
+- [x] 迁移 Graph（19 个测试 ✅）
+- [x] 迁移 Label（12 个测试 ✅）
+- [x] 迁移 Group（14 个测试 ✅）
+- [x] 迁移 RichText（15 个测试 ✅）
 
 **交付物**：
 - ✅ `widget_button.go` + `widget_button_test.go`
@@ -160,13 +162,15 @@
 - ✅ `widget_scrollbar.go` + `widget_scrollbar_test.go`
 - ✅ `widget_combobox.go` + `widget_combobox_test.go`
 - ✅ `widget_graph.go` + `widget_graph_test.go`
-- ⏸️ 其他控件（待定）
+- ✅ `widget_label.go` + `widget_label_test.go`
+- ✅ `widget_group.go` + `widget_group_test.go`
+- ✅ `widget_richtext.go` + `widget_richtext_test.go`
 
-**进度**: 10/13 控件完成（77%），165 个测试全部通过 ✅
+**进度**: ✅ **Phase 6 完成！13/13 控件（100%），204 个测试全部通过** ✅
 
 **验收标准**：
 - ✅ 所有控件功能完整
-- ✅ 通过控件测试（165/165）
+- ✅ 通过控件测试（204/204）
 - ✅ API 简洁易用
 
 ### Phase 7: 高级功能迁移（2 周）
