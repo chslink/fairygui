@@ -144,8 +144,9 @@
 - [x] 迁移 Slider（14 个测试 ✅）
 - [x] 迁移 Loader（22 个测试 ✅）
 - [x] 迁移 ProgressBar（12 个测试 ✅）
-- [ ] 迁移 ScrollBar
-- [ ] 迁移 ComboBox
+- [x] 迁移 ScrollBar（7 个测试 ✅）
+- [x] 迁移 ComboBox（19 个测试 ✅）
+- [x] 迁移 Graph（21 个测试 ✅）
 - [ ] 迁移其他控件
 
 **交付物**：
@@ -156,13 +157,16 @@
 - ✅ `widget_slider.go` + `widget_slider_test.go`
 - ✅ `widget_loader.go` + `widget_loader_test.go`
 - ✅ `widget_progressbar.go` + `widget_progressbar_test.go`
+- ✅ `widget_scrollbar.go` + `widget_scrollbar_test.go`
+- ✅ `widget_combobox.go` + `widget_combobox_test.go`
+- ✅ `widget_graph.go` + `widget_graph_test.go`
 - ⏸️ 其他控件（待定）
 
-**进度**: 7/10 控件完成（70%），118 个测试全部通过 ✅
+**进度**: 10/13 控件完成（77%），165 个测试全部通过 ✅
 
 **验收标准**：
 - ✅ 所有控件功能完整
-- ✅ 通过控件测试（118/118）
+- ✅ 通过控件测试（165/165）
 - ✅ API 简洁易用
 
 ### Phase 7: 高级功能迁移（2 周）
