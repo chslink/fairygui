@@ -249,6 +249,22 @@ func (i *PackageItemWrapper) Data() interface{} {
 	return i.item.RawData
 }
 
+// Width 返回项的宽度
+func (i *PackageItemWrapper) Width() int {
+	if i.item != nil {
+		return i.item.Width
+	}
+	return 0
+}
+
+// Height 返回项的高度
+func (i *PackageItemWrapper) Height() int {
+	if i.item != nil {
+		return i.item.Height
+	}
+	return 0
+}
+
 // RawItem 返回底层的 assets.PackageItem 对象。
 func (i *PackageItemWrapper) RawItem() *assets.PackageItem {
 	return i.item

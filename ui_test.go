@@ -512,6 +512,10 @@ func (m *mockController) SelectedPage() string                { return "" }
 func (m *mockController) SetSelectedPage(name string)         {}
 func (m *mockController) PageCount() int                      { return 0 }
 func (m *mockController) OnChanged(handler func())            {}
+func (m *mockController) SelectedPageID() string              { return "" }
+func (m *mockController) SetSelectedPageID(id string)         {}
+func (m *mockController) SetSelectedPageName(name string)     {}
+func (m *mockController) PageNames() []string                 { return nil }
 
 type mockRenderer struct {
 	drawCalled bool

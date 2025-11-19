@@ -206,21 +206,28 @@
 **目标**：确保向后兼容
 
 **任务**：
-- [ ] 创建 `pkg/fgui/compat.go`
-- [ ] 提供类型别名（GObject → Object）
-- [ ] 提供函数包装
+- [x] 创建 `pkg/fgui/api.go`（V1 兼容层）
+- [x] 提供类型别名（GObject, GComponent 等）
+- [x] 提供核心函数（Root, NewFileLoader 等）
+- [x] Demo 继续使用 V1 API 进行验证
 - [ ] 编写迁移指南
 - [ ] 编写迁移示例
 
 **交付物**：
-- `pkg/fgui/compat.go` - 兼容层
+- `pkg/fgui/api.go` - 兼容层（已实现）
 - `docs/migration-guide.md` - 迁移指南
 - 迁移示例代码
 
 **验收标准**：
-- 现有代码无需修改即可运行
-- 迁移指南清晰
-- 提供迁移示例
+- 现有代码无需修改即可运行 ✅
+- V2 API 已建立（接口驱动）
+- 迁移指南清晰（待完成）
+- 提供迁移示例（待完成）
+
+**状态更新（2025-11-19）**：
+✅ 架构切换已完成。V1 API 通过 `pkg/fgui/api.go` 提供向后兼容，Demo 持续使用 V1 API 验证了稳定性。
+✅ V2 API 已完成，采用接口驱动设计（DisplayObject、Positionable、Sizable 等接口）。
+⚠️  无需额外的兼容层转换，V1 API 作为兼容性包装层继续服务现有代码。
 
 ### Phase 9: 测试与文档（2 周）
 

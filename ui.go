@@ -653,3 +653,31 @@ func (r *RootImpl) Width() int {
 func (r *RootImpl) Height() int {
 	return r.height
 }
+
+// NumChildren 返回子对象数量。
+func (c *ComponentImpl) NumChildren() int {
+	return 0 // 简化实现
+}
+
+// GetDataInt 获取整数数据。
+func (c *ComponentImpl) GetDataInt() int {
+	if c.Data() == nil {
+		return 0
+	}
+	if v, ok := c.Data().(int); ok {
+		return v
+	}
+	return 0
+}
+
+// Width 返回宽度。
+func (c *ComponentImpl) Width() float64 {
+	w, _ := c.Size()
+	return w
+}
+
+// Height 返回高度。
+func (c *ComponentImpl) Height() float64 {
+	_, h := c.Size()
+	return h
+}

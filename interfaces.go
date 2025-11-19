@@ -416,6 +416,12 @@ type PackageItem interface {
 
 	// Data 返回项的数据。
 	Data() interface{}
+
+	// Width 返回项的宽度（如果是图片等可视资源）
+	Width() int
+
+	// Height 返回项的高度（如果是图片等可视资源）
+	Height() int
 }
 
 // ResourceType 定义资源类型。
@@ -493,6 +499,20 @@ type Controller interface {
 
 	// OnChanged 注册状态改变事件处理器。
 	OnChanged(handler func())
+
+	// 扩展方法（用于 Button 等控件）
+
+	// SelectedPageID 返回当前选中页面的ID
+	SelectedPageID() string
+
+	// SetSelectedPageID 通过ID设置选中的页面
+	SetSelectedPageID(id string)
+
+	// SetSelectedPageName 通过名称设置选中的页面
+	SetSelectedPageName(name string)
+
+	// PageNames 返回所有页面名称
+	PageNames() []string
 }
 
 // ============================================================================
