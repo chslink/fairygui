@@ -1,5 +1,24 @@
 # FairyGUI Ebiten Port Progress
 
+## 2026-05-13 — 文本渲染与输入修复
+
+> 分支: `fix/text-rendering-issues`
+> 详见: `docs/ime-status.md`
+
+### 文本渲染
+- [x] 缓存 key + italic/bold、描边 padding +2、斜体补偿
+- [x] 链接点击生效、UBB placeholder 解析
+- [x] 光标位置用 GlyphAdvance 实测宽度
+
+### 文本输入重构
+- [x] GTextInput 完全重写：自实现控制键 + AppendInputChars 字符
+- [x] Ctrl+C/V/X 剪贴板、HandleMouseDown 光标定位
+- [x] textinput.Field 仅用于启用 IME 模式
+- [x] Windows ImmAssociateContext
+- ⚠️ IME 中文输入不完全稳定（Ebiten 游戏引擎限制）
+
+---
+
 ## 2026-05-12 — Phase 0-5: 大规模修复与增强
 
 ### Phase 0: 致命 Bug 修复
