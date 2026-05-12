@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/exp/textinput"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/chslink/fairygui/pkg/fgui"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/render"
+	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
 var fallbackFont font.Face = basicfont.Face7x13
@@ -51,8 +53,10 @@ type game struct {
 	width      int
 	height     int
 	lastUpdate time.Time
-	keysDown   map[ebiten.Key]bool // 跟踪按键状态,避免重复触发
-	debug      *debug.Server       // 调试服务器
+	keysDown   map[ebiten.Key]bool
+	debug      *debug.Server
+	textField  *textinput.Field
+	focusedInput *widgets.GTextInput
 }
 
 func newGame(ctx context.Context) (*game, error) {
@@ -98,13 +102,14 @@ func newGame(ctx context.Context) (*game, error) {
 	}
 
 	return &game{
-		root:     root,
-		manager:  manager,
-		atlas:    atlas,
-		width:    manager.Width(),
-		height:   manager.Height(),
-		keysDown: make(map[ebiten.Key]bool),
-		debug:    debugServer,
+		root:      root,
+		manager:   manager,
+		atlas:     atlas,
+		width:     manager.Width(),
+		height:    manager.Height(),
+		keysDown:  make(map[ebiten.Key]bool),
+		debug:     debugServer,
+		textField: &textinput.Field{},
 	}, nil
 }
 
@@ -125,6 +130,80 @@ func (g *game) Update() error {
 		Keys:  g.keyboardEvents(),
 	}
 	g.root.AdvanceInput(delta, input)
+
+	// IME text input integration via Ebiten's exp/textinput.Field
+	g.syncIMEText()
+
+	return nil
+}
+
+// syncIMEText synchronizes IME text between the native textinput.Field and
+// the currently focused GTextInput widget.
+func (g *game) syncIMEText() {
+	if g.textField == nil {
+		return
+	}
+
+	// Find any focused GTextInput in the component tree
+	focused := g.findFocusedTextInput(g.root.GComponent)
+	if focused == nil {
+		if g.focusedInput != nil {
+			g.textField.Blur()
+			g.focusedInput.LoseFocus()
+			g.focusedInput = nil
+		}
+		return
+	}
+
+	if focused != g.focusedInput {
+		if g.focusedInput != nil {
+			g.textField.Blur()
+			g.focusedInput.SetUseNativeIME(false)
+		}
+		g.focusedInput = focused
+		if focused != nil {
+			g.textField.SetTextAndSelection(focused.Text(), 0, len(focused.Text()))
+			g.textField.Focus()
+			g.focusedInput.SetUseNativeIME(true)
+		}
+	}
+
+	// Process IME input events
+	mx, my := ebiten.CursorPosition()
+	handled, err := g.textField.HandleInput(mx, my)
+	if err != nil {
+		return
+	}
+	_ = handled
+
+	// Sync text from native IME field back to GTextInput
+	newText := g.textField.Text()
+	if focused.Text() != newText {
+		focused.SetText(newText)
+	}
+
+	// Sync cursor/selection
+	selStart, selEnd := g.textField.Selection()
+	focused.SetSelection(selStart, selEnd)
+}
+
+// findFocusedTextInput recursively searches for a focused GTextInput.
+func (g *game) findFocusedTextInput(comp *core.GComponent) *widgets.GTextInput {
+	if comp == nil {
+		return nil
+	}
+	for _, child := range comp.Children() {
+		if data := child.Data(); data != nil {
+			if ti, ok := data.(*widgets.GTextInput); ok && ti.IsFocused() {
+				return ti
+			}
+			if childComp, ok := data.(*core.GComponent); ok {
+				if result := g.findFocusedTextInput(childComp); result != nil {
+					return result
+				}
+			}
+		}
+	}
 	return nil
 }
 

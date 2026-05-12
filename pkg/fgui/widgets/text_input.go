@@ -42,6 +42,20 @@ type GTextInput struct {
 
 	// 实际文本(密码模式下与显示文本不同)
 	actualText string
+
+	// useNativeIME disables rune-based character insertion when managed by a native IME handler.
+	useNativeIME bool
+
+	// Has unexported fields.
+}
+
+// SetUseNativeIME toggles native IME mode. When enabled, character rune insertion
+// from keyboard events is suppressed (handled by exp/textinput.Field instead).
+func (t *GTextInput) SetUseNativeIME(v bool) {
+	if t == nil {
+		return
+	}
+	t.useNativeIME = v
 }
 
 // NewTextInput 构建输入框。
@@ -679,9 +693,9 @@ func (t *GTextInput) HandleKeyboardEvent(event laya.KeyboardEvent) bool {
 		return false // 单行模式下 Tab 用于焦点切换
 
 	default:
-		// 处理普通字符输入（包括中文等 Unicode 字符）
-		// 排除控制字符（< 32），但允许所有可打印字符
-		if event.Rune != 0 && !isControlChar(event.Rune) {
+		// When native IME is active, character insertion is handled by the IME field.
+		// Only process runes when not using native IME.
+		if !t.useNativeIME && event.Rune != 0 && !isControlChar(event.Rune) {
 			t.InsertText(string(event.Rune))
 			return true
 		}
