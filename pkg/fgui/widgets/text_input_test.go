@@ -106,8 +106,8 @@ func TestTextInput_EmptyText(t *testing.T) {
 	input.SetText("")
 
 	input.SetCursorPosition(5)
-	if got := input.CursorPosition(); got != 5 {
-		t.Errorf("CursorPosition() on empty = %d", got)
+	if got := input.CursorPosition(); got != 0 {
+		t.Errorf("CursorPosition() on empty text after clamp = %d, want 0", got)
 	}
 	input.SelectAll()
 }

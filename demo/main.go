@@ -127,9 +127,11 @@ func (g *game) Update() error {
 	}
 	g.root.AdvanceInput(delta, input)
 
-	// Sync native IME with the active text input field
-	mx, my := ebiten.CursorPosition()
-	widgets.UpdateInputField(mx, my)
+	// Deliver typed characters (including IME) to the focused text input.
+	// ebiten.AppendInputChars handles IME composition natively on Windows.
+	for _, r := range ebiten.AppendInputChars(nil) {
+		widgets.InputChar(string(r))
+	}
 
 	return nil
 }

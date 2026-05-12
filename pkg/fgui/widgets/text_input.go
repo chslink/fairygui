@@ -4,8 +4,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hajimehoshi/ebiten/v2/exp/textinput"
-
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/core"
 	"github.com/chslink/fairygui/pkg/fgui/utils"
@@ -19,51 +17,7 @@ const (
 	KeyboardTypeURL     KeyboardType = "url"
 )
 
-var (
-	activeField      *textinput.Field
-	activeInput      *GTextInput
-	fieldLastText    string
-	pendingFocus     *textinput.Field
-	pendingFocusText string
-	pendingBlur      bool
-)
-
-// UpdateInputField must be called each frame from the Ebiten game loop.
-// It handles focus transitions and syncs IME text with the active GTextInput.
-func UpdateInputField(mx, my int) {
-	// Process pending focus/blur transitions (must happen inside Ebiten game loop)
-	if pendingBlur && activeField != nil {
-		activeField.Blur()
-		activeField = nil
-		pendingBlur = false
-	}
-	if pendingFocus != nil {
-		if activeField != nil && activeField != pendingFocus {
-			activeField.Blur()
-		}
-		pendingFocus.SetTextAndSelection(pendingFocusText, 0, len(pendingFocusText))
-		pendingFocus.Focus()
-		activeField = pendingFocus
-		fieldLastText = pendingFocusText
-		pendingFocus = nil
-	}
-
-	if activeField == nil {
-		return
-	}
-	activeField.HandleInput(mx, my)
-
-	newText := activeField.Text()
-	if newText != fieldLastText {
-		fieldLastText = newText
-		if activeInput != nil {
-			activeInput.GTextField.SetText(newText)
-			activeInput.syncStateFromField()
-		}
-	}
-}
-
-// GTextInput is a single-line text input widget with native IME support.
+// GTextInput is a single-line text input widget.
 type GTextInput struct {
 	*GTextField
 	password     bool
@@ -73,14 +27,14 @@ type GTextInput struct {
 	promptText   string
 	restrict     string
 
-	field            *textinput.Field
-	focused          bool
-	cursorPosition   int
-	selectionStart   int
-	selectionEnd     int
-	cursorVisible    bool
-	lastCursorBlink  time.Time
-	cursorBlinkDelay float64
+	// cursor / selection state
+	cursorPos       int
+	selStart        int
+	selEnd          int
+	cursorVisible   bool
+	lastCursorBlink time.Time
+	blinkDelay      float64
+	focused         bool
 
 	actualText string
 }
@@ -88,13 +42,11 @@ type GTextInput struct {
 func NewTextInput() *GTextInput {
 	base := NewText()
 	input := &GTextInput{
-		GTextField:       base,
-		editable:         true,
-		keyboardType:     KeyboardTypeDefault,
-		cursorBlinkDelay: 0.5,
-		cursorVisible:    true,
-		lastCursorBlink:  time.Now(),
-		field:            &textinput.Field{},
+		GTextField:  base,
+		editable:    true,
+		blinkDelay:  0.5,
+		cursorVisible: true,
+		lastCursorBlink: time.Now(),
 	}
 	base.SetSingleLine(true)
 	base.GObject.SetData(input)
@@ -105,51 +57,31 @@ func NewTextInput() *GTextInput {
 }
 
 func (t *GTextInput) SetupBeforeAdd(buf *utils.ByteBuffer, beginPos int) {
-	if t == nil {
-		return
-	}
-	if t.GTextField != nil {
-		t.GTextField.SetupBeforeAdd(buf, beginPos)
-	}
-	if buf == nil {
-		return
-	}
+	if t == nil { return }
+	if t.GTextField != nil { t.GTextField.SetupBeforeAdd(buf, beginPos) }
+	if buf == nil { return }
 	saved := buf.Pos()
 	defer func() { _ = buf.SetPos(saved) }()
-	if !buf.Seek(beginPos, 4) {
-		return
-	}
-	if prompt := buf.ReadS(); prompt != nil {
-		t.SetPromptText(*prompt)
-	}
-	if restrict := buf.ReadS(); restrict != nil {
-		t.SetRestrict(*restrict)
-	}
-	if buf.Remaining() >= 4 {
-		if max := int(buf.ReadInt32()); max > 0 {
-			t.SetMaxLength(max)
-		}
-	}
+	if !buf.Seek(beginPos, 4) { return }
+	if prompt := buf.ReadS(); prompt != nil { t.SetPromptText(*prompt) }
+	if restrict := buf.ReadS(); restrict != nil { t.SetRestrict(*restrict) }
+	if buf.Remaining() >= 4 { if max := int(buf.ReadInt32()); max > 0 { t.SetMaxLength(max) } }
 	if buf.Remaining() >= 4 {
 		switch code := int(buf.ReadInt32()); code {
-		case 4:
-			t.SetKeyboardType(KeyboardTypeNumber)
-		case 3:
-			t.SetKeyboardType(KeyboardTypeURL)
-		default:
-			t.SetKeyboardType(KeyboardTypeDefault)
+		case 4: t.SetKeyboardType(KeyboardTypeNumber)
+		case 3: t.SetKeyboardType(KeyboardTypeURL)
+		default: t.SetKeyboardType(KeyboardTypeDefault)
 		}
 	}
-	if buf.Remaining() > 0 && buf.ReadBool() {
-		t.SetPassword(true)
-	}
+	if buf.Remaining() > 0 && buf.ReadBool() { t.SetPassword(true) }
 }
 
-func (t *GTextInput) SetPassword(enabled bool)  { t.password = enabled }
-func (t *GTextInput) Password() bool             { return t.password }
+// --- simple accessors ---
+
+func (t *GTextInput) SetPassword(v bool) { t.password = v }
+func (t *GTextInput) Password() bool     { return t.password }
 func (t *GTextInput) SetKeyboardType(v KeyboardType) {
-	if v == "" { v = KeyboardTypeDefault }
-	t.keyboardType = v
+	if v == "" { v = KeyboardTypeDefault }; t.keyboardType = v
 }
 func (t *GTextInput) KeyboardType() KeyboardType { return t.keyboardType }
 func (t *GTextInput) SetEditable(v bool)         { t.editable = v }
@@ -161,188 +93,142 @@ func (t *GTextInput) PromptText() string         { return t.promptText }
 func (t *GTextInput) SetRestrict(v string)       { t.restrict = strings.TrimSpace(v) }
 func (t *GTextInput) Restrict() string           { return t.restrict }
 
-// --- Cursor & selection (proxy to textinput.Field) ---
+// --- cursor & selection ---
 
-func (t *GTextInput) syncStateFromField() {
-	if t == nil || t.field == nil {
-		return
-	}
-	// Sync text from Field to GTextField (for rendering)
-	text := t.field.Text()
-	if t.GTextField.Text() != text {
-		t.GTextField.SetText(text)
-	}
-	// Sync cursor/selection from bytes to runes
-	runes := []rune(text)
-	selStart, selEnd := t.field.Selection()
-	t.selectionStart = byteToRuneIndex(runes, selStart)
-	t.selectionEnd = byteToRuneIndex(runes, selEnd)
-	t.cursorPosition = t.selectionEnd
-}
+func (t *GTextInput) runes() []rune { return []rune(t.Text()) }
 
-func byteToRuneIndex(runes []rune, byteIdx int) int {
-	count := 0
-	for i := range runes {
-		if count >= byteIdx {
-			return i
-		}
-		count += len(string(runes[i]))
-	}
-	return len(runes)
+func (t *GTextInput) clampCursor() {
+	r := t.runes()
+	if t.cursorPos < 0 { t.cursorPos = 0 }
+	if t.cursorPos > len(r) { t.cursorPos = len(r) }
 }
 
 func (t *GTextInput) CursorPosition() int {
 	if t == nil { return 0 }
-	return t.cursorPosition
+	t.clampCursor()
+	return t.cursorPos
 }
 
 func (t *GTextInput) SetCursorPosition(pos int) {
 	if t == nil { return }
-	t.cursorPosition = pos
-	t.selectionStart = pos
-	t.selectionEnd = pos
-}
-
-func (t *GTextInput) SelectedText() string {
-	if t == nil || !t.HasSelection() { return "" }
-	runes := []rune(t.Text())
-	s, e := t.selectionStart, t.selectionEnd
-	if s < 0 { s = 0 }
-	if e > len(runes) { e = len(runes) }
-	if s >= e { return "" }
-	return string(runes[s:e])
-}
-
-// GetSelectedText is an alias for SelectedText (backward compat).
-func (t *GTextInput) GetSelectedText() string { return t.SelectedText() }
-
-// HandleMouseDown forwards the click coordinates to the native textinput.Field
-// for cursor positioning and selection.
-func (t *GTextInput) HandleMouseDown(x, y float64) bool {
-	if t == nil || !t.editable { return false }
-	t.focused = true
+	t.cursorPos = pos
+	t.clampCursor()
+	t.selStart = t.cursorPos
+	t.selEnd = t.cursorPos
 	t.cursorVisible = true
 	t.lastCursorBlink = time.Now()
+}
 
-	// Defer focus to game loop; set cursor immediately if already active
-	if activeField != t.field {
-		pendingFocus = t.field
-		pendingFocusText = t.Text()
-		pendingBlur = false
-		activeInput = t
-		t.registerEventListeners()
-	} else {
-		t.syncStateFromField()
-	}
-	return true
+func (t *GTextInput) GetSelection() (start, end int) {
+	if t == nil { return 0, 0 }
+	return t.selStart, t.selEnd
 }
 
 func (t *GTextInput) SetSelection(start, end int) {
 	if t == nil { return }
-	runes := []rune(t.Text())
-	max := len(runes)
+	r := t.runes()
+	max := len(r)
 	if start < 0 { start = 0 }
 	if end < 0 { end = 0 }
 	if start > max { start = max }
 	if end > max { end = max }
 	if start > end { start, end = end, start }
-	t.selectionStart = start
-	t.selectionEnd = end
-	// Also update the native Field if it's focused
-	if activeField == t.field {
-		byteStart := runeToByteIndex(runes, start)
-		byteEnd := runeToByteIndex(runes, end)
-		t.field.SetSelection(byteStart, byteEnd)
-	}
-}
-
-func runeToByteIndex(runes []rune, idx int) int {
-	count := 0
-	for i := 0; i < idx && i < len(runes); i++ {
-		count += len(string(runes[i]))
-	}
-	return count
-}
-
-func (t *GTextInput) GetSelection() (int, int) {
-	if t == nil { return 0, 0 }
-	return t.selectionStart, t.selectionEnd
+	t.selStart = start
+	t.selEnd = end
+	t.cursorPos = end
 }
 
 func (t *GTextInput) HasSelection() bool {
 	if t == nil { return false }
-	return t.selectionStart != t.selectionEnd
+	return t.selStart != t.selEnd
 }
 
+func (t *GTextInput) SelectedText() string {
+	r := t.runes()
+	s, e := t.selStart, t.selEnd
+	if s < 0 { s = 0 }
+	if e > len(r) { e = len(r) }
+	if s >= e { return "" }
+	return string(r[s:e])
+}
+
+func (t *GTextInput) GetSelectedText() string { return t.SelectedText() }
+
 func (t *GTextInput) SelectAll() {
-	text := t.Text()
-	l := len([]rune(text))
-	t.selectionStart = 0
-	t.selectionEnd = l
-	if activeField == t.field {
-		t.field.SetSelection(0, len(text))
-	}
+	r := t.runes()
+	t.selStart = 0
+	t.selEnd = len(r)
+	t.cursorPos = len(r)
 }
 
 func (t *GTextInput) ClearSelection() {
-	p := t.cursorPosition
-	t.selectionStart = p
-	t.selectionEnd = p
+	t.selStart = t.cursorPos
+	t.selEnd = t.cursorPos
 }
 
-// --- Focus management ---
+func (t *GTextInput) textLen() int { return len(t.runes()) }
+
+// --- focus ---
+
+var focusedInput *GTextInput
+
+// InputChar delivers a character to the currently focused GTextInput.
+// Call from the Ebiten game loop with characters from ebiten.AppendInputChars.
+func InputChar(s string) {
+	if focusedInput != nil && focusedInput.focused && focusedInput.editable {
+		focusedInput.InsertChars(s)
+	}
+}
 
 func (t *GTextInput) RequestFocus() {
 	if t == nil || !t.editable { return }
+	if focusedInput != nil && focusedInput != t { focusedInput.LoseFocus() }
 	t.focused = true
+	focusedInput = t
 	t.cursorVisible = true
 	t.lastCursorBlink = time.Now()
 
 	if sprite := t.GTextField.GObject.DisplayObject(); sprite != nil {
 		if root := core.Root(); root != nil {
-			if stage := root.Stage(); stage != nil {
-				stage.SetFocus(sprite)
-			}
+			if stage := root.Stage(); stage != nil { stage.SetFocus(sprite) }
 		}
 	}
-
-	// Defer actual Field.Focus() to the game loop (UpdateInputField)
-	pendingFocus = t.field
-	pendingFocusText = t.GTextField.Text()
-	pendingBlur = false
-	activeInput = t
-	t.registerEventListeners()
+	t.registerListeners()
 }
 
 func (t *GTextInput) LoseFocus() {
 	if t == nil { return }
 	t.focused = false
+	if focusedInput == t { focusedInput = nil }
 	t.cursorVisible = false
 	t.ClearSelection()
-
 	sprite := t.GTextField.GObject.DisplayObject()
 	if sprite != nil {
 		sprite.Dispatcher().Off(laya.EventKeyDown, nil)
 		sprite.Dispatcher().Off(laya.EventMouseDown, nil)
 	}
-	if activeInput == t {
-		pendingBlur = true
-		activeInput = nil
+}
+
+func (t *GTextInput) IsFocused() bool       { return t != nil && t.focused }
+func (t *GTextInput) IsCursorVisible() bool { return t != nil && t.focused && t.cursorVisible }
+
+func (t *GTextInput) UpdateCursor(dt float64) {
+	if t == nil || !t.focused { return }
+	if time.Since(t.lastCursorBlink).Seconds() >= t.blinkDelay {
+		t.cursorVisible = !t.cursorVisible
+		t.lastCursorBlink = time.Now()
 	}
 }
 
-func (t *GTextInput) IsFocused() bool { return t != nil && t.focused }
-func (t *GTextInput) IsCursorVisible() bool { return t != nil && t.focused && t.cursorVisible }
-
-func (t *GTextInput) registerEventListeners() {
+func (t *GTextInput) registerListeners() {
 	sprite := t.GTextField.GObject.DisplayObject()
 	if sprite == nil { return }
 	sprite.Dispatcher().Off(laya.EventKeyDown, nil)
 	sprite.Dispatcher().Off(laya.EventMouseDown, nil)
 
 	sprite.Dispatcher().On(laya.EventKeyDown, func(evt *laya.Event) {
-		if keyEvt, ok := evt.Data.(laya.KeyboardEvent); ok {
-			t.handleNativeKey(keyEvt)
+		if ke, ok := evt.Data.(laya.KeyboardEvent); ok {
+			t.HandleKeyboardEvent(ke)
 		}
 	})
 	sprite.Dispatcher().On(laya.EventMouseDown, func(evt *laya.Event) {
@@ -353,65 +239,175 @@ func (t *GTextInput) registerEventListeners() {
 	})
 }
 
-func (t *GTextInput) UpdateCursor(deltaTime float64) {
-	if t == nil || !t.focused { return }
-	if time.Since(t.lastCursorBlink).Seconds() >= t.cursorBlinkDelay {
-		t.cursorVisible = !t.cursorVisible
-		t.lastCursorBlink = time.Now()
-	}
-	if activeField == t.field {
-		t.syncStateFromField()
+// --- mouse ---
+
+func (t *GTextInput) HandleMouseDown(x, y float64) bool {
+	if t == nil || !t.editable { return false }
+	if !t.focused { t.RequestFocus() }
+
+	// Estimate cursor position from x coordinate
+	fontSize := float64(t.FontSize())
+	charW := fontSize * 0.6
+	pos := int(x / charW)
+	r := t.runes()
+	if pos < 0 { pos = 0 }
+	if pos > len(r) { pos = len(r) }
+	t.cursorPos = pos
+	t.selStart = pos
+	t.selEnd = pos
+	t.cursorVisible = true
+	t.lastCursorBlink = time.Now()
+	return true
+}
+
+// --- keyboard (control keys only; characters come via InsertChars) ---
+
+func (t *GTextInput) HandleKeyboardEvent(event laya.KeyboardEvent) bool {
+	if t == nil || !t.focused || !t.editable || !event.Down { return false }
+
+	// Shortcuts
+	if event.Modifiers.Ctrl || event.Modifiers.Meta { return t.handleShortcut(event) }
+
+	switch event.Code {
+	case laya.KeyCodeBackspace:
+		if t.HasSelection() { t.deleteSelection() } else { t.backspace() }
+		return true
+	case laya.KeyCodeDelete:
+		if t.HasSelection() { t.deleteSelection() } else { t.del() }
+		return true
+	case laya.KeyCodeLeft:
+		if event.Modifiers.Shift { t.extendSelLeft() } else { t.moveCursor(-1) }
+		return true
+	case laya.KeyCodeRight:
+		if event.Modifiers.Shift { t.extendSelRight() } else { t.moveCursor(1) }
+		return true
+	case laya.KeyCodeHome:
+		if event.Modifiers.Shift { t.extendSelTo(0) } else { t.moveCursorTo(0) }
+		return true
+	case laya.KeyCodeEnd:
+		if event.Modifiers.Shift { t.extendSelTo(t.textLen()) } else { t.moveCursorTo(t.textLen()) }
+		return true
+	case laya.KeyCodeEnter:
+		if t.SingleLine() { return true }
+		t.insertChars("\n")
+		return true
+	case laya.KeyCodeTab:
+		if t.SingleLine() { return false }
+		t.insertChars("\t")
+		return true
+	default:
+		// Only process rune chars when they come through InsertChars.
+		// event.Rune may be stale; ignore it here.
+		return false
 	}
 }
 
-// --- Keyboard events (only for keys the textinput.Field doesn't handle) ---
+// InsertChars inserts a string at the current cursor position, replacing any selection.
+// Called from the game loop with characters collected by ebiten.AppendInputChars.
+func (t *GTextInput) InsertChars(s string) {
+	if t == nil || !t.focused || !t.editable || s == "" { return }
+	t.insertChars(s)
+}
 
-func (t *GTextInput) handleNativeKey(event laya.KeyboardEvent) bool {
-	if t == nil || !t.focused || !t.editable || !event.Down { return false }
+func (t *GTextInput) insertChars(s string) {
+	if t.maxLength > 0 && t.textLen() >= t.maxLength { return }
+	r := t.runes()
+	a, b := t.selStart, t.selEnd
+	if a > b { a, b = b, a }
+	// Replace selection
+	insert := []rune(s)
+	r = append(append(r[:a], insert...), r[b:]...)
+	t.GTextField.SetText(string(r))
+	t.cursorPos = a + len(insert)
+	t.selStart = t.cursorPos
+	t.selEnd = t.cursorPos
+	t.cursorVisible = true
+	t.lastCursorBlink = time.Now()
+}
 
-	// Enter: submit (Field may or may not handle this; we handle it explicitly)
-	if event.Code == laya.KeyCodeEnter {
-		if t.SingleLine() { return true }
-		t.insert("\n")
+func (t *GTextInput) backspace() {
+	if t.cursorPos <= 0 { return }
+	r := t.runes()
+	r = append(r[:t.cursorPos-1], r[t.cursorPos:]...)
+	t.GTextField.SetText(string(r))
+	t.cursorPos--
+	t.selStart = t.cursorPos
+	t.selEnd = t.cursorPos
+}
+
+func (t *GTextInput) del() {
+	r := t.runes()
+	if t.cursorPos >= len(r) { return }
+	r = append(r[:t.cursorPos], r[t.cursorPos+1:]...)
+	t.GTextField.SetText(string(r))
+}
+
+func (t *GTextInput) deleteSelection() {
+	r := t.runes()
+	a, b := t.selStart, t.selEnd
+	if a > b { a, b = b, a }
+	r = append(r[:a], r[b:]...)
+	t.GTextField.SetText(string(r))
+	t.cursorPos = a
+	t.selStart = a
+	t.selEnd = a
+}
+
+func (t *GTextInput) moveCursor(delta int) {
+	t.cursorPos += delta
+	t.clampCursor()
+	t.selStart = t.cursorPos
+	t.selEnd = t.cursorPos
+}
+
+func (t *GTextInput) moveCursorTo(pos int) {
+	t.cursorPos = pos
+	t.clampCursor()
+	t.selStart = t.cursorPos
+	t.selEnd = t.cursorPos
+}
+
+func (t *GTextInput) extendSelLeft() {
+	if !t.HasSelection() { t.selStart, t.selEnd = t.cursorPos, t.cursorPos }
+	t.cursorPos--
+	t.clampCursor()
+	t.selEnd = t.cursorPos
+	if t.selEnd < t.selStart { t.selStart, t.selEnd = t.selEnd, t.selStart }
+}
+
+func (t *GTextInput) extendSelRight() {
+	if !t.HasSelection() { t.selStart, t.selEnd = t.cursorPos, t.cursorPos }
+	t.cursorPos++
+	t.clampCursor()
+	t.selEnd = t.cursorPos
+	if t.selEnd < t.selStart { t.selStart, t.selEnd = t.selEnd, t.selStart }
+}
+
+func (t *GTextInput) extendSelTo(pos int) {
+	if !t.HasSelection() { t.selStart, t.selEnd = t.cursorPos, t.cursorPos }
+	t.cursorPos = pos
+	t.clampCursor()
+	t.selEnd = t.cursorPos
+	if t.selEnd < t.selStart { t.selStart, t.selEnd = t.selEnd, t.selStart }
+}
+
+// --- shortcuts ---
+
+func (t *GTextInput) handleShortcut(event laya.KeyboardEvent) bool {
+	switch event.Code {
+	case laya.KeyCodeA: t.SelectAll(); return true
+	case laya.KeyCodeC:
+		if s := t.SelectedText(); s != "" { internalClipboard = s }
+		return t.HasSelection()
+	case laya.KeyCodeX:
+		if s := t.SelectedText(); s != "" { internalClipboard = s }
+		t.deleteSelection(); return true
+	case laya.KeyCodeV:
+		if internalClipboard != "" { t.insertChars(internalClipboard) }
 		return true
 	}
-	// Tab: allow framework to switch focus
-	if event.Code == laya.KeyCodeTab {
-		if t.SingleLine() { return false }
-		t.insert("\t")
-		return true
-	}
-	// Escape: blur
-	if event.Code == laya.KeyCodeEscape {
-		t.LoseFocus()
-		return true
-	}
-	// All other keys are handled natively by textinput.Field
 	return false
 }
 
-func (t *GTextInput) insert(s string) {
-	cur := t.field.Text()
-	pos := t.cursorPosition
-	runes := []rune(cur)
-	if t.HasSelection() {
-		s0, e0 := t.selectionStart, t.selectionEnd
-		if s0 > e0 { s0, e0 = e0, s0 }
-		if s0 < 0 { s0 = 0 }
-		if e0 > len(runes) { e0 = len(runes) }
-		newRunes := append(append([]rune{}, runes[:s0]...), []rune(s)...)
-		newRunes = append(newRunes, runes[e0:]...)
-		pos = s0 + len([]rune(s))
-		runes = newRunes
-	} else {
-		if pos < 0 { pos = 0 }
-		if pos > len(runes) { pos = len(runes) }
-		newRunes := append(append([]rune{}, runes[:pos]...), []rune(s)...)
-		newRunes = append(newRunes, runes[pos:]...)
-		pos += len([]rune(s))
-		runes = newRunes
-	}
-	t.GTextField.SetText(string(runes))
-	t.field.SetTextAndSelection(string(runes), pos, pos)
-	t.syncStateFromField()
-}
+// internalClipboard is an in-process clipboard.
+var internalClipboard string
