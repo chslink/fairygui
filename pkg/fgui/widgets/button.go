@@ -902,6 +902,15 @@ func (b *GButton) updateVisualState() {
 	b.applyState(state)
 }
 
+// SetHovered 设置悬停状态（用于外部调用，如 GList 的 hover 管理）
+func (b *GButton) SetHovered(hovered bool) {
+	if b == nil {
+		return
+	}
+	b.hovered = hovered
+	b.updateVisualState()
+}
+
 func (b *GButton) determineState() string {
 	obj := b.GComponent.GObject
 	if obj == nil {

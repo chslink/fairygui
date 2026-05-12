@@ -57,6 +57,7 @@ type GList struct {
 	resource       string
 	items          []*core.GObject
 	itemHandlers   map[*core.GObject]laya.Listener
+	hoverHandlers  map[*core.GObject]laya.ListenerID
 	selected       int
 	selectionMode  ListSelectionMode
 	selectionCtrl  *core.Controller
@@ -193,8 +194,9 @@ func NewList() *GList {
 		verticalAlign: LoaderAlignTop,
 		// 关键修复：初始化items数组
 		items:        make([]*core.GObject, 0),
-		itemHandlers: make(map[*core.GObject]laya.Listener),
-		selectedSet:  make(map[int]struct{}),
+		itemHandlers:  make(map[*core.GObject]laya.Listener),
+		hoverHandlers: make(map[*core.GObject]laya.ListenerID),
+		selectedSet:   make(map[int]struct{}),
 		// 虚拟化相关初始化
 		itemSize:     &laya.Point{},
 		virtualItems: make([]*ItemInfo, 0),
@@ -335,6 +337,7 @@ func (l *GList) InsertItemAt(obj *core.GObject, index int) {
 	copy(l.items[index+1:], l.items[index:])
 	l.items[index] = obj
 	l.attachItemClick(obj)
+	l.attachItemHover(obj)
 	if l.selected >= index && l.selected != -1 {
 		l.selected++
 	}
@@ -366,6 +369,10 @@ func (l *GList) RemoveItemAt(index int) {
 	if handler, ok := l.itemHandlers[obj]; ok {
 		obj.Off(laya.EventClick, handler)
 		delete(l.itemHandlers, obj)
+	}
+	if id, ok := l.hoverHandlers[obj]; ok {
+		obj.OffByID(laya.EventRollOver, id)
+		delete(l.hoverHandlers, obj)
 	}
 	l.GComponent.RemoveChild(obj)
 	copy(l.items[index:], l.items[index+1:])
@@ -412,6 +419,37 @@ func (l *GList) attachItemClick(obj *core.GObject) {
 	}
 	l.itemHandlers[obj] = handler
 	obj.On(laya.EventClick, handler)
+}
+
+// attachItemHover 注册 hover 事件监听，确保列表项的 hover 高亮
+// 不受子元素（如 checkbox）拦截影响
+func (l *GList) attachItemHover(obj *core.GObject) {
+	if l.hoverHandlers == nil {
+		l.hoverHandlers = make(map[*core.GObject]laya.ListenerID)
+	}
+	if id, ok := l.hoverHandlers[obj]; ok {
+		obj.OffByID(laya.EventRollOver, id)
+	}
+	// 直接在 item 上监听 rollOver/rollOut，绕过子元素拦截
+	rollOverID := obj.OnWithID(laya.EventRollOver, func(evt *laya.Event) {
+		l.updateItemHover(obj, true)
+	})
+	// rollOut 也需要监听（虽然 rollOver 已经更新 hovered=true，但 rollOut 需要清除）
+	_ = obj.OnWithID(laya.EventRollOut, func(evt *laya.Event) {
+		l.updateItemHover(obj, false)
+	})
+	l.hoverHandlers[obj] = rollOverID
+}
+
+func (l *GList) updateItemHover(obj *core.GObject, hovered bool) {
+	if obj == nil {
+		return
+	}
+	if btn, ok := obj.Data().(*GButton); ok {
+		btn.SetHovered(hovered)
+	} else if hoverable, ok := obj.Data().(interface{ SetHovered(bool) }); ok {
+		hoverable.SetHovered(hovered)
+	}
 }
 
 func (l *GList) indexOf(obj *core.GObject) int {
