@@ -218,15 +218,8 @@ func (g *game) keyboardEvents() []laya.KeyboardEvent {
 		Meta:  ebiten.IsKeyPressed(ebiten.KeyMetaLeft) || ebiten.IsKeyPressed(ebiten.KeyMetaRight),
 	}
 
-	// 收集字符输入
-	runes := ebiten.AppendInputChars(nil)
-	for _, r := range runes {
-		events = append(events, laya.KeyboardEvent{
-			Rune:      r,
-			Down:      true,
-			Modifiers: modifiers,
-		})
-	}
+	// 收集字符输入（由 Update 中的 widget.InputChar 统一处理）
+	// 这里只生成控制键事件，不再消费 AppendInputChars
 
 	// 检查特殊按键(只在刚按下时触发)
 	specialKeys := map[ebiten.Key]laya.KeyCode{
