@@ -3,7 +3,26 @@
 > 日期: 2026-05-13
 > 分支: `fix/text-rendering-issues`
 
-## 当前实现路径
+## 当前决定
+
+**IME 中文输入暂不接受，等待 Ebiten v2.10 发布。**
+
+Ebiten v2.10 新增 `exp/textinput.Composer` API（Issue [#3446](https://github.com/hajimehoshi/ebiten/issues/3446)），明确解决 IME 组合事件和预编辑串渲染问题。该 API 已于 2026-05-05 标记为 v2.10.0 milestone，开发已完成。
+
+当前保留以下可工作的功能：
+- ✅ 英文输入（完全正常）
+- ✅ 控制键（Backspace/Delete/Arrow/Home/End/Shift 选择）
+- ✅ Ctrl+C/V/X 剪贴板
+- ✅ 鼠标点击定位光标
+- ✅ `ebiten.AppendInputChars` 通道（IME 字符能到达，但不稳定）
+- ✅ `textinput.Field.Focus/Blur` 启用 IME 模式
+- ✅ Windows `ImmAssociateContext`
+
+**v2.10 发布后需要做的**：
+1. 升级 `go.mod` 中 ebiten 版本到 v2.10+
+2. 用 `Composer` API 替换当前的 Field Focus/Blur 方式
+3. 实现 `TextForRendering()` 渲染 IME 预编辑串
+4. 实现 `CompositionSelection()` 组合串光标
 
 ### 字符输入
 ```
