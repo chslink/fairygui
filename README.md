@@ -165,4 +165,4 @@ TS 原始模块 72 个，已完整实现 64 个（88.9%）。
 
 ## License
 
-BSD-3-Clause
+MIT
