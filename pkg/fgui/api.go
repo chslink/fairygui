@@ -9,6 +9,7 @@ import (
 	"github.com/chslink/fairygui/pkg/fgui/audio"
 	"github.com/chslink/fairygui/pkg/fgui/builder"
 	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/widgets"
 )
 
 // Public aliases to mirror the TypeScript API surface.
@@ -26,10 +27,34 @@ type (
 	KeyboardEvent  = laya.KeyboardEvent
 	PointerEvent   = laya.PointerEvent
 	EventType      = laya.EventType
+	ListenerID     = laya.ListenerID
 	GRoot          = core.GRoot
 	GComponent     = core.GComponent
 	GObject        = core.GObject
 	PopupDirection = core.PopupDirection
+	Window         = core.Window
+	DragDropManager = core.DragDropManager
+	Controller     = core.Controller
+	Relations      = core.Relations
+	RelationType   = core.RelationType
+	Transition     = core.Transition
+	ScrollPane     = core.ScrollPane
+	GList          = widgets.GList
+	GButton        = widgets.GButton
+	GTextField     = widgets.GTextField
+	GTextInput     = widgets.GTextInput
+	GLoader        = widgets.GLoader
+	GImage         = widgets.GImage
+	GGraph         = widgets.GGraph
+	GGroup         = widgets.GGroup
+	GLabel         = widgets.GLabel
+	GMovieClip     = widgets.GMovieClip
+	GProgressBar   = widgets.GProgressBar
+	GComboBox      = widgets.GComboBox
+	GSlider        = widgets.GSlider
+	GScrollBar     = widgets.GScrollBar
+	GTree          = widgets.GTree
+	GTreeNode      = widgets.GTreeNode
 
 	// Asset types
 	Package        = assets.Package

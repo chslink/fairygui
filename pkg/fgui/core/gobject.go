@@ -430,6 +430,16 @@ func (g *GObject) On(evt laya.EventType, fn laya.Listener) {
 	g.display.Dispatcher().On(evt, fn)
 }
 
+// OnWithID registers an event listener and returns a unique ListenerID for later removal.
+// Preferred over On/Off when the same handler function value cannot be used for Off
+// (e.g. when wrapping with an anonymous function).
+func (g *GObject) OnWithID(evt laya.EventType, fn laya.Listener) laya.ListenerID {
+	if g == nil || g.display == nil || fn == nil {
+		return 0
+	}
+	return g.display.Dispatcher().OnWithID(evt, fn)
+}
+
 // Once registers a one-shot listener against the underlying display object.
 func (g *GObject) Once(evt laya.EventType, fn laya.Listener) {
 	if g == nil || g.display == nil || fn == nil {
@@ -438,12 +448,22 @@ func (g *GObject) Once(evt laya.EventType, fn laya.Listener) {
 	g.display.Dispatcher().Once(evt, fn)
 }
 
-// Off removes a previously registered listener.
+// Off removes a previously registered listener by function pointer comparison.
+// Note: Off uses reflect to compare function pointers, so it cannot match
+// anonymous wrappers. For anonymous wrappers use OnWithID/OffByID.
 func (g *GObject) Off(evt laya.EventType, fn laya.Listener) {
 	if g == nil || g.display == nil || fn == nil {
 		return
 	}
 	g.display.Dispatcher().Off(evt, fn)
+}
+
+// OffByID removes a listener using its ListenerID (obtained from OnWithID).
+func (g *GObject) OffByID(evt laya.EventType, id laya.ListenerID) {
+	if g == nil || g.display == nil || id == 0 {
+		return
+	}
+	g.display.Dispatcher().OffByID(evt, id)
 }
 
 // Emit dispatches an event from the underlying display object.
@@ -454,60 +474,67 @@ func (g *GObject) Emit(evt laya.EventType, data any) {
 	g.display.Dispatcher().Emit(evt, data)
 }
 
-// OnClick registers a click event listener (convenience method).
-// 对应 TypeScript 版本的 onClick(this, handler)
-// Usage: obj.OnClick(func() { ... })
-func (g *GObject) OnClick(fn func()) {
+// OnClick registers a click event listener and returns a ListenerID for later removal.
+// Usage: id := obj.OnClick(func() { ... }); later: obj.OffClick(id)
+func (g *GObject) OnClick(fn func()) laya.ListenerID {
 	if g == nil || fn == nil {
-		return
+		return 0
 	}
-	g.On(laya.EventClick, func(evt *laya.Event) {
+	return g.OnWithID(laya.EventClick, func(evt *laya.Event) {
 		fn()
 	})
 }
 
 // OnClickWithData registers a click event listener with event data.
-// 对应 TypeScript 版本的 onClick(this, handler)
-// Usage: obj.OnClickWithData(func(evt *laya.Event) { ... })
-func (g *GObject) OnClickWithData(fn func(*laya.Event)) {
+func (g *GObject) OnClickWithData(fn func(*laya.Event)) laya.ListenerID {
 	if g == nil || fn == nil {
-		return
+		return 0
 	}
-	g.On(laya.EventClick, fn)
+	return g.OnWithID(laya.EventClick, fn)
 }
 
-// OffClick removes a click event listener.
-func (g *GObject) OffClick(fn func()) {
-	if g == nil || fn == nil {
+// OffClick removes a click event listener by its ListenerID.
+func (g *GObject) OffClick(id laya.ListenerID) {
+	if g == nil || id == 0 {
 		return
 	}
-	g.Off(laya.EventClick, func(evt *laya.Event) {
-		fn()
-	})
+	g.OffByID(laya.EventClick, id)
 }
 
-// OnLink registers a link-click event listener for text fields (convenience method).
-// 对应 TypeScript 版本的 on(Laya.Event.LINK, this, handler)
-func (g *GObject) OnLink(fn func(string)) {
+// OnLink registers a link-click event listener for text fields and returns a ListenerID.
+func (g *GObject) OnLink(fn func(string)) laya.ListenerID {
 	if g == nil || fn == nil {
-		return
+		return 0
 	}
-	g.On(laya.EventLink, func(evt *laya.Event) {
+	return g.OnWithID(laya.EventLink, func(evt *laya.Event) {
 		if link, ok := evt.Data.(string); ok {
 			fn(link)
 		}
 	})
 }
 
-// OnStateChanged registers a state change event listener (convenience method).
-// 对应 TypeScript 版本的 on(fgui.Events.STATE_CHANGED, this, handler)
-func (g *GObject) OnStateChanged(fn func(*laya.Event)) {
-	if g == nil || fn == nil {
+// OffLink removes a link-click event listener by its ListenerID.
+func (g *GObject) OffLink(id laya.ListenerID) {
+	if g == nil || id == 0 {
 		return
 	}
-	g.On(laya.EventStateChanged, func(evt *laya.Event) {
-		fn(evt)
-	})
+	g.OffByID(laya.EventLink, id)
+}
+
+// OnStateChanged registers a state change event listener and returns a ListenerID.
+func (g *GObject) OnStateChanged(fn func(*laya.Event)) laya.ListenerID {
+	if g == nil || fn == nil {
+		return 0
+	}
+	return g.OnWithID(laya.EventStateChanged, fn)
+}
+
+// OffStateChanged removes a state change event listener by its ListenerID.
+func (g *GObject) OffStateChanged(id laya.ListenerID) {
+	if g == nil || id == 0 {
+		return
+	}
+	g.OffByID(laya.EventStateChanged, id)
 }
 
 // Cast converts a GObject to a specific type.

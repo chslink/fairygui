@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/chslink/fairygui/pkg/fgui/assets"
 	audio2 "github.com/hajimehoshi/ebiten/v2/audio"
@@ -33,16 +34,19 @@ var (
 	globalLoader assets.Loader
 )
 
-// AudioPlayer 音频播放器
+// AudioPlayer manages sound effect playback through the Ebiten audio context.
 type AudioPlayer struct {
-	audioContext *audio2.Context
+	audioContext  *audio2.Context
+	activePlayers map[*audio2.Player]struct{}
+	playerMu      sync.Mutex
 }
 
-// GetInstance 获取音频播放器单例
+// GetInstance returns the audio player singleton.
 func GetInstance() *AudioPlayer {
 	once.Do(func() {
 		instance = &AudioPlayer{
-			audioContext: audio2.NewContext(defaultSampleRate),
+			audioContext:  audio2.NewContext(defaultSampleRate),
+			activePlayers: make(map[*audio2.Player]struct{}),
 		}
 	})
 	return instance
@@ -184,22 +188,42 @@ func (p *AudioPlayer) playBytes(data []byte, volume float64) {
 	fmt.Printf("[ERROR] Failed to decode audio: all formats failed\n")
 }
 
-// playStream 播放音频流
-// DecodeWithSampleRate 已经处理了重采样，这里直接播放即可
+// playStream creates a player, starts playback, and cleans up when finished.
+// The player is tracked in activePlayers to prevent premature GC while playing.
 func (p *AudioPlayer) playStream(stream io.ReadSeeker, volume float64) {
-	// 创建播放器
 	player, err := p.audioContext.NewPlayer(stream)
 	if err != nil {
 		fmt.Printf("[ERROR] Failed to create player: %v\n", err)
 		return
 	}
 
-	// 设置音量并播放
+	p.playerMu.Lock()
+	p.activePlayers[player] = struct{}{}
+	p.playerMu.Unlock()
+
 	player.SetVolume(volume)
 	player.Play()
 
-	// 播放完成后自动清理
-	// 注意：Ebiten 的 Player 会在播放结束后自动释放资源
+	// Wait for playback to finish in a background goroutine, then clean up.
+	go func() {
+		for player.IsPlaying() {
+			time.Sleep(50 * time.Millisecond)
+		}
+		if err := player.Close(); err != nil {
+			fmt.Printf("[WARN] Failed to close audio player: %v\n", err)
+		}
+
+		p.playerMu.Lock()
+		delete(p.activePlayers, player)
+		p.playerMu.Unlock()
+	}()
+}
+
+// ActivePlayerCount returns the number of currently playing audio players (for testing).
+func (p *AudioPlayer) ActivePlayerCount() int {
+	p.playerMu.Lock()
+	defer p.playerMu.Unlock()
+	return len(p.activePlayers)
 }
 
 // decodeWAV 解码 WAV 格式音频

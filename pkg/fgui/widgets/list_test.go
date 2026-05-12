@@ -22,9 +22,9 @@ func TestListAccessors(t *testing.T) {
 }
 
 func TestListSelectionOnClick(t *testing.T) {
-	// TODO: 这个测试在添加SetMouseThrough(true)后失败了
-	// 可能与空GObject的命中测试有关，或与事件模拟有关
-	t.Skip("TODO: 修复List点击事件测试 - 与SetMouseThrough(true)或事件模拟相关")
+	// Known issue: 点击事件模拟后 selected index 为 -1，可能与 StageEnv 的 hit test 路径有关
+	// 需要排查 GObject.DisplayObject 的显式树是否正确定位于测试舞台中
+	t.Skip("TODO: 修复List点击事件测试 - 与事件模拟环境 hit test 路径相关")
 
 	list := NewList()
 	list.GComponent.GObject.SetSize(200, 60)

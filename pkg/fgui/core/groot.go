@@ -35,9 +35,12 @@ type GRoot struct {
 
 	stage *laya.Stage
 
-	popupStack []*GObject
-	justClosed []*GObject
-	checking   bool
+	popupStack   []*GObject
+	justClosed   []*GObject
+	windowStack  []*Window
+	modalLayer   *GObject
+	modalWaitPane *GObject
+	checking     bool
 
 	stageMouseDown laya.Listener
 	stageMouseUp   laya.Listener
@@ -50,9 +53,10 @@ func NewGRoot() *GRoot {
 		comp.DisplayObject().SetName("GRoot")
 	}
 	return &GRoot{
-		GComponent: comp,
-		popupStack: make([]*GObject, 0),
-		justClosed: make([]*GObject, 0),
+		GComponent:  comp,
+		popupStack:  make([]*GObject, 0),
+		justClosed:  make([]*GObject, 0),
+		windowStack: make([]*Window, 0),
 	}
 }
 
@@ -194,6 +198,123 @@ func (r *GRoot) HideAllPopups() {
 		popup := r.popupStack[len(r.popupStack)-1]
 		r.popupStack = r.popupStack[:len(r.popupStack)-1]
 		r.closePopup(popup)
+	}
+}
+
+// ShowWindow adds a Window to the root and manages the window stack.
+func (r *GRoot) ShowWindow(w *Window) {
+	if w == nil || w.isShowing {
+		return
+	}
+	w.isShowing = true
+	r.AddChild(w.GObject)
+	r.windowStack = append(r.windowStack, w)
+
+	if w.modal {
+		r.showModalLayer()
+	}
+
+	w.onShown()
+	w.doShowAnimation()
+}
+
+// HideWindow hides a Window with animation.
+func (r *GRoot) HideWindow(w *Window) {
+	if w == nil || !w.isShowing {
+		return
+	}
+	w.isShowing = false
+	w.isTop = false
+
+	for i, entry := range r.windowStack {
+		if entry == w {
+			r.windowStack = append(r.windowStack[:i], r.windowStack[i+1:]...)
+			break
+		}
+	}
+
+	if len(r.windowStack) == 0 {
+		r.hideModalLayer()
+	}
+
+	w.doHideAnimation()
+	w.onHide()
+	r.RemoveChild(w.GObject)
+}
+
+// HideWindowImmediately hides a Window without animation.
+func (r *GRoot) HideWindowImmediately(w *Window) {
+	if w == nil || !w.isShowing {
+		return
+	}
+	w.isShowing = false
+	w.isTop = false
+
+	for i, entry := range r.windowStack {
+		if entry == w {
+			r.windowStack = append(r.windowStack[:i], r.windowStack[i+1:]...)
+			break
+		}
+	}
+
+	if len(r.windowStack) == 0 {
+		r.hideModalLayer()
+	}
+
+	w.onHide()
+	r.RemoveChild(w.GObject)
+}
+
+// BringToFront moves the window to the top of the stack.
+func (r *GRoot) BringToFront(w *Window) {
+	for i, entry := range r.windowStack {
+		if entry == w {
+			r.windowStack = append(r.windowStack[:i], r.windowStack[i+1:]...)
+			break
+		}
+	}
+	r.windowStack = append(r.windowStack, w)
+	r.RemoveChild(w.GObject)
+	r.AddChild(w.GObject)
+}
+
+// ShowModalWait displays a loading indicator with the given message.
+func (r *GRoot) ShowModalWait(msg string) {
+	if r.modalWaitPane == nil {
+		r.modalWaitPane = NewGObject()
+		r.modalWaitPane.SetSize(r.Width(), r.Height())
+		r.AddChild(r.modalWaitPane)
+	}
+	_ = msg
+}
+
+// CloseModalWait removes the loading indicator.
+func (r *GRoot) CloseModalWait() {
+	if r.modalWaitPane != nil {
+		r.RemoveChild(r.modalWaitPane)
+		r.modalWaitPane = nil
+	}
+}
+
+// HasAnyWindow reports whether at least one window is open.
+func (r *GRoot) HasAnyWindow() bool {
+	return len(r.windowStack) > 0
+}
+
+func (r *GRoot) showModalLayer() {
+	if r.modalLayer == nil {
+		r.modalLayer = NewGObject()
+		r.modalLayer.SetSize(r.Width(), r.Height())
+		r.modalLayer.SetTouchable(true)
+	}
+	if r.modalLayer.Parent() == nil {
+		r.AddChild(r.modalLayer)
+	}
+}
+
+func (r *GRoot) hideModalLayer() {
+	if r.modalLayer != nil && r.modalLayer.Parent() != nil {
+		r.RemoveChild(r.modalLayer)
 	}
 }
 

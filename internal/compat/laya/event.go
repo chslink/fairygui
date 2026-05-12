@@ -2,6 +2,7 @@ package laya
 
 import (
 	"reflect"
+	"sync/atomic"
 )
 
 // EventType identifies an event emitted by the compatibility layer.
@@ -39,7 +40,13 @@ const (
 	EventFocusIn        EventType = "focusIn"
 	EventFocusOut       EventType = "focusOut"
 	EventLink           EventType = "link"
+	EventDrop           EventType = "drop"
+	EventPullDownRelease EventType = "pullDownRelease"
+	EventPullUpRelease   EventType = "pullUpRelease"
 )
+
+// ListenerID uniquely identifies a registered event listener.
+type ListenerID uint64
 
 // Event carries the runtime payload for a dispatched event.
 type Event struct {
@@ -68,22 +75,26 @@ func StopPropagation(evt Event) {
 
 
 // Listener reacts to an emitted event.
-// Changed to receive *Event to support StopPropagation()
 type Listener func(*Event)
 
 // EventDispatcher dispatches named events to registered listeners.
 type EventDispatcher interface {
 	On(evt EventType, fn Listener)
+	OnWithID(evt EventType, fn Listener) ListenerID
 	Once(evt EventType, fn Listener)
 	Off(evt EventType, fn Listener)
+	OffByID(evt EventType, id ListenerID)
 	Emit(evt EventType, data any)
 }
 
 type listenerEntry struct {
+	id   uint64
 	fn   Listener
 	key  uintptr
 	once bool
 }
+
+var globalListenerSeq uint64
 
 // BasicEventDispatcher is a simple in-memory dispatcher. It is not thread safe.
 type BasicEventDispatcher struct {
@@ -102,6 +113,23 @@ func (d *BasicEventDispatcher) On(evt EventType, fn Listener) {
 	d.addListener(evt, fn, false)
 }
 
+// OnWithID registers a listener and returns a unique ListenerID for later removal.
+// This is the recommended method when you need to reliably remove anonymous listener wrappers.
+func (d *BasicEventDispatcher) OnWithID(evt EventType, fn Listener) ListenerID {
+	if fn == nil {
+		return 0
+	}
+	id := ListenerID(atomic.AddUint64(&globalListenerSeq, 1))
+	entry := listenerEntry{
+		id:   uint64(id),
+		fn:   fn,
+		key:  reflect.ValueOf(fn).Pointer(),
+		once: false,
+	}
+	d.listeners[evt] = append(d.listeners[evt], entry)
+	return id
+}
+
 // Once registers a listener that will be removed after it runs once.
 func (d *BasicEventDispatcher) Once(evt EventType, fn Listener) {
 	d.addListener(evt, fn, true)
@@ -112,6 +140,7 @@ func (d *BasicEventDispatcher) addListener(evt EventType, fn Listener, once bool
 		return
 	}
 	entry := listenerEntry{
+		id:   uint64(atomic.AddUint64(&globalListenerSeq, 1)),
 		fn:   fn,
 		key:  reflect.ValueOf(fn).Pointer(),
 		once: once,
@@ -119,7 +148,10 @@ func (d *BasicEventDispatcher) addListener(evt EventType, fn Listener, once bool
 	d.listeners[evt] = append(d.listeners[evt], entry)
 }
 
-// Off removes a listener from the event list.
+// Off removes a listener from the event list by function pointer comparison.
+// Note: This uses reflect.ValueOf(fn).Pointer() for matching, so anonymous
+// functions created on the fly (e.g. in OffClick) will NOT match.
+// For anonymous wrappers, use OnWithID/OffByID instead.
 func (d *BasicEventDispatcher) Off(evt EventType, fn Listener) {
 	if fn == nil {
 		return
@@ -139,6 +171,25 @@ func (d *BasicEventDispatcher) Off(evt EventType, fn Listener) {
 	}
 }
 
+// OffByID removes a listener by its ListenerID (obtained from OnWithID).
+func (d *BasicEventDispatcher) OffByID(evt EventType, id ListenerID) {
+	if id == 0 {
+		return
+	}
+	list := d.listeners[evt]
+	out := list[:0]
+	for _, entry := range list {
+		if entry.id != uint64(id) {
+			out = append(out, entry)
+		}
+	}
+	if len(out) == 0 {
+		delete(d.listeners, evt)
+	} else {
+		d.listeners[evt] = out
+	}
+}
+
 // Emit dispatches an event to registered listeners.
 func (d *BasicEventDispatcher) Emit(evt EventType, data any) {
 	list := d.listeners[evt]
@@ -146,8 +197,6 @@ func (d *BasicEventDispatcher) Emit(evt EventType, data any) {
 		return
 	}
 
-	// 如果data已经是*Event指针，直接使用
-	// 否则创建新的Event对象
 	var event *Event
 	if e, ok := data.(*Event); ok {
 		event = e
@@ -158,7 +207,6 @@ func (d *BasicEventDispatcher) Emit(evt EventType, data any) {
 	remaining := list[:0]
 	for _, entry := range list {
 		if entry.fn != nil {
-			// 传递*Event指针，这样监听器可以调用StopPropagation()
 			entry.fn(event)
 		}
 		if !entry.once {

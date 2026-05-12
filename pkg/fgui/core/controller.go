@@ -12,6 +12,7 @@ type Controller struct {
 	changing       bool
 	nextListenerID int
 	listeners      map[int]func(*Controller)
+	actions        []*ControllerAction
 }
 
 // NewController constructs a controller.
@@ -109,6 +110,7 @@ func (c *Controller) SetSelectedIndex(index int) {
 	c.previousIndex = c.selectedIndex
 	c.selectedIndex = index
 	c.applySelection()
+	c.RunActions()
 	c.notifySelectionChanged()
 }
 
@@ -274,12 +276,44 @@ func (c *Controller) notifySelectionChanged() {
 	if c == nil || len(c.listeners) == 0 {
 		return
 	}
-	// Copy listeners to avoid mutation during iteration.
 	tmp := make([]func(*Controller), 0, len(c.listeners))
 	for _, fn := range c.listeners {
 		tmp = append(tmp, fn)
 	}
 	for _, fn := range tmp {
 		fn(c)
+	}
+}
+
+// AddAction appends a controller action that fires on page changes.
+func (c *Controller) AddAction(action *ControllerAction) {
+	if c == nil || action == nil {
+		return
+	}
+	c.actions = append(c.actions, action)
+}
+
+// Actions returns a copy of the controller actions.
+func (c *Controller) Actions() []*ControllerAction {
+	if c == nil {
+		return nil
+	}
+	out := make([]*ControllerAction, len(c.actions))
+	copy(out, c.actions)
+	return out
+}
+
+// RunActions executes all matching actions on a page transition.
+func (c *Controller) RunActions() {
+	if c == nil {
+		return
+	}
+	prevPageID := ""
+	if c.previousIndex >= 0 && c.previousIndex < len(c.PageIDs) {
+		prevPageID = c.PageIDs[c.previousIndex]
+	}
+	curPageID := c.SelectedPageID()
+	for _, action := range c.actions {
+		action.Run(c, prevPageID, curPageID)
 	}
 }

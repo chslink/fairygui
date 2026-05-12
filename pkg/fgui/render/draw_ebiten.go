@@ -431,8 +431,6 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 					if list, ok := obj.Data().(*widgets.GList); ok && list.IsVirtual() {
 						list.CheckVirtualList()
 					}
-					//fmt.Printf("[DEBUG GList] (vector path) rendering GList: name=%s, children=%d\n",
-					//	obj.Name(), len(data.GComponent.Children()))
 					return drawComponent(target, data.GComponent, atlas, combined, alpha)
 				case *widgets.GTree:
 					return drawComponent(target, data.GComponent, atlas, combined, alpha)
@@ -491,8 +489,6 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			}
 		case *widgets.GList:
 			// GList 也是容器
-			//fmt.Printf("[DEBUG GList] rendering GList: name=%s, children=%d\n",
-			//	obj.Name(), len(data.GComponent.Children()))
 			return drawComponent(target, data.GComponent, atlas, combined, alpha)
 		case *widgets.GTree:
 			// GTree 也是容器

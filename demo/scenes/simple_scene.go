@@ -11,10 +11,11 @@ type simpleScene struct {
 	packageName string
 	candidates  []string
 	component   *core.GComponent
+	setupFn     func(*core.GComponent, *Manager)
 }
 
-// NewSimpleScene 构建一个仅需加载指定包组件的简单 Demo 场景。
-func NewSimpleScene(name, packageName string, candidates ...string) Scene {
+// NewSimpleScene constructs a scene that loads and displays a component from a package.
+func NewSimpleScene(name, packageName string, candidates ...string) *simpleScene {
 	if len(candidates) == 0 {
 		candidates = []string{"Main"}
 	}
@@ -25,6 +26,12 @@ func NewSimpleScene(name, packageName string, candidates ...string) Scene {
 		packageName: packageName,
 		candidates:  names,
 	}
+}
+
+// WithSetup registers a callback that runs after the component is loaded.
+func (s *simpleScene) WithSetup(fn func(comp *core.GComponent, mgr *Manager)) *simpleScene {
+	s.setupFn = fn
+	return s
 }
 
 func (s *simpleScene) Name() string {
@@ -46,6 +53,9 @@ func (s *simpleScene) Load(ctx context.Context, mgr *Manager) (*core.GComponent,
 		return nil, err
 	}
 	s.component = component
+	if s.setupFn != nil {
+		s.setupFn(component, mgr)
+	}
 	return component, nil
 }
 

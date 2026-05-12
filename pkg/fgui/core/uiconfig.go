@@ -11,41 +11,37 @@ const (
 )
 
 // UIConfig stores global FairyGUI configuration.
-// 对应 TypeScript 版本 UIConfig.ts
 type UIConfig struct {
-	// 默认水平滚动条资源 URL
-	HorizontalScrollBar string
-	// 默认垂直滚动条资源 URL
-	VerticalScrollBar string
-	// 默认滚动条显示模式
-	DefaultScrollBarDisplay ScrollBarDisplayType
-	// 默认滚动步长（像素）
-	DefaultScrollStep float64
-	// 默认鼠标滚轮步长
-	DefaultScrollTouchEffect bool
-	DefaultScrollBounceEffect bool
-	// 图片缩放时使用的全局Filter模式（默认使用线性过滤获得更好的抗锯齿效果）
-	ImageFilter ImageFilter
-	// 默认按钮点击音效 URL
-	ButtonSound string
-	// 默认按钮点击音效音量（0-1）
-	ButtonSoundVolumeScale float64
-	// 默认右键菜单资源 URL
-	PopupMenu string
+	HorizontalScrollBar           string
+	VerticalScrollBar             string
+	DefaultScrollBarDisplay       ScrollBarDisplayType
+	DefaultScrollStep             float64
+	DefaultScrollTouchEffect      bool
+	DefaultScrollBounceEffect     bool
+	ImageFilter                   ImageFilter
+	ButtonSound                   string
+	ButtonSoundVolumeScale        float64
+	PopupMenu                     string
+	PopupMenuSeperator            string
+	GlobalModalWaiting            string
+	WindowModalWaiting            string
+	BringWindowToFrontOnClick     bool
+	FrameTimeForAsyncUIConstruction float64
 }
 
-// globalUIConfig 全局配置实例
 var globalUIConfig = &UIConfig{
-	HorizontalScrollBar:         "",
-	VerticalScrollBar:           "",
-	DefaultScrollBarDisplay:     ScrollBarDisplayVisible,
-	DefaultScrollStep:           25,
-	DefaultScrollTouchEffect:    true,
-	DefaultScrollBounceEffect:   true,
-	ImageFilter:                 ImageFilterLinear, // 默认使用线性过滤获得更好的抗锯齿效果
-	PopupMenu:                   "",                // 默认右键菜单资源
-	ButtonSound:                 "",                // 默认按钮点击音效
-	ButtonSoundVolumeScale:      1,                 // 默认按钮点击音效音量
+	HorizontalScrollBar:              "",
+	VerticalScrollBar:                "",
+	DefaultScrollBarDisplay:          ScrollBarDisplayVisible,
+	DefaultScrollStep:                25,
+	DefaultScrollTouchEffect:         true,
+	DefaultScrollBounceEffect:        true,
+	ImageFilter:                      ImageFilterLinear,
+	PopupMenu:                        "",
+	ButtonSound:                      "",
+	ButtonSoundVolumeScale:           1,
+	BringWindowToFrontOnClick:        true,
+	FrameTimeForAsyncUIConstruction:  0.002,
 }
 
 // GetUIConfig 返回全局 UIConfig 实例

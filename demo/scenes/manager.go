@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/chslink/fairygui/internal/compat/laya"
 	"github.com/chslink/fairygui/pkg/fgui/core"
@@ -57,16 +58,26 @@ func NewManager(ctx context.Context, env *Environment) (*Manager, error) {
 	mgr.Register("VirtualListDemo", func() Scene { return NewVirtualListDemo() })
 	mgr.Register("LoopListDemo", func() Scene { return NewLoopListDemo() })
 	mgr.Register("HitTestDemo", func() Scene { return NewSimpleScene("HitTestDemo", "HitTest") })
-	mgr.Register("PullToRefreshDemo", func() Scene { return NewSimpleScene("PullToRefreshDemo", "PullToRefresh") })
-	mgr.Register("ModalWaitingDemo", func() Scene { return NewSimpleScene("ModalWaitingDemo", "ModalWaiting") })
+	mgr.Register("PullToRefreshDemo", func() Scene {
+		return NewSimpleScene("PullToRefreshDemo", "PullToRefresh").WithSetup(pullToRefreshSetup)
+	})
+	mgr.Register("ModalWaitingDemo", func() Scene {
+		return NewSimpleScene("ModalWaitingDemo", "ModalWaiting").WithSetup(modalWaitingSetup)
+	})
 	mgr.Register("JoystickDemo", func() Scene { return NewJoystickDemo() })
-	mgr.Register("BagDemo", func() Scene { return NewSimpleScene("BagDemo", "Bag") })
+	mgr.Register("BagDemo", func() Scene {
+		return NewSimpleScene("BagDemo", "Bag").WithSetup(bagSetup)
+	})
 	mgr.Register("ChatDemo", func() Scene { return NewSimpleScene("ChatDemo", "Chat") })
 	mgr.Register("ListEffectDemo", func() Scene { return NewSimpleScene("ListEffectDemo", "ListEffect") })
 	mgr.Register("ScrollPaneDemo", func() Scene { return NewSimpleScene("ScrollPaneDemo", "ScrollPane") })
 	mgr.Register("TreeViewDemo", func() Scene { return NewSimpleScene("TreeViewDemo", "TreeView") })
-	mgr.Register("GuideDemo", func() Scene { return NewSimpleScene("GuideDemo", "Guide") })
-	mgr.Register("CooldownDemo", func() Scene { return NewSimpleScene("CooldownDemo", "Cooldown") })
+	mgr.Register("GuideDemo", func() Scene {
+		return NewSimpleScene("GuideDemo", "Guide").WithSetup(guideSetup)
+	})
+	mgr.Register("CooldownDemo", func() Scene {
+		return NewSimpleScene("CooldownDemo", "Cooldown").WithSetup(cooldownSetup)
+	})
 
 	// 设置默认滚动条（在启动场景之前）
 	// 从 Basics 包加载默认滚动条组件
@@ -253,4 +264,62 @@ func (m *Manager) updateCloseButtonVisibility(scene Scene) {
 	isMain := scene == nil || strings.EqualFold(scene.Name(), mainMenuSceneName)
 	obj.SetVisible(!isMain)
 	obj.SetTouchable(!isMain)
+}
+
+// ---- Scene setup callbacks ----
+
+func pullToRefreshSetup(comp *core.GComponent, mgr *Manager) {
+	env := mgr.Environment()
+	pkg, err := env.Package(mgr.ctx, "PullToRefresh")
+	if err != nil {
+		return
+	}
+	_ = pkg
+	// Set up pull-to-refresh interaction via list's scroll pane.
+}
+
+func modalWaitingSetup(comp *core.GComponent, mgr *Manager) {
+	btn0 := comp.ChildByName("n0")
+	btn1 := comp.ChildByName("n1")
+	if btn0 != nil {
+		btn0.OnClick(func() {
+			core.Inst().ShowModalWait("Processing...")
+			core.Inst().Scheduler().After(3*time.Second, func() {
+				core.Inst().CloseModalWait()
+			})
+		})
+	}
+	if btn1 != nil {
+		btn1.OnClick(func() {
+			core.Inst().ShowModalWait("Loading...")
+			core.Inst().Scheduler().After(3*time.Second, func() {
+				core.Inst().CloseModalWait()
+			})
+		})
+	}
+}
+
+func bagSetup(comp *core.GComponent, _ *Manager) {
+	btn := comp.ChildByName("n1")
+	if btn != nil {
+		btn.OnClick(func() {
+			win := core.NewWindow()
+			win.SetOnShown(func() {
+				// setup list items
+			})
+			win.CenterOn(core.Inst())
+			win.Show()
+		})
+	}
+}
+
+func guideSetup(comp *core.GComponent, _ *Manager) {
+	btn0 := comp.ChildByName("n0")
+	if btn0 != nil {
+		btn0.OnClick(func() {})
+	}
+}
+
+func cooldownSetup(comp *core.GComponent, _ *Manager) {
+	// Cooldown animation via ticker
 }

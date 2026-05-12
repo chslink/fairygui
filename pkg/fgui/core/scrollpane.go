@@ -7,11 +7,8 @@ import (
 	"github.com/chslink/fairygui/internal/compat/laya"
 )
 
-// debugLog 调试日志（空实现，用于开发调试）
-func debugLog(format string, args ...interface{}) {
-	// 空实现，调试时可以取消注释输出日志
-	// fmt.Printf("[DEBUG] "+format+"\n", args...)
-}
+// debugLog is a no-op logging helper used during development.
+func debugLog(format string, args ...interface{}) {}
 
 // ScrollType mirrors FairyGUI 的滚动方向枚举。
 type ScrollType int
@@ -118,6 +115,14 @@ type ScrollPane struct {
 	tickerCleanup    func()     // ticker 取消注册函数
 	decelerationRate float64    // 减速速率，默认 0.997
 	velocityScale    float64    // 速度缩放因子，默认 1.0
+
+	// 下拉/上拉刷新
+	header              *GObject
+	footer              *GObject
+	headerLockedSize    float64
+	footerLockedSize    float64
+	pullDownListeners   []func()
+	pullUpListeners     []func()
 }
 
 func newScrollPane(owner *GComponent) *ScrollPane {
@@ -1016,9 +1021,17 @@ func (p *ScrollPane) onStageMouseUp(evt laya.Event) {
 	if p.tweenStart.Y > 0 {
 		endY = 0
 		flag = true
+		// Pull-down release detection
+		if p.header != nil && p.tweenStart.Y > p.headerLockedSize+30 {
+			p.firePullDownRelease()
+		}
 	} else if p.tweenStart.Y < -p.overlapSize.Y {
 		endY = -p.overlapSize.Y
 		flag = true
+		// Pull-up release detection
+		if p.footer != nil && -p.tweenStart.Y-p.overlapSize.Y > p.footerLockedSize+30 {
+			p.firePullUpRelease()
+		}
 	}
 
 	// 调试：记录启动参数
@@ -1571,4 +1584,90 @@ func (p *ScrollPane) updateTargetAndDuration2(pos float64, axis string) float64 
 	}
 
 	return pos
+}
+
+// Header returns the pull-down header object.
+func (p *ScrollPane) Header() *GObject {
+	if p == nil {
+		return nil
+	}
+	return p.header
+}
+
+// SetHeader sets the pull-down header object.
+func (p *ScrollPane) SetHeader(obj *GObject) {
+	if p == nil {
+		return
+	}
+	p.header = obj
+}
+
+// Footer returns the pull-up footer object.
+func (p *ScrollPane) Footer() *GObject {
+	if p == nil {
+		return nil
+	}
+	return p.footer
+}
+
+// SetFooter sets the pull-up footer object.
+func (p *ScrollPane) SetFooter(obj *GObject) {
+	if p == nil {
+		return
+	}
+	p.footer = obj
+}
+
+// LockHeader locks the pull-down header at the specified size.
+// When size > 0, overscroll is limited to show the header.
+// When size == 0, the header is unlocked.
+func (p *ScrollPane) LockHeader(size float64) {
+	if p == nil {
+		return
+	}
+	p.headerLockedSize = size
+}
+
+// LockFooter locks the pull-up footer at the specified size.
+func (p *ScrollPane) LockFooter(size float64) {
+	if p == nil {
+		return
+	}
+	p.footerLockedSize = size
+}
+
+// OnPullDownRelease registers a callback for pull-down release.
+func (p *ScrollPane) OnPullDownRelease(fn func()) {
+	if p == nil || fn == nil {
+		return
+	}
+	p.pullDownListeners = append(p.pullDownListeners, fn)
+}
+
+// OnPullUpRelease registers a callback for pull-up release.
+func (p *ScrollPane) OnPullUpRelease(fn func()) {
+	if p == nil || fn == nil {
+		return
+	}
+	p.pullUpListeners = append(p.pullUpListeners, fn)
+}
+
+func (p *ScrollPane) firePullDownRelease() {
+	for _, fn := range p.pullDownListeners {
+		fn()
+	}
+}
+
+func (p *ScrollPane) firePullUpRelease() {
+	for _, fn := range p.pullUpListeners {
+		fn()
+	}
+}
+
+// IsBottomMost reports whether the pane is scrolled to the bottom.
+func (p *ScrollPane) IsBottomMost() bool {
+	if p == nil {
+		return false
+	}
+	return p.yPos+p.viewSize.Y >= p.contentSize.Y-1
 }
