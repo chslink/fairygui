@@ -1,21 +1,10 @@
 # FairyGUI Ebiten
-**本项目是纯AI实现**,目前还处于开发阶段
-FairyGUI Ebiten 是一个基于 Ebiten 游戏引擎的 FairyGUI UI 框架 Go 语言实现。该项目旨在为 Go 开发者提供强大的 UI 系统，支持丰富的界面组件和交互功能。
 
-## 特性
-
-- 基于 Ebiten 游戏引擎的高效渲染
-- 支持 FairyGUI 的 UI 组件系统
-- 完整的事件处理机制
-- 虚拟列表支持，优化大量数据渲染性能
-- 丰富的 UI 组件，包括按钮、列表、滚动条、过渡动画等
-- 支持多种文本渲染和字体处理
-- 调试工具集，便于开发和调试
+基于 [Ebiten](https://ebiten.org/) 游戏引擎的 FairyGUI UI 框架 Go 语言移植。
 
 ## 安装
 
 ```bash
-go mod init your-project
 go get github.com/chslink/fairygui
 ```
 
@@ -25,123 +14,155 @@ go get github.com/chslink/fairygui
 package main
 
 import (
-    "context"
-    "log"
+	"context"
+	"image/color"
+	"log"
+	"time"
 
-    "github.com/hajimehoshi/ebiten/v2"
-    "github.com/chslink/fairygui/pkg/fgui"
-    "github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/chslink/fairygui/pkg/fgui"
+	"github.com/chslink/fairygui/pkg/fgui/core"
+	"github.com/chslink/fairygui/pkg/fgui/render"
 )
 
-func main() {
-    // 初始化 FairyGUI
-    ctx := context.Background()
-    
-    // 创建 UI 工厂
-    factory := fgui.NewFactory(nil, nil)
-    
-    // 加载 FairyGUI 包
-    // data, err := os.ReadFile("path/to/your/ui.fui")
-    // if err != nil {
-    //     log.Fatal(err)
-    // }
-    // pkg, err := fgui.ParsePackage(data, "ui-package")
-    // if err != nil {
-    //     log.Fatal(err)
-    // }
-    // factory.RegisterPackage(pkg)
-    
-    // 构建 UI 组件
-    // item := pkg.ItemByName("Main")
-    // component, err := factory.BuildComponent(ctx, pkg, item)
-    // if err != nil {
-    //     log.Fatal(err)
-    // }
-    
-    // 创建根容器并添加组件
-    root := core.GRoot.Inst()
-    // root.GObject.AddChild(component.GComponent.GObject)
-    
-    // 设置 Ebiten 窗口并运行
-    ebiten.SetWindowSize(800, 600)
-    ebiten.SetWindowTitle("FairyGUI Ebiten Demo")
-    
-    // 创建并运行游戏实例
-    game := &Game{root: root}
-    if err := ebiten.RunGame(game); err != nil {
-        log.Fatal(err)
-    }
-}
+type Game struct{ root *core.GRoot }
 
-type Game struct {
-    root *core.GRoot
-}
-
-func (g *Game) Update() error {
-    return nil
-}
-
+func (g *Game) Update() error { return nil }
 func (g *Game) Draw(screen *ebiten.Image) {
-    // FairyGUI 的渲染将自动处理
+	screen.Fill(color.RGBA{30, 30, 30, 255})
+	// 渲染 FGUI 组件树
+	render.DrawComponent(screen, g.root.GComponent, nil)
 }
+func (g *Game) Layout(w, h int) (int, int) { return 800, 600 }
 
-func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-    return 800, 600
+func main() {
+	root := core.Inst()
+	game := &Game{root: root}
+	ebiten.SetWindowSize(800, 600)
+	ebiten.SetWindowTitle("FairyGUI Ebiten")
+	if err := ebiten.RunGame(game); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-## 项目结构
+### Options 模式
 
-- `cmd/` - 命令行工具
-- `demo/` - 演示程序
-- `docs/` - 文档
-- `internal/` - 内部实现
-- `pkg/fgui/` - FairyGUI 核心实现
-  - `assets/` - 资源加载
-  - `builder/` - 组件构建器
-  - `core/` - 核心组件
-  - `gears/` - 齿轮系统
-  - `render/` - 渲染系统
-  - `tween/` - 补间动画
-  - `utils/` - 工具函数
-  - `widgets/` - UI 小部件
+```go
+btn := fgui.CreateButton(
+	fgui.WithPosition(100, 200),
+	fgui.WithSize(120, 40),
+	fgui.WithTitle("确认"),
+)
+```
+
+### Builder 链式
+
+```go
+list := fgui.NewListBuilder().
+	Virtual(true).
+	NumItems(100).
+	ItemRenderer(func(i int, obj *fgui.GObject) {
+		// 设置项目内容
+	}).
+	Build()
+```
+
+### 事件系统
+
+```go
+cancel := fgui.ListenClick(btn, func() { fmt.Println("clicked") })
+defer cancel()
+```
 
 ## 演示程序
 
-运行内置的演示程序：
-
 ```bash
-cd demo
-go run main.go
+go run ./demo
 ```
 
-## 调试工具
+16 个交互场景：按钮、文本、网格、列表、进度条、窗口、弹窗、拖放、树形视图、引导层、摇杆、虚拟列表、循环列表、过渡动画等。
 
-项目包含强大的调试工具集，包括：
+内建 HTTP 调试服务器（端口 8090），提供组件树、类型过滤、虚拟列表分析。
 
-- Inspector - 对象检查器
-- EventSimulator - 事件模拟器
-- HTTP 调试服务器 - 提供 Web 界面和 REST API
+## 控件覆盖
 
-启动调试服务器：
+| 控件 | 状态 |
+|------|------|
+| GButton | ✅ 完整（Common/Check/Radio 模式） |
+| GTextField / GRichTextField | ✅ 完整（UBB 解析） |
+| GTextInput | ✅ 完整（控制键/剪贴板，IME 待 Ebiten v2.10） |
+| GLabel | ✅ 完整（图标+标题） |
+| GImage | ✅ 完整（九宫格/平铺/FillMethod） |
+| GLoader | ✅ 完整（异步加载/FillMethod/Scale9） |
+| GList / GList(Virtual) | ✅ 完整（虚拟/循环/多选/分页） |
+| GTree | ✅ 完整（展开/折叠/自定义节点） |
+| GComboBox | ✅ 完整 |
+| GProgressBar | ✅ 完整 |
+| GSlider | ✅ 完整 |
+| GScrollBar | ✅ 完整 |
+| GGraph | ✅ 完整（绘图命令） |
+| GGroup | ✅ 完整 |
+| GMovieClip | ✅ 完整（帧动画/回放控制） |
 
-```go
-debugServer := debug.NewServer(root.GObject, stage, 8080)
-if err := debugServer.Start(); err != nil {
-    log.Printf("调试服务器启动失败: %v", err)
-} else {
-    log.Printf("调试服务器: %s", debugServer.GetURL())
-}
+## 核心能力
+
+| 系统 | 状态 |
+|------|------|
+| Relations 关联布局 | ✅ |
+| Controller 状态机 + Action 链 | ✅ |
+| Transition 过渡动画 | ✅ |
+| Gears 齿轮系统 (11 种) | ✅ |
+| Tween 补间引擎 | ✅ |
+| ScrollPane 滚动面板 | ✅ |
+| Window 模态窗口 | ✅ |
+| PopupMenu 弹出菜单 | ✅ |
+| DragDropManager 拖拽 | ✅ |
+| ByteBuffer 二进制解析 | ✅ |
+| 对象池 | ✅ |
+| 音频播放 (WAV/MP3/Ogg) | ✅ |
+
+## 项目结构
+
+```
+fairygui/
+├── demo/              演示程序 (Ebiten 入口 + 场景)
+│   ├── assets/        16 个 .fui 资源包
+│   ├── scenes/        交互场景
+│   └── debug/         HTTP 调试服务器
+├── pkg/fgui/          公开 API
+│   ├── core/          核心类型 (GObject/GComponent/GRoot/Window/...)
+│   ├── widgets/       UI 控件
+│   ├── render/        Ebiten 渲染实现
+│   ├── assets/        资源加载与解析
+│   ├── builder/       从 .fui 构建组件树
+│   ├── gears/         齿轮状态系统
+│   ├── tween/         补间动画
+│   ├── utils/         工具函数
+│   └── audio/         音频播放
+├── internal/
+│   ├── compat/laya/   LayaAir 兼容层 (Sprite/Event/Stage/Timer)
+│   └── text/          UBB 解析
+├── docs/              文档
+│   ├── architecture.md
+│   ├── ime-status.md
+│   └── impl-plan/     实施计划文档
+└── laya_src/          TypeScript 参考源码
 ```
 
-## 依赖
+## 移植进度
 
-- [Ebiten](https://github.com/hajimehoshi/ebiten/v2) - Go 2D 游戏引擎
-- [x/image](https://github.com/golang/image) - Go 图像处理库
+TS 原始模块 72 个，已完整实现 64 个（88.9%）。
 
+**缺失模块**：GLoader3D（3D 骨骼动画，依赖 LayaAir 3D）、TranslationHelper（多语言翻译）、AssetProxy/AsyncOperation（Go 已有替代方案）
 
+详见 `docs/audit-ts-vs-go.md` 完整对比和 `docs/refactor-progress.md` 开发日志。
 
+## 已知限制
 
-## 目标
+- **IME 中文输入**：受 Ebiten 游戏引擎限制，当前不完全稳定。等待 Ebiten v2.10 `Composer` API 发布后彻底解决。详见 `docs/ime-status.md`。
+- `cmd/` 调试工具尚未迁移
 
-FairyGUI Ebiten 项目的目标是提供一个高性能、功能丰富的 UI 框架，让 Go 开发者能够轻松创建具有复杂用户界面的游戏和应用程序。该项目特别注重与原版 FairyGUI 的兼容性，同时充分利用 Go 语言和 Ebiten 引擎的优势。
+## License
+
+BSD-3-Clause
