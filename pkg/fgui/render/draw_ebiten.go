@@ -1510,24 +1510,22 @@ func drawTextInputCursor(target *ebiten.Image, geo ebiten.GeoM, input *widgets.G
 		fontSize = 12
 	}
 	letterSpacing := float64(input.LetterSpacing())
-	avgCharWidth := fontSize * 0.6
 
-	// 计算光标或选择区域的 X 坐标
+	// Use the global font face for accurate cursor positioning
+	face := labelFont
+
 	calculateX := func(pos int) float64 {
-		if pos < 0 {
-			pos = 0
-		}
-		if pos > len(runes) {
-			pos = len(runes)
-		}
+		if pos < 0 { pos = 0 }
+		if pos > len(runes) { pos = len(runes) }
 
 		x := 0.0
-		for i := 0; i < pos; i++ {
-			charWidth := avgCharWidth
-			if i < len(runes) && runes[i] == ' ' {
-				charWidth = fontSize * 0.3
+		for i := 0; i < pos && i < len(runes); i++ {
+			adv, ok := face.GlyphAdvance(runes[i])
+			if ok {
+				x += float64(adv) / 64.0
+			} else {
+				x += fontSize * 0.6 // fallback for unknown glyphs
 			}
-			x += charWidth
 			if i < pos-1 {
 				x += letterSpacing
 			}

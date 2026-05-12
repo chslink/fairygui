@@ -20,22 +20,39 @@ const (
 )
 
 var (
-	// activeField is the currently focused textinput.Field (one per application).
-	activeField   *textinput.Field
-	activeInput   *GTextInput
-	fieldLastText string
+	activeField      *textinput.Field
+	activeInput      *GTextInput
+	fieldLastText    string
+	pendingFocus     *textinput.Field
+	pendingFocusText string
+	pendingBlur      bool
 )
 
 // UpdateInputField must be called each frame from the Ebiten game loop.
-// It synchronizes the native IME text state with the active GTextInput.
+// It handles focus transitions and syncs IME text with the active GTextInput.
 func UpdateInputField(mx, my int) {
+	// Process pending focus/blur transitions (must happen inside Ebiten game loop)
+	if pendingBlur && activeField != nil {
+		activeField.Blur()
+		activeField = nil
+		pendingBlur = false
+	}
+	if pendingFocus != nil {
+		if activeField != nil && activeField != pendingFocus {
+			activeField.Blur()
+		}
+		pendingFocus.SetTextAndSelection(pendingFocusText, 0, len(pendingFocusText))
+		pendingFocus.Focus()
+		activeField = pendingFocus
+		fieldLastText = pendingFocusText
+		pendingFocus = nil
+	}
+
 	if activeField == nil {
 		return
 	}
-	func() {
-		defer func() { recover() }()
-		activeField.HandleInput(mx, my)
-	}()
+	activeField.HandleInput(mx, my)
+
 	newText := activeField.Text()
 	if newText != fieldLastText {
 		fieldLastText = newText
@@ -207,20 +224,16 @@ func (t *GTextInput) HandleMouseDown(x, y float64) bool {
 	t.cursorVisible = true
 	t.lastCursorBlink = time.Now()
 
-	// Try to use native IME Field; fall back to simple cursor tracking if Ebiten is not running (test env).
-	func() {
-		defer func() { recover() }()
-		if activeField != t.field {
-			t.field.Focus()
-			t.field.SetTextAndSelection(t.Text(), 0, len(t.Text()))
-			activeField = t.field
-			activeInput = t
-			fieldLastText = t.Text()
-			t.registerEventListeners()
-		}
-		t.field.HandleInput(int(x), int(y))
+	// Defer focus to game loop; set cursor immediately if already active
+	if activeField != t.field {
+		pendingFocus = t.field
+		pendingFocusText = t.Text()
+		pendingBlur = false
+		activeInput = t
+		t.registerEventListeners()
+	} else {
 		t.syncStateFromField()
-	}()
+	}
 	return true
 }
 
@@ -293,21 +306,33 @@ func (t *GTextInput) RequestFocus() {
 		}
 	}
 
-	func() {
-		defer func() { recover() }()
-		if activeField != t.field {
-			if activeField != nil {
-				activeField.Blur()
-			}
-		}
-		t.field.SetTextAndSelection(t.GTextField.Text(), 0, len(t.GTextField.Text()))
-		t.field.Focus()
-		activeField = t.field
-		activeInput = t
-		fieldLastText = t.GTextField.Text()
-	}()
+	// Defer actual Field.Focus() to the game loop (UpdateInputField)
+	pendingFocus = t.field
+	pendingFocusText = t.GTextField.Text()
+	pendingBlur = false
+	activeInput = t
 	t.registerEventListeners()
 }
+
+func (t *GTextInput) LoseFocus() {
+	if t == nil { return }
+	t.focused = false
+	t.cursorVisible = false
+	t.ClearSelection()
+
+	sprite := t.GTextField.GObject.DisplayObject()
+	if sprite != nil {
+		sprite.Dispatcher().Off(laya.EventKeyDown, nil)
+		sprite.Dispatcher().Off(laya.EventMouseDown, nil)
+	}
+	if activeInput == t {
+		pendingBlur = true
+		activeInput = nil
+	}
+}
+
+func (t *GTextInput) IsFocused() bool { return t != nil && t.focused }
+func (t *GTextInput) IsCursorVisible() bool { return t != nil && t.focused && t.cursorVisible }
 
 func (t *GTextInput) registerEventListeners() {
 	sprite := t.GTextField.GObject.DisplayObject()
@@ -323,32 +348,10 @@ func (t *GTextInput) registerEventListeners() {
 	sprite.Dispatcher().On(laya.EventMouseDown, func(evt *laya.Event) {
 		if pe, ok := evt.Data.(laya.PointerEvent); ok {
 			local := sprite.GlobalToLocal(pe.Position)
-			t.field.HandleInput(int(local.X), int(local.Y))
-			t.syncStateFromField()
+			t.HandleMouseDown(local.X, local.Y)
 		}
 	})
 }
-
-func (t *GTextInput) LoseFocus() {
-	if t == nil { return }
-	t.focused = false
-	t.cursorVisible = false
-	t.ClearSelection()
-
-	sprite := t.GTextField.GObject.DisplayObject()
-	if sprite != nil {
-		sprite.Dispatcher().Off(laya.EventKeyDown, nil)
-		sprite.Dispatcher().Off(laya.EventMouseDown, nil)
-	}
-	if activeField == t.field {
-		t.field.Blur()
-		activeField = nil
-		activeInput = nil
-	}
-}
-
-func (t *GTextInput) IsFocused() bool { return t != nil && t.focused }
-func (t *GTextInput) IsCursorVisible() bool { return t != nil && t.focused && t.cursorVisible }
 
 func (t *GTextInput) UpdateCursor(deltaTime float64) {
 	if t == nil || !t.focused { return }
