@@ -579,7 +579,7 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 		if textValue == "" {
 			// Render placeholder text when no user input
 			if prompt := data.PromptText(); prompt != "" {
-				if err := drawTextImage(target, combined, data.GTextField, prompt, alpha*0.5, obj.Width(), obj.Height(), atlas, sprite); err != nil {
+				if err := drawPlaceholderImage(target, combined, data.GTextField, prompt, alpha*0.5, obj.Width(), obj.Height(), atlas, sprite); err != nil {
 					return err
 				}
 			}

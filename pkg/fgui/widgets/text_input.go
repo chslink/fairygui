@@ -9,6 +9,9 @@ import (
 	"github.com/chslink/fairygui/pkg/fgui/utils"
 )
 
+// internalClipboard stores copied text within the application.
+var internalClipboard string
+
 // KeyboardType 枚举常用输入类型。
 type KeyboardType string
 
@@ -210,6 +213,26 @@ func (t *GTextInput) CursorPosition() int {
 		return 0
 	}
 	return t.cursorPosition
+}
+
+// SelectedText returns the currently selected text portion.
+func (t *GTextInput) SelectedText() string {
+	if t == nil || !t.HasSelection() {
+		return ""
+	}
+	text := t.Text()
+	runes := []rune(text)
+	start, end := t.GetSelection()
+	if start < 0 {
+		start = 0
+	}
+	if end > len(runes) {
+		end = len(runes)
+	}
+	if start >= end {
+		return ""
+	}
+	return string(runes[start:end])
 }
 
 // SetSelection 设置选择区域。
@@ -689,32 +712,40 @@ func isControlChar(r rune) bool {
 func (t *GTextInput) handleShortcut(event laya.KeyboardEvent) bool {
 	switch event.Code {
 	case laya.KeyCodeA:
-		// Ctrl+A: 全选
 		t.SelectAll()
 		return true
 
 	case laya.KeyCodeC:
-		// Ctrl+C: 复制 (暂时只返回 true,实际复制需要剪贴板支持)
-		// TODO: 实现剪贴板复制
-		return t.HasSelection()
+		if t.HasSelection() {
+			selected := t.SelectedText()
+			if selected != "" {
+				internalClipboard = selected
+			}
+			return true
+		}
+		return false
 
 	case laya.KeyCodeX:
-		// Ctrl+X: 剪切
 		if t.HasSelection() {
-			// TODO: 复制到剪贴板
+			selected := t.SelectedText()
+			if selected != "" {
+				internalClipboard = selected
+			}
 			t.DeleteSelection()
 			return true
 		}
 		return false
 
 	case laya.KeyCodeV:
-		// Ctrl+V: 粘贴
-		// TODO: 从剪贴板粘贴
+		if internalClipboard != "" {
+			if t.HasSelection() {
+				t.DeleteSelection()
+			}
+			t.InsertText(internalClipboard)
+		}
 		return true
 
 	case laya.KeyCodeZ:
-		// Ctrl+Z: 撤销
-		// TODO: 实现撤销/重做
 		return true
 	}
 

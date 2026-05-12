@@ -317,6 +317,15 @@ func (r *renderedTextRun) slice(start, end int, letterSpacing float64) *rendered
 }
 
 func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextField, value string, alpha float64, width, height float64, atlas *AtlasManager, sprite *laya.Sprite) error {
+	return drawTextImageWithUBB(target, geo, field, value, alpha, width, height, atlas, sprite, false)
+}
+
+// drawPlaceholderImage renders text with forced UBB parsing (for placeholder/prompt text).
+func drawPlaceholderImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextField, value string, alpha float64, width, height float64, atlas *AtlasManager, sprite *laya.Sprite) error {
+	return drawTextImageWithUBB(target, geo, field, value, alpha, width, height, atlas, sprite, true)
+}
+
+func drawTextImageWithUBB(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextField, value string, alpha float64, width, height float64, atlas *AtlasManager, sprite *laya.Sprite, forceUBB bool) error {
 	var linkRegions []widgets.TextLinkRegion
 	if field != nil {
 		defer func() {
@@ -334,7 +343,7 @@ func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextFi
 
 	baseStyle, baseColor := deriveBaseStyle(field)
 	var segments []textutil.Segment
-	if field != nil && field.UBBEnabled() {
+	if field != nil && (field.UBBEnabled() || forceUBB) {
 		segments = textutil.ParseUBB(value, baseStyle)
 	} else {
 		segments = []textutil.Segment{{Text: value, Style: baseStyle}}
