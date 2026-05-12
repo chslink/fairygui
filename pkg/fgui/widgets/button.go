@@ -936,13 +936,8 @@ func (b *GButton) determineState() string {
 		if b.pressed && b.hasState(buttonStateDown) {
 			return buttonStateDown
 		}
-		if b.hovered {
-			if b.hasState(buttonStateSelectedOver) {
-				return buttonStateSelectedOver
-			}
-			if b.hasState(buttonStateOver) {
-				return buttonStateOver
-			}
+		if b.hovered && b.hasState(buttonStateSelectedOver) {
+			return buttonStateSelectedOver
 		}
 		if b.hasState(buttonStateDown) {
 			return buttonStateDown
