@@ -428,6 +428,10 @@ func (t *GTextField) attachLinkHandler() {
 	if sprite == nil {
 		return
 	}
+	// Enable mouse events for link text so clicks can reach the sprite
+	sprite.SetMouseThrough(false)
+	sprite.SetMouseEnabled(true)
+
 	handler := func(evt *laya.Event) {
 		pe, ok := evt.Data.(laya.PointerEvent)
 		if !ok {
@@ -452,6 +456,8 @@ func (t *GTextField) detachLinkHandler() {
 	if t.GObject != nil {
 		if sprite := t.GObject.DisplayObject(); sprite != nil {
 			sprite.Dispatcher().Off(laya.EventClick, t.linkHandler)
+			// Restore mouse-through when link handler is detached
+			sprite.SetMouseThrough(true)
 		}
 	}
 	t.linkHandler = nil

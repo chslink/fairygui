@@ -433,13 +433,14 @@ func drawTextImage(target *ebiten.Image, geo ebiten.GeoM, field *widgets.GTextFi
 		shadowColorStr = field.ShadowColor()
 		shadowOffXVal, shadowOffYVal = field.ShadowOffset()
 	}
-	cacheKey := fmt.Sprintf("text_%s_%s_%s_%d_%.0fx%.0f_%.1f_%.1f_%v_%v_%.1f_%s_%.1f_%s_%.1f_%.1f",
+	cacheKey := fmt.Sprintf("text_%s_%s_%s_%d_%.0fx%.0f_%.1f_%.1f_%v_%v_%.1f_%s_%.1f_%s_%.1f_%.1f_%v_%v",
 		value, baseStyle.Font, baseStyle.Color, baseStyle.FontSize,
 		finalWidth, finalHeight, letterSpacing, leading,
 		align, valign,
 		strokeSizeVal, strokeColorStr,
 		shadowOffXVal+shadowOffYVal, shadowColorStr,
-		paddingLeft+paddingRight, paddingTop+paddingBottom)
+		paddingLeft+paddingRight, paddingTop+paddingBottom,
+		baseStyle.Italic, baseStyle.Bold)
 
 	// 尝试从缓存获取
 	textImageCacheMu.RLock()
@@ -863,6 +864,21 @@ func computeTextPadding(field *widgets.GTextField, lines []*renderedTextLine) (l
 			bottom = math.Max(bottom, offY)
 		}
 	}
+	// Italic shear compensation: italic text extends left by ~shear*height pixels
+	if field.Italic() {
+		totalHeight := float64(0)
+		for _, line := range lines {
+			totalHeight += line.height
+		}
+		if totalHeight == 0 && len(lines) > 0 {
+			totalHeight = float64(field.FontSize()) * float64(len(lines))
+		}
+		// Shear is typically -0.25 (tan of ~14 degrees)
+		shear := 0.25
+		italicExtend := shear * totalHeight
+		left = math.Max(left, italicExtend)
+		right = math.Max(right, italicExtend)
+	}
 	return
 }
 
@@ -1251,7 +1267,7 @@ func renderTextWithStroke(dst *ebiten.Image, text string, fontFace font.Face, x,
 	// 计算描边偏移量和临时图像尺寸
 	// 直接使用 strokeSize 作为半径，避免 Ceil 导致描边过厚
 	strokeRadius := strokeSize
-	padding := int(math.Ceil(strokeRadius)) + 1
+	padding := int(math.Ceil(strokeRadius)) + 2
 	width, height := textv2.Measure(text, textFace, 0)
 	tempWidth := int(width) + padding*2
 	tempHeight := int(height) + padding*2

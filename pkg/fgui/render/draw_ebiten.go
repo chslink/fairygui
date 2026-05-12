@@ -575,7 +575,15 @@ func drawObject(target *ebiten.Image, obj *core.GObject, atlas *AtlasManager, pa
 			}
 		}
 	case *widgets.GTextInput:
-		if textValue := data.Text(); textValue != "" {
+		textValue := data.Text()
+		if textValue == "" {
+			// Render placeholder text when no user input
+			if prompt := data.PromptText(); prompt != "" {
+				if err := drawTextImage(target, combined, data.GTextField, prompt, alpha*0.5, obj.Width(), obj.Height(), atlas, sprite); err != nil {
+					return err
+				}
+			}
+		} else {
 			if err := drawTextImage(target, combined, data.GTextField, textValue, alpha, obj.Width(), obj.Height(), atlas, sprite); err != nil {
 				return err
 			}
