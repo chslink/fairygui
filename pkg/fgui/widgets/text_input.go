@@ -180,6 +180,14 @@ func InputChar(s string) {
 	}
 }
 
+// FocusedInput returns the currently focused GTextInput, or nil.
+func FocusedInput() *GTextInput {
+	if focusedInput != nil && focusedInput.focused {
+		return focusedInput
+	}
+	return nil
+}
+
 func (t *GTextInput) RequestFocus() {
 	if t == nil || !t.editable { return }
 	if focusedInput != nil && focusedInput != t { focusedInput.LoseFocus() }

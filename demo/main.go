@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/exp/textinput"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 
@@ -39,6 +40,7 @@ func main() {
 
 	ebiten.SetWindowSize(game.width, game.height)
 	ebiten.SetWindowTitle("FairyGUI Ebiten Demo")
+	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
@@ -54,6 +56,8 @@ type game struct {
 	lastUpdate time.Time
 	keysDown   map[ebiten.Key]bool
 	debug      *debug.Server
+	imeDone    bool
+	imeField   *textinput.Field
 }
 
 func newGame(ctx context.Context) (*game, error) {
@@ -106,12 +110,18 @@ func newGame(ctx context.Context) (*game, error) {
 		height:   manager.Height(),
 		keysDown: make(map[ebiten.Key]bool),
 		debug:    debugServer,
+		imeField: &textinput.Field{},
 	}, nil
 }
 
 func (g *game) Update() error {
 	if g.root == nil {
 		return nil
+	}
+
+	if !g.imeDone {
+		enableIME()
+		g.imeDone = true
 	}
 
 	now := time.Now()
@@ -127,13 +137,31 @@ func (g *game) Update() error {
 	}
 	g.root.AdvanceInput(delta, input)
 
+	// Toggle native IME mode based on text input focus state.
+	// We use textinput.Field only to enable/disable IME in Ebiten/GLFW;
+	// we do NOT call Field.HandleInput so that control keys are not consumed.
+	g.syncIMEField()
+
 	// Deliver typed characters (including IME) to the focused text input.
-	// ebiten.AppendInputChars handles IME composition natively on Windows.
 	for _, r := range ebiten.AppendInputChars(nil) {
 		widgets.InputChar(string(r))
 	}
 
 	return nil
+}
+
+func (g *game) syncIMEField() {
+	focused := widgets.FocusedInput()
+	if focused != nil {
+		if !g.imeField.IsFocused() {
+			g.imeField.SetTextAndSelection(focused.Text(), 0, len(focused.Text()))
+			g.imeField.Focus()
+		}
+	} else {
+		if g.imeField.IsFocused() {
+			g.imeField.Blur()
+		}
+	}
 }
 
 func (g *game) Draw(screen *ebiten.Image) {
