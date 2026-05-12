@@ -161,6 +161,7 @@ TS 原始模块 72 个，已完整实现 64 个（88.9%）。
 ## 已知限制
 
 - **IME 中文输入**：受 Ebiten 游戏引擎限制，当前不完全稳定。等待 Ebiten v2.10 `Composer` API 发布后彻底解决。详见 `docs/ime-status.md`。
+- **Demo_Grid 勾选框行 hover 高亮**：列表中带勾选框（GButton CheckMode）的行，点击后 hover 高亮失效。疑似子元素 CheckBox 拦截了 rollOver/rollOut 事件，需进一步排查 Laya 兼容层的事件冒泡机制。
 - `cmd/` 调试工具尚未迁移
 
 ## License
