@@ -636,75 +636,65 @@ func (c *GComboBox) ConstructExtension(buf *utils.ByteBuffer) error {
 
 	// 关键修复：像TypeScript版本一样，在constructExtension中创建dropdown
 	// TypeScript版本在第295-317行从buffer读取dropdown URL并创建组件
-	// 关键修复：如果Seek(0,6)失败（block 6不存在），使用applyComboBoxTemplate中设置的URL
 	if !buf.Seek(0, 6) {
-		// 回退：使用已有的dropdown URL（由applyComboBoxTemplate设置）
-		if c.dropdownURL == "" {
-			goto skipDropdown
-		}
-		if c.factory != nil {
-			dropdownItem := assets.GetItemByURL(c.dropdownURL)
-			if dropdownItem == nil {
-				goto skipDropdown
-			}
-			targetPkg := dropdownItem.Owner
-			if dropdownComp, err := c.factory.BuildComponent(context.Background(), targetPkg, dropdownItem); err == nil && dropdownComp != nil {
-				c.SetDropdownComponent(dropdownComp)
-				c.linkDropdownList(dropdownComp)
-			}
-		}
-		goto skipDropdown
 	} else {
 		dropdownURL := buf.ReadS()
 		if dropdownURL != nil && *dropdownURL != "" {
-			c.SetDropdownURL(*dropdownURL)
 			// 优先使用factory创建（TypeScript模式）
 			if c.factory != nil {
 				if item := assets.GetItemByURL(*dropdownURL); item != nil {
 					targetPkg := item.Owner
 					if dropdownComp, err := c.factory.BuildComponent(context.Background(), targetPkg, item); err == nil && dropdownComp != nil {
 						c.SetDropdownComponent(dropdownComp)
-						c.linkDropdownList(dropdownComp)
+
+						// 从dropdown中查找list
+						if listObj := dropdownComp.ChildByName("list"); listObj != nil {
+							if list, ok := listObj.Data().(*GList); ok {
+								c.SetList(list)
+
+								// TypeScript版本第308行：给list添加点击事件监听
+								// 监听list的StateChanged事件（当选择改变时触发）
+								list.GComponent.GObject.On(laya.EventStateChanged, func(evt *laya.Event) {
+									c.onListItemClick(evt)
+								})
+							}
+						}
+
+						// TypeScript版本第310-314行：设置dropdown和list之间的关系
+						if c.list != nil {
+							// list宽度跟随dropdown
+							c.list.GComponent.GObject.AddRelation(dropdownComp.GObject, core.RelationTypeWidth, false)
+							// list高度不跟随dropdown
+							c.list.GComponent.GObject.RemoveRelation(dropdownComp.GObject, core.RelationTypeHeight)
+
+							// dropdown高度跟随list
+							dropdownComp.GObject.AddRelation(c.list.GComponent.GObject, core.RelationTypeHeight, false)
+							// dropdown宽度不跟随list
+							dropdownComp.GObject.RemoveRelation(c.list.GComponent.GObject, core.RelationTypeWidth)
+						}
+
+						// TypeScript版本第316行：监听dropdown的UNDISPLAY事件
+						if disp := dropdownComp.DisplayObject(); disp != nil {
+							disp.Dispatcher().On(laya.EventUndisplay, func(evt *laya.Event) {
+								c.onPopupWinClosed(evt)
+							})
+						}
 					}
 				}
 			} else {
+				// 备用方案：保存信息，延迟创建
 				if item := assets.GetItemByURL(*dropdownURL); item != nil {
 					c.SetDropdownItem(item)
+					c.SetDropdownURL(*dropdownURL)
 				}
 			}
 		}
 	}
-skipDropdown:
 
 	// 绑定事件监听器（使用sync.Once确保只绑定一次）
 	c.bindEvents()
 
 	return nil
-}
-
-func (c *GComboBox) linkDropdownList(dropdownComp *core.GComponent) {
-	// 从dropdown中查找list
-	if listObj := dropdownComp.ChildByName("list"); listObj != nil {
-		if list, ok := listObj.Data().(*GList); ok {
-			c.SetList(list)
-			list.GComponent.GObject.On(laya.EventStateChanged, func(evt *laya.Event) {
-				c.onListItemClick(evt)
-			})
-		}
-	}
-	// 设置dropdown和list之间的关系
-	if c.list != nil {
-		c.list.GComponent.GObject.AddRelation(dropdownComp.GObject, core.RelationTypeWidth, false)
-		c.list.GComponent.GObject.RemoveRelation(dropdownComp.GObject, core.RelationTypeHeight)
-		dropdownComp.GObject.AddRelation(c.list.GComponent.GObject, core.RelationTypeHeight, false)
-		dropdownComp.GObject.RemoveRelation(c.list.GComponent.GObject, core.RelationTypeWidth)
-	}
-	// 监听dropdown的UNDISPLAY事件
-	if disp := dropdownComp.DisplayObject(); disp != nil {
-		disp.Dispatcher().On(laya.EventUndisplay, func(evt *laya.Event) {
-			c.onPopupWinClosed(evt)
-		})
-	}
 }
 
 func (c *GComboBox) bindEvents() {
