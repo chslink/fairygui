@@ -420,15 +420,56 @@ func (c *GComboBox) SetupAfterAdd(ctx *SetupContext, buf *utils.ByteBuffer) {
 	childType := ctx.Child.Type
 	if objType != childType {
 		if ctx.ResolvedItem != nil && objType == ctx.ResolvedItem.ObjectType {
+			// allow: component extension referencing specialised template
 		} else if childType != assets.ObjectTypeComponent {
 			return
 		}
 	}
-	c.readItemsFromBuffer(buf)
+
+	itemCount := int(buf.ReadInt16())
+	if itemCount < 0 {
+		itemCount = 0
+	}
+	items := make([]string, itemCount)
+	values := make([]string, itemCount)
+	icons := make([]string, itemCount)
+	haveIcons := false
+	for i := 0; i < itemCount; i++ {
+		if buf.Remaining() < 2 {
+			break
+		}
+		nextPos := int(buf.ReadInt16())
+		nextPos += buf.Pos()
+
+		if s := buf.ReadS(); s != nil {
+			items[i] = *s
+		}
+		if v := buf.ReadS(); v != nil {
+			values[i] = *v
+		}
+		if icon := buf.ReadS(); icon != nil && *icon != "" {
+			icons[i] = *icon
+			haveIcons = true
+		}
+
+		if nextPos >= 0 && nextPos <= buf.Len() {
+			_ = buf.SetPos(nextPos)
+		} else {
+			break
+		}
+	}
+	if !haveIcons {
+		icons = nil
+	}
+	c.items = items
+	c.values = values
+	c.icons = icons
+	c.itemsUpdated = true
+
 	if text := buf.ReadS(); text != nil {
 		c.SetText(*text)
-		c.selectedIndex = indexOfString(c.items, *text)
-	} else if len(c.items) > 0 {
+		c.selectedIndex = indexOfString(items, *text)
+	} else if len(items) > 0 {
 		c.selectedIndex = 0
 		c.applySelectionState()
 	} else {
@@ -634,60 +675,11 @@ func (c *GComboBox) ConstructExtension(buf *utils.ByteBuffer) error {
 		}
 	}
 skipDropdown:
-	// 从buffer读取items（如果Seek(0,6)成功）
-	if buf.Seek(0, 6) && buf.Remaining() > 0 {
-		c.readItemsFromBuffer(buf)
-	}
 
+	// 绑定事件监听器（使用sync.Once确保只绑定一次）
 	c.bindEvents()
 
 	return nil
-}
-
-// readItemsFromBuffer 从ByteBuffer读取combo box items（与SetupAfterAdd共用逻辑）
-func (c *GComboBox) readItemsFromBuffer(buf *utils.ByteBuffer) {
-	if buf.Remaining() <= 0 {
-		return
-	}
-	_ = buf.ReadByte() // skip object type
-	itemCount := int(buf.ReadInt16())
-	if itemCount < 0 || itemCount > 1000 {
-		return
-	}
-	items := make([]string, itemCount)
-	values := make([]string, itemCount)
-	icons := make([]string, itemCount)
-	haveIcons := false
-	for i := 0; i < itemCount; i++ {
-		if buf.Remaining() < 2 {
-			break
-		}
-		nextPos := int(buf.ReadInt16()) + buf.Pos()
-		if s := buf.ReadS(); s != nil {
-			items[i] = *s
-		}
-		if v := buf.ReadS(); v != nil {
-			values[i] = *v
-		}
-		if icon := buf.ReadS(); icon != nil && *icon != "" {
-			icons[i] = *icon
-			haveIcons = true
-		}
-		if nextPos >= 0 && nextPos <= buf.Len() {
-			_ = buf.SetPos(nextPos)
-		} else {
-			break
-		}
-	}
-	if !haveIcons {
-		icons = nil
-	}
-	if len(items) > 0 {
-		c.items = items
-		c.values = values
-		c.icons = icons
-		c.itemsUpdated = true
-	}
 }
 
 func (c *GComboBox) linkDropdownList(dropdownComp *core.GComponent) {
