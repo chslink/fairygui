@@ -820,15 +820,14 @@ func (c *GComboBox) showDropdown() {
 	if c.itemsUpdated {
 		c.itemsUpdated = false
 
-		// 清空列表
-		itemCount := c.list.NumItems()
-		for i := itemCount - 1; i >= 0; i-- {
-			c.list.RemoveItemAt(i)
-		}
-
-		// 添加项目
-		cnt := len(c.items)
-		for i := 0; i < cnt; i++ {
+		// 如果 c.items 为空，保留编辑器预建的列表项
+		if len(c.items) > 0 {
+			itemCount := c.list.NumItems()
+			for i := itemCount - 1; i >= 0; i-- {
+				c.list.RemoveItemAt(i)
+			}
+			cnt := len(c.items)
+			for i := 0; i < cnt; i++ {
 			// 直接使用默认item模板
 			defaultItem := c.list.DefaultItem()
 			if defaultItem == "" {
@@ -866,6 +865,7 @@ func (c *GComboBox) showDropdown() {
 			}
 			c.list.AddItem(item)
 		}
+		} // end if len(c.items) > 0
 	}
 
 	c.list.SetSelectedIndex(-1)
