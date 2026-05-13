@@ -161,7 +161,7 @@ TS 原始模块 72 个，已完整实现 64 个（88.9%）。
 ## 已知限制
 
 - **IME 中文输入**：受 Ebiten 游戏引擎限制，当前不完全稳定。等待 Ebiten v2.10 `Composer` API 发布后彻底解决。详见 `docs/ime-status.md`。
-- **Demo_ComboBox 下拉选项不渲染**：`ConstructExtension` 使用 `item.RawData` 读取 section 6，但 combo box 的 items 数据存储在父级 buffer 的子偏移位置（`childBuffer()` 生成的 SubBuffer）。`SetupAfterAdd` 正确使用了 SubBuffer，但 `ConstructExtension` 没有。需统一两者的数据源。
+- **Demo_ComboBox 下拉选项不渲染**：单元测试已通过（n1=8/n4=7/n5=7/n6=8 items），但 GUI 环境仍不显示下拉项。测试环境与 demo 加载路径不同（直接 BuildComponent vs buildNestedComponent+SetupAfterAdd+SubBuffer）。需排查 GUI 环境下的 combo box items 数据流。
 - **Demo_Grid 勾选框行 hover 高亮**：列表中带勾选框（GButton CheckMode）的行，点击后 hover 高亮失效。疑似子元素 CheckBox 拦截了 rollOver/rollOut 事件，需进一步排查 Laya 兼容层的事件冒泡机制。
 - `cmd/` 调试工具尚未迁移
 
